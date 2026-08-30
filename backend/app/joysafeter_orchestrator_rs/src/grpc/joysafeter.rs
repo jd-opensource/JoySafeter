@@ -325,6 +325,37 @@ pub struct SandboxFileResponse {
     pub size: u64,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
+pub struct McpToolSelector {
+    #[prost(string, tag = "1")]
+    pub server_name: ::prost::alloc::string::String,
+    #[prost(string, optional, tag = "2")]
+    pub tool_name: ::core::option::Option<::prost::alloc::string::String>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ToolRule {
+    #[prost(enumeration = "ToolDecision", tag = "1")]
+    pub decision: i32,
+    #[prost(oneof = "tool_rule::Selector", tags = "2, 3")]
+    pub selector: ::core::option::Option<tool_rule::Selector>,
+}
+/// Nested message and enum types in `ToolRule`.
+pub mod tool_rule {
+    #[derive(Clone, PartialEq, ::prost::Oneof)]
+    pub enum Selector {
+        #[prost(string, tag = "2")]
+        BuiltinName(::prost::alloc::string::String),
+        #[prost(message, tag = "3")]
+        Mcp(super::McpToolSelector),
+    }
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct ToolPolicy {
+    #[prost(enumeration = "ToolDecision", tag = "1")]
+    pub default_decision: i32,
+    #[prost(message, repeated, tag = "2")]
+    pub rules: ::prost::alloc::vec::Vec<ToolRule>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MemoryFileUpdate {
     #[prost(string, tag = "1")]
     pub store_mount_name: ::prost::alloc::string::String,
@@ -352,8 +383,6 @@ pub struct SetupSandbox {
         ::prost::alloc::string::String,
         ::prost::alloc::string::String,
     >,
-    #[prost(string, optional, tag = "8")]
-    pub permission_mode: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, tag = "9")]
     pub provider: ::prost::alloc::string::String,
     #[prost(string, optional, tag = "10")]
@@ -362,14 +391,10 @@ pub struct SetupSandbox {
     pub memory_system_prompt: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(message, repeated, tag = "12")]
     pub memory_mounts: ::prost::alloc::vec::Vec<MemoryStoreMount>,
-    #[prost(string, repeated, tag = "15")]
-    pub allowed_tools: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    #[prost(string, repeated, tag = "16")]
-    pub disallowed_tools: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    #[prost(string, repeated, tag = "17")]
-    pub ask_tools: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(message, repeated, tag = "18")]
     pub repos: ::prost::alloc::vec::Vec<RepoConfig>,
+    #[prost(message, optional, tag = "19")]
+    pub tool_policy: ::core::option::Option<ToolPolicy>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct MemoryStoreMount {
@@ -431,18 +456,10 @@ pub struct StartTask {
     pub work_dir: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(message, repeated, tag = "14")]
     pub skills: ::prost::alloc::vec::Vec<SkillArchive>,
-    #[prost(string, repeated, tag = "15")]
-    pub allowed_tools: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    #[prost(string, repeated, tag = "16")]
-    pub disallowed_tools: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
-    #[prost(string, optional, tag = "17")]
-    pub permission_mode: ::core::option::Option<::prost::alloc::string::String>,
     #[prost(string, repeated, tag = "18")]
     pub setup_commands: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     #[prost(message, repeated, tag = "19")]
     pub custom_tools: ::prost::alloc::vec::Vec<CustomTool>,
-    #[prost(string, repeated, tag = "20")]
-    pub ask_tools: ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
     /// "append" (default): --append-system-prompt (CC keeps its built-in prompt)
     /// "replace": --system-prompt (CC built-in prompt is replaced)
     #[prost(string, optional, tag = "21")]
@@ -451,6 +468,8 @@ pub struct StartTask {
     pub files: ::prost::alloc::vec::Vec<FileMount>,
     #[prost(message, repeated, tag = "23")]
     pub file_refs: ::prost::alloc::vec::Vec<FileRef>,
+    #[prost(message, optional, tag = "24")]
+    pub tool_policy: ::core::option::Option<ToolPolicy>,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct CustomTool {
@@ -541,6 +560,38 @@ pub struct SendInput {
 pub struct Shutdown {
     #[prost(string, tag = "1")]
     pub reason: ::prost::alloc::string::String,
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
+#[repr(i32)]
+pub enum ToolDecision {
+    Unspecified = 0,
+    Allow = 1,
+    Ask = 2,
+    Deny = 3,
+}
+impl ToolDecision {
+    /// String value of the enum field names used in the ProtoBuf definition.
+    ///
+    /// The values are not transformed in any way and thus are considered stable
+    /// (if the ProtoBuf definition does not change) and safe for programmatic use.
+    pub fn as_str_name(&self) -> &'static str {
+        match self {
+            Self::Unspecified => "TOOL_DECISION_UNSPECIFIED",
+            Self::Allow => "TOOL_DECISION_ALLOW",
+            Self::Ask => "TOOL_DECISION_ASK",
+            Self::Deny => "TOOL_DECISION_DENY",
+        }
+    }
+    /// Creates an enum from field names used in the ProtoBuf definition.
+    pub fn from_str_name(value: &str) -> ::core::option::Option<Self> {
+        match value {
+            "TOOL_DECISION_UNSPECIFIED" => Some(Self::Unspecified),
+            "TOOL_DECISION_ALLOW" => Some(Self::Allow),
+            "TOOL_DECISION_ASK" => Some(Self::Ask),
+            "TOOL_DECISION_DENY" => Some(Self::Deny),
+            _ => None,
+        }
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, ::prost::Enumeration)]
 #[repr(i32)]

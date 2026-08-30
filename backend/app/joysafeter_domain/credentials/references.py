@@ -737,7 +737,6 @@ def build_agent_execution_snapshot(
         "agents": agents,
         "commands": commands,
         "tools": agent.tools,
-        "permission_mode": agent.permission_mode,
         "multiagent": agent.multiagent,
         "environment_id": str(effective_environment_id) if effective_environment_id is not None else None,
         "model_credential_id": str(agent.model_credential_id) if agent.model_credential_id else None,

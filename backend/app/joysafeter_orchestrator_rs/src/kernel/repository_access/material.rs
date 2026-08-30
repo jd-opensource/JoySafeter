@@ -1,6 +1,13 @@
 use crate::kernel::credentials::error::CredentialRuntimeError;
 use crate::kernel::sensitive_material::versioned::VersionedMaterialProtector;
 
+pub trait RepositoryAccessMaterial: Send + Sync {
+    fn reveal_optional(
+        &self,
+        encrypted_material: &str,
+    ) -> Result<Option<String>, CredentialRuntimeError>;
+}
+
 #[derive(Clone)]
 pub struct RepositoryAccessMaterialAdapter {
     protector: VersionedMaterialProtector,
@@ -29,5 +36,14 @@ impl RepositoryAccessMaterialAdapter {
         } else {
             Ok(Some(material))
         }
+    }
+}
+
+impl RepositoryAccessMaterial for RepositoryAccessMaterialAdapter {
+    fn reveal_optional(
+        &self,
+        encrypted_material: &str,
+    ) -> Result<Option<String>, CredentialRuntimeError> {
+        RepositoryAccessMaterialAdapter::reveal_optional(self, encrypted_material)
     }
 }

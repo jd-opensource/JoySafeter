@@ -383,6 +383,77 @@ Bootstrap supervises `sandbox-idle-sweep` and `sandbox-provisioning-monitor` as 
 only for providers with egress management. The Controller neither holds `NetworkPolicyService` nor imports
 xDS types.
 
+#### Identity, credentials, tool policy, and harness projection
+
+These concerns cooperate during sandbox resolution and task dispatch, but they do not share one mutable
+"execution context" or a generic secret map. Each domain owns one authoritative decision and publishes a
+narrow typed result to the next boundary.
+
+| Capability | Owner | Authoritative input → output | Explicit dependencies | Failure owner / non-responsibilities |
+|---|---|---|---|---|
+| Human authentication and product authorization | Python API auth/RBAC | JWT/session + current org/project membership → authorized API command | PostgreSQL identity and membership state | Rejects the product request; never creates runtime credentials or xDS resources |
+| Task-scoped agent identity | `kernel/task_identity/{service,store,material,error}.rs` | task/project/session/agent scope + approved egress targets → validated `AgentIdentityInjection` | `TaskIdentityStore`, `TaskIdentityMaterial`, `AgentIdentityProvider` ports | Owns claim, decode, trusted-host/header validation, provider invocation, consume/release; no SQL, sandbox provider, network-policy mutation, or xDS access |
+| Task identity persistence | `db/task_identity_store.rs` | typed claim/complete/release commands → CAS-fenced PostgreSQL transitions | PostgreSQL only | Owns row locking, expiry and claim conflicts; does not decrypt or call identity providers |
+| Identity provider selection | `bootstrap/registry.rs` | validated provider kind → `Arc<dyn AgentIdentityProvider>` | registered `none` / feature-gated provider factory | Unknown or unavailable provider fails bootstrap; the registry is not available to business code |
+| Managed credential access | `kernel/credentials/access.rs` | project-scoped credential ID + purpose-bearing `CredentialAccessContext` → typed model/service/MCP material | credential store, material adapter, append-only audit writer | Owns scope/kind/purpose validation, minimal-field reveal, and access audit; does not decide sandbox lifecycle or publish policy |
+| Runtime credential projection | `kernel/credentials/runtime_projection/{environment,external_egress,git_egress,llm_egress,recovery}.rs` | validated typed material → sandbox env, narrow repository token, or Envoy credential routes | credential access and repository-material ports | Capability-focused projection plus recovery reconstruction; no provider construction, ADS session, or generation state |
+| Tool authorization policy | `kernel/tool_policy.rs` | immutable Agent `tools` snapshot → provider-neutral `Allow` / `Ask` / `Deny` rules | JSON value types only | Invalid or ambiguous policy fails closed; no protobuf or harness-specific command generation |
+| Tool-policy transport | `grpc/tool_policy.rs`, `proto/joysafeter.proto`, `sandbox-runner/.../tool_policy.rs` | kernel policy ↔ closed protobuf contract ↔ runner policy | transport types at the adapter edges only | Unknown enum values, missing policy, or blank selectors reject setup/task input |
+| Harness input projection | `kernel/harness_input_builder.rs` and focused child modules | task/session/agent snapshots → immutable `HarnessInput` | PostgreSQL reads, credential access, repository material, skill/session-resource handlers | Owns snapshot consistency and generation fencing; does not launch a harness, mutate sandbox lifecycle, or resolve task identity |
+| Harness-specific enforcement | `sandbox-runner/crates/joysafeter-runtime/` | validated runner `ToolPolicy` + `HarnessInput` → CLI config/runtime decisions | the selected `HarnessAdapter` only | Unsupported policy representation fails before execution; adapters may not weaken a decision silently |
+
+Task identity is deliberately separate from durable reusable credentials. Its lifecycle is:
+
+```text
+API capture → PostgreSQL captured
+  → TaskIdentityStore.claim_material (captured/expired resolving → resolving + 60s claim)
+  → TaskIdentityMaterial.reveal
+  → AgentIdentityProvider.resolve against explicit approved egress targets
+  → exact route/host/port/TLS validation
+  → network-policy identity-route merge
+  → complete_claim → issued + material erased
+```
+
+Provider failure, malformed material, or route mismatch releases the matching claim so a bounded retry may
+occur; a concurrent live claim returns `ClaimConflict`; expiry changes the row to `expired` and erases
+material; terminal task transitions change unresolved material to `discarded`. The captured identity token,
+auth code, and browser-header map are not copied into `ResolveContext` or sandbox environment. Only the
+provider-derived per-route injection headers enter the in-memory desired policy/xDS world; their debug and
+metric surfaces remain redacted, and refresh/teardown replaces or removes them. `sandbox_resolver/context.rs`
+consumes `TaskIdentityService`; it no longer owns or re-exports the identity implementation.
+
+Managed credentials follow a different, reusable flow:
+
+```text
+PostgreSQL encrypted credential + typed reference
+  → CredentialMaterialAccessService scope/kind/purpose validation
+  → selected-field reveal + append-only audit
+  → one of: sandbox environment | Envoy credential route | clone-only repository token
+  → HarnessInput / DesiredNetworkPolicy
+```
+
+The destination determines the exposure boundary. Limited-network model/MCP credentials remain in Envoy;
+unrestricted-network model/service values are projected only into the sandbox creation environment;
+repository material is exposed only through `HarnessRepository`/`RepoConfig.authorization_token` for clone;
+the gRPC schema permanently reserves removed generic secret fields. Runtime image entrypoints convert the
+purpose-specific Runner and egress proxy environment values into mode-`0600` files and unset the inline
+variables before launching the Runner.
+
+Tool policy has one semantic source and two adapter layers. The orchestrator compiles the immutable Agent
+snapshot into a provider-neutral policy, `grpc/tool_policy.rs` only serializes it, the Runner rejects a
+missing/unknown wire policy, and each harness adapter maps the same decisions to its native mechanism.
+Claude/native render permission mode plus explicit project rules; Codex evaluates runtime tool calls; Pi
+accepts only an unconditionally-allow policy and otherwise fails explicitly. Legacy `permission_mode`,
+`allowed_tools`, `disallowed_tools`, and `ask_tools` protobuf fields are reserved and cannot become a second
+authorization model.
+
+`HarnessInputBuilder` provides the final consistency barrier. It reads immutable execution snapshots,
+materializes skills, session files, memory mounts, repositories, MCP declarations, model/environment data,
+and tool policy, then re-reads the session/sandbox generation fence before returning. A changed generation,
+ownership mismatch, inactive session, or non-ready runtime fails the build; partially assembled input is
+never sent. Child handlers may return values but do not share mutable state outside the request-local
+`HarnessInput`.
+
 #### Runner application capabilities
 
 `RunnerSessionCoordinator` owns only authentication, handshake, bridge displacement/registration, and
@@ -392,6 +463,16 @@ inputs through the coordinator and do not share request-scoped mutable context. 
 to `grpc/transport.rs`; authentication/connection failures belong to the coordinator; task/event/artifact
 failures belong to execution; reconnect classification and orphan recovery belong to recovery; disconnect
 state release belongs to cleanup.
+
+Runner authentication has its own durable lifecycle and is not task identity or product RBAC. Provisioning
+generates a random purpose-specific token, persists only its SHA-256 digest, expiry, and `admission` state
+before creating the runtime, and passes the raw token only at the provider boundary. Successful provider
+activation CAS-transitions the row to `active` and removes the admission expiry. `RunnerAuthenticator`
+loads the authoritative row through `RunnerAuthStore`, checks sandbox availability and state, compares the
+presented token digest in constant time, then atomically clears `disconnected_at`/updates `last_used_at` only
+if the row is unchanged. Stop, destroy, error, and failed-provisioning paths move the row to `revoked` and
+erase the digest. The raw token is materialized as a mode-`0600` file by the runtime entrypoint and is never
+stored in sandbox JSON configuration.
 
 #### Network-policy domain and application flow
 
@@ -526,7 +607,7 @@ gRPC stream carries execution, not scheduling.
 
 | Message | Meaning |
 |---|---|
-| `RunnerReady` | First message; carries `sandbox_id`, `runner_token` (HMAC-verified), available providers, reconnect state |
+| `RunnerReady` | First message; carries the physical sandbox UUID, purpose-specific `runner_token` (constant-time SHA-256 digest verification), available providers, reconnect state |
 | `RunnerHarnessEvent` | The live event stream (see below) |
 | `RunnerHarnessResult` | Terminal result: `status`, `output`, `error`, `TokenUsage` (with per-model breakdown), `duration_ms` |
 | `RunnerHeartbeat` | Liveness (also, any message resets the heartbeat deadline; 120s timeout) |
@@ -949,10 +1030,17 @@ backend/app/
 │   ├── app.py / main.py       #   app assembly + entrypoint
 │   └── startup.py             #   wires SessionBroadcaster
 ├── joysafeter_orchestrator_rs/ # Rust orchestrator service
+│   ├── src/bootstrap/         #   composition root, provider registry/factories, supervision
 │   ├── src/grpc/              #   AgentBridge server (+ generated proto)
-│   ├── src/kernel/            #   scheduler, controllers, sandbox resolver/bridge, coordinator, queue
+│   ├── src/kernel/task_identity/ # task identity claim/material/provider orchestration
+│   ├── src/kernel/credentials/ #  credential access, audit, typed runtime projections
+│   ├── src/kernel/network_policy/ # desired policy, generations, reconcile/recovery ports
+│   ├── src/kernel/harness_input_builder/ # generation-fenced skills/resources/history handlers
+│   ├── src/kernel/runner/     #   authenticated session plus setup/execution/recovery/cleanup flows
+│   ├── src/kernel/            #   scheduler, controllers, bridge, coordinator, queue, tool policy
+│   ├── src/xds/               #   authority FSM, inventory, ownership, delivery, ADS, metrics
 │   ├── src/runtime/           #   HarnessAdapter SPI + adapters
-│   ├── src/sandbox/           #   Docker/E2B/Daytona providers, Envoy manager, image builder
+│   ├── src/sandbox/           #   Docker/K8s/E2B/Daytona facts and Envoy adapters/renderers
 │   ├── src/events/            #   event bus + stream/realtime subscribers
 │   ├── src/main.rs            #   boot/shutdown wiring
 │   └── Cargo.toml             #   Rust crate manifest

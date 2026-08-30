@@ -377,7 +377,7 @@ impl SandboxProvider for DockerProvider {
             sandbox_uuid.to_string(),
         );
 
-        let mut env_map = config.env.clone();
+        let mut env_map = config.provider_environment();
         let mut binds = Vec::new();
         let mut mounts = Vec::new();
 

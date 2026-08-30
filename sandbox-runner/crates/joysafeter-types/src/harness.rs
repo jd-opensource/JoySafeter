@@ -9,6 +9,14 @@ use tokio::process::Child;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::token_usage::TokenUsage;
+use crate::tool_policy::ToolPolicy;
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CustomToolDefinition {
+    pub name: String,
+    pub description: String,
+    pub input_schema: serde_json::Value,
+}
 
 #[derive(Debug, Error)]
 pub enum HarnessError {
@@ -24,6 +32,14 @@ pub enum HarnessError {
     Io(#[from] std::io::Error),
     #[error("send input is not supported by this adapter")]
     UnsupportedInput,
+    #[error("tool policy is unsupported by {provider}: {reason}")]
+    UnsupportedToolPolicy { provider: String, reason: String },
+    #[error("capability {capability} is unsupported by {provider}: {reason}")]
+    UnsupportedCapability {
+        provider: String,
+        capability: String,
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -37,14 +53,9 @@ pub struct HarnessInput {
     pub max_turns: Option<u32>,
     pub timeout: Duration,
     pub env: HashMap<String, String>,
-    pub secrets: HashMap<String, String>,
     pub mcp_configs: Vec<crate::agent::McpServerConfig>,
-    pub permission_mode: String,
-    /// Tool permission rules (Claude Code settings.json permissions).
-    /// Official Managed Agents model: allow + ask only (no deny).
-    /// allowed -> permissions.allow, ask -> permissions.ask.
-    pub allowed_tools: Vec<String>,
-    pub ask_tools: Vec<String>,
+    pub custom_tools: Vec<CustomToolDefinition>,
+    pub tool_policy: ToolPolicy,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

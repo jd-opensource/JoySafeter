@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use chrono::{Duration, Utc};
 use sqlx::PgPool;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -12,8 +13,11 @@ use crate::db::queries;
 use crate::ids::{SandboxId, SessionId, TaskId};
 use crate::kernel::network_policy::envoy_model::SandboxCredentials;
 use crate::kernel::network_policy::DesiredNetworkPolicy;
+use crate::kernel::runtime_auth::runner_token_digest;
 use crate::kernel::runtime_freshness::RuntimeFreshnessError;
-use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider, SandboxStatus};
+use crate::sandbox::provider::{
+    SandboxCreateConfig, SandboxProvider, SandboxRuntimeCredentials, SandboxStatus,
+};
 
 use super::model::{ExpectedFingerprint, ResolveContext, ResolvedSandbox};
 use super::networking::{SandboxNetworkingService, TaskIdentityNetworkLease};
@@ -21,6 +25,7 @@ use super::runtime_plan::{
     apply_claude_code_sandbox_privacy, apply_sandbox_timezone, generate_runner_token,
     provisioning_config,
 };
+use super::SandboxLifecycleService;
 
 #[async_trait]
 pub(crate) trait PoolSandboxProvisioner: Send + Sync {
@@ -33,6 +38,7 @@ pub struct SandboxPoolService {
     provider: Arc<dyn SandboxProvider>,
     config: JoySafeterConfig,
     networking: SandboxNetworkingService,
+    lifecycle: SandboxLifecycleService,
     replenish_notify: Option<Arc<tokio::sync::Notify>>,
 }
 
@@ -42,12 +48,14 @@ impl SandboxPoolService {
         provider: Arc<dyn SandboxProvider>,
         config: JoySafeterConfig,
         networking: SandboxNetworkingService,
+        lifecycle: SandboxLifecycleService,
     ) -> Self {
         Self {
             pool,
             provider,
             config,
             networking,
+            lifecycle,
             replenish_notify: None,
         }
     }
@@ -430,7 +438,12 @@ impl SandboxPoolService {
 impl PoolSandboxProvisioner for SandboxPoolService {
     async fn provision(&self, image: &str) -> anyhow::Result<SandboxId> {
         let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
-        let runner_token = generate_runner_token();
+        let runner_session_token = generate_runner_token();
+        let runner_token_digest = runner_token_digest(&runner_session_token);
+        let egress_proxy_token = generate_runner_token();
+        let admission_ttl = i64::try_from(self.config.runner_admission_ttl_seconds)
+            .map_err(|_| anyhow::anyhow!("runner admission TTL exceeds supported duration"))?;
+        let runner_auth_expires_at = Utc::now() + Duration::seconds(admission_ttl);
 
         let mut env = HashMap::new();
         apply_sandbox_timezone(&mut env, &self.config.sandbox_timezone);
@@ -438,7 +451,6 @@ impl PoolSandboxProvisioner for SandboxPoolService {
             "JOYSAFETER_SANDBOX_ID".to_string(),
             sandbox_id.as_uuid().to_string(),
         );
-        env.insert("JOYSAFETER_RUNNER_TOKEN".to_string(), runner_token.clone());
         apply_claude_code_sandbox_privacy(&mut env);
         if !self.config.sandbox_timezone.trim().is_empty() {
             env.insert("TZ".to_string(), self.config.sandbox_timezone.clone());
@@ -453,6 +465,10 @@ impl PoolSandboxProvisioner for SandboxPoolService {
             sandbox_id,
             image: image.to_string(),
             env,
+            runtime_credentials: SandboxRuntimeCredentials::new(
+                runner_session_token,
+                egress_proxy_token.clone(),
+            ),
             labels: [
                 ("joysafeter".to_string(), "true".to_string()),
                 ("joysafeter.managed".to_string(), "true".to_string()),
@@ -483,11 +499,12 @@ impl PoolSandboxProvisioner for SandboxPoolService {
             mounts: vec![],
         };
 
+        let fingerprint_env = create_config.env.clone();
         let expected = ExpectedFingerprint {
             image: image.to_string(),
             engine_kind,
             networking: None,
-            env: create_config.env.clone(),
+            env: fingerprint_env,
             mounts: vec![],
             egress_policy_hash: DesiredNetworkPolicy::from_inputs(
                 None,
@@ -497,33 +514,71 @@ impl PoolSandboxProvisioner for SandboxPoolService {
             .revision()
             .to_string(),
         };
+        let admission_config = provisioning_config(
+            "runner_admission",
+            10,
+            "Runner admission staged before provider creation",
+            false,
+            &expected,
+            Some(&egress_proxy_token),
+        );
         let sandbox_config = provisioning_config(
             "pool_warm",
             100,
             "Warm pooled sandbox ready for claim",
             true,
             &expected,
-            Some(&runner_token),
+            Some(&egress_proxy_token),
         );
 
-        let external_id = self.provider.create(&create_config).await?;
-        let db_result = queries::create_sandbox(
+        queries::stage_sandbox(
             &self.pool,
             sandbox_id,
-            &external_id,
             self.config.sandbox_provider.as_str(),
             image,
             None,
             None,
             create_config.workspace_path.as_deref(),
-            Some(&sandbox_config),
+            Some(&admission_config),
+            &runner_token_digest,
+            runner_auth_expires_at,
+            None,
         )
-        .await;
+        .await?;
 
-        if let Err(error) = db_result {
-            warn!(sandbox_id = %sandbox_id, "DB insert failed for pool sandbox, destroying container");
-            let _ = self.provider.destroy(&external_id).await;
-            return Err(error.into());
+        let external_id = match self.provider.create(&create_config).await {
+            Ok(external_id) => external_id,
+            Err(error) => {
+                self.lifecycle
+                    .cleanup_staged_create(sandbox_id, None)
+                    .await?;
+                return Err(error);
+            }
+        };
+        match queries::activate_staged_sandbox(
+            &self.pool,
+            sandbox_id,
+            &external_id,
+            &sandbox_config,
+            None,
+            None,
+            None,
+        )
+        .await
+        {
+            Ok(true) => {}
+            Ok(false) => {
+                self.lifecycle
+                    .cleanup_staged_create(sandbox_id, Some(&external_id))
+                    .await?;
+                anyhow::bail!("pool sandbox {sandbox_id} admission expired before activation");
+            }
+            Err(error) => {
+                self.lifecycle
+                    .cleanup_staged_create(sandbox_id, Some(&external_id))
+                    .await?;
+                return Err(error.into());
+            }
         }
 
         if !queries::mark_pool_sandbox_ready(&self.pool, sandbox_id).await? {

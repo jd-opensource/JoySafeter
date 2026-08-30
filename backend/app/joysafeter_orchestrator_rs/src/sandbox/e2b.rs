@@ -87,7 +87,8 @@ impl SandboxProvider for E2bProvider {
     }
 
     async fn create(&self, config: &SandboxCreateConfig) -> anyhow::Result<String> {
-        let body = build_create_body(&self.template_id, config.sandbox_id, &config.env);
+        let env = config.provider_environment();
+        let body = build_create_body(&self.template_id, config.sandbox_id, &env);
 
         let resp = self
             .client

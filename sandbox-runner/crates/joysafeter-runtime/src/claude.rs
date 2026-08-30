@@ -69,25 +69,20 @@ impl ClaudeAdapter {
     fn compute_fingerprint(input: &HarnessInput) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         input.model.hash(&mut hasher);
-        input.permission_mode.hash(&mut hasher);
+        input.tool_policy.hash(&mut hasher);
         input.system_prompt.hash(&mut hasher);
         input.system_prompt_mode.hash(&mut hasher);
         serde_json::to_string(&input.mcp_configs)
             .expect("MCP configs must serialize for process fingerprint")
             .hash(&mut hasher);
-        input.allowed_tools.hash(&mut hasher);
-        input.ask_tools.hash(&mut hasher);
+        serde_json::to_string(&input.custom_tools)
+            .expect("custom tools must serialize for process fingerprint")
+            .hash(&mut hasher);
         let mut env_keys: Vec<_> = input.env.keys().collect();
         env_keys.sort();
         for k in &env_keys {
             k.hash(&mut hasher);
             input.env[*k].hash(&mut hasher);
-        }
-        let mut secret_keys: Vec<_> = input.secrets.keys().collect();
-        secret_keys.sort();
-        for k in &secret_keys {
-            k.hash(&mut hasher);
-            input.secrets[*k].hash(&mut hasher);
         }
         hasher.finish()
     }
@@ -127,6 +122,8 @@ impl ClaudeAdapter {
         }
 
         let resume_harness_session_id = input.harness_session_id.clone();
+        let permission_mode =
+            crate::tool_policy::claude_permission_mode("claude", &input.tool_policy)?;
 
         let mut args = vec![
             "-p".to_string(),
@@ -136,7 +133,7 @@ impl ClaudeAdapter {
             "stream-json".to_string(),
             "--verbose".to_string(),
             "--permission-mode".to_string(),
-            input.permission_mode.clone(),
+            permission_mode.to_string(),
             "--permission-prompt-tool".to_string(),
             "stdio".to_string(),
         ];
@@ -186,9 +183,6 @@ impl ClaudeAdapter {
             .stderr(std::process::Stdio::piped());
 
         for (k, v) in &input.env {
-            cmd.env(k, v);
-        }
-        for (k, v) in &input.secrets {
             cmd.env(k, v);
         }
         // JoySafeter controls sandbox egress. Claude Code family runtimes must not
@@ -272,6 +266,13 @@ impl Drop for ClaudeAdapter {
 #[async_trait]
 impl HarnessAdapter for ClaudeAdapter {
     async fn start(&self, input: HarnessInput, cwd: &Path) -> Result<RunningHarness, HarnessError> {
+        crate::claude_project_config::prepare_claude_project_config(
+            cwd,
+            &input.mcp_configs,
+            &input.custom_tools,
+            &input.tool_policy,
+        )
+        .await?;
         self.ensure_session(&input, cwd).await?;
 
         let start = Instant::now();
@@ -1010,6 +1011,11 @@ async fn persistent_claude_reader(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use joysafeter_types::tool_policy::{ToolDecision, ToolPolicy, ToolRule};
+
+    fn allow_policy() -> ToolPolicy {
+        ToolPolicy::new(ToolDecision::Allow, vec![]).expect("valid allow policy")
+    }
 
     #[test]
     fn result_error_message_uses_sdk_error_payload() {
@@ -1086,11 +1092,9 @@ mod tests {
             max_turns: Some(10),
             timeout: Duration::from_secs(60),
             env: HashMap::from([("A".into(), "1".into())]),
-            secrets: HashMap::new(),
             mcp_configs: vec![],
-            permission_mode: "bypassPermissions".into(),
-            allowed_tools: vec![],
-            ask_tools: vec![],
+            custom_tools: vec![],
+            tool_policy: allow_policy(),
         };
         let fp1 = ClaudeAdapter::compute_fingerprint(&input);
         let fp2 = ClaudeAdapter::compute_fingerprint(&input);
@@ -1108,11 +1112,9 @@ mod tests {
             max_turns: Some(5),
             timeout: Duration::from_secs(30),
             env: HashMap::new(),
-            secrets: HashMap::new(),
             mcp_configs: vec![],
-            permission_mode: "bypassPermissions".into(),
-            allowed_tools: vec![],
-            ask_tools: vec![],
+            custom_tools: vec![],
+            tool_policy: allow_policy(),
         };
         let input2 = HarnessInput {
             prompt: "different prompt".into(),
@@ -1123,11 +1125,9 @@ mod tests {
             max_turns: Some(100),
             timeout: Duration::from_secs(999),
             env: HashMap::new(),
-            secrets: HashMap::new(),
             mcp_configs: vec![],
-            permission_mode: "bypassPermissions".into(),
-            allowed_tools: vec![],
-            ask_tools: vec![],
+            custom_tools: vec![],
+            tool_policy: allow_policy(),
         };
         assert_eq!(
             ClaudeAdapter::compute_fingerprint(&input1),
@@ -1146,11 +1146,9 @@ mod tests {
             max_turns: None,
             timeout: Duration::from_secs(60),
             env: HashMap::new(),
-            secrets: HashMap::new(),
             mcp_configs: vec![],
-            permission_mode: "bypassPermissions".into(),
-            allowed_tools: vec![],
-            ask_tools: vec![],
+            custom_tools: vec![],
+            tool_policy: allow_policy(),
         };
         let input2 = HarnessInput {
             model: Some("sonnet".into()),
@@ -1173,18 +1171,28 @@ mod tests {
             max_turns: None,
             timeout: Duration::from_secs(60),
             env: HashMap::new(),
-            secrets: HashMap::new(),
             mcp_configs: vec![],
-            permission_mode: "bypassPermissions".into(),
-            allowed_tools: vec!["Read".into()],
-            ask_tools: vec![],
+            custom_tools: vec![],
+            tool_policy: ToolPolicy::new(
+                ToolDecision::Allow,
+                vec![ToolRule::builtin("Read", ToolDecision::Allow).expect("valid rule")],
+            )
+            .expect("valid policy"),
         };
         let input2 = HarnessInput {
             mcp_configs: vec![joysafeter_types::agent::McpServerConfig::StreamableHttp {
                 name: "legal-knowledge".into(),
                 url: "https://ai-legal-test.jd.com/legal-mcp/mcp".into(),
             }],
-            allowed_tools: vec!["Read".into(), "mcp__legal-knowledge__*".into()],
+            tool_policy: ToolPolicy::new(
+                ToolDecision::Allow,
+                vec![
+                    ToolRule::builtin("Read", ToolDecision::Allow).expect("valid rule"),
+                    ToolRule::mcp_server("legal-knowledge", ToolDecision::Allow)
+                        .expect("valid rule"),
+                ],
+            )
+            .expect("valid policy"),
             ..input1.clone()
         };
         assert_ne!(

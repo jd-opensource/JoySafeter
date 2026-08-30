@@ -42,6 +42,7 @@ const GENERATION_CHANGE_IMMEDIATE_RETRIES: usize = 2;
 /// disconnected from the spawned loop. The loop runs until process exit.
 pub(crate) fn spawn_scheduler(
     pool: PgPool,
+    credential_store: CredentialStore,
     queue: TaskQueue,
     bridge_store: Arc<dyn BridgeStore>,
     task_dispatcher: Arc<dyn crate::kernel::ha::TaskDispatcher>,
@@ -138,6 +139,7 @@ pub(crate) fn spawn_scheduler(
             for task in tasks {
                 let pool = pool.clone();
                 let queue = queue.clone();
+                let credential_store = credential_store.clone();
                 let bridge_store = bridge_store.clone();
                 let task_dispatcher = task_dispatcher.clone();
                 let config = config.clone();
@@ -163,6 +165,7 @@ pub(crate) fn spawn_scheduler(
                         Duration::from_secs(120),
                         schedule_single_task(
                             &resolver_pool,
+                            &credential_store,
                             &queue,
                             &*bridge_store,
                             &*task_dispatcher,
@@ -205,6 +208,7 @@ pub(crate) fn spawn_scheduler(
 /// resolve environment/image, resolve sandbox, attach, enqueue.
 async fn schedule_single_task(
     pool: &PgPool,
+    credential_store: &CredentialStore,
     queue: &TaskQueue,
     bridge_store: &dyn BridgeStore,
     task_dispatcher: &dyn crate::kernel::ha::TaskDispatcher,
@@ -268,10 +272,9 @@ async fn schedule_single_task(
     if session_id.is_none() {
         let project_id =
             project_id.ok_or_else(|| anyhow::anyhow!("scheduler task project is required"))?;
-        let credential_store = CredentialStore::new(pool.clone());
         let Some(new_session) = snapshot::create_scheduler_session(
             pool,
-            &credential_store,
+            credential_store,
             snapshot::SchedulerSnapshotCommand {
                 task_id,
                 agent_id: agent.id,
@@ -727,13 +730,13 @@ mod tests {
             r#"
             INSERT INTO joysafeter_agents (
                 id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                skills, tools, agents, commands, permission_mode, metadata,
+                skills, tools, agents, commands, metadata,
                 multiagent, version
             )
             VALUES (
                 $1, $2, 'claude', $3, 'scheduler failure system', '{}'::jsonb, '[]'::jsonb,
                 '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                'bypassPermissions', '{}'::jsonb, NULL, 1
+                '{}'::jsonb, NULL, 1
             )
             "#,
         )
@@ -1047,8 +1050,10 @@ mod tests {
         let result = async {
             let (queue, bridge_store, task_dispatcher, config, resolver) =
                 scheduler_noop_runtime(&pool).await;
+            let credential_store = CredentialStore::new(pool.clone());
             schedule_single_task(
                 &pool,
+                &credential_store,
                 &queue,
                 &*bridge_store,
                 &*task_dispatcher,
@@ -1435,10 +1440,12 @@ mod tests {
                 .await;
         let (queue, bridge_store, task_dispatcher, config, resolver) =
             scheduler_noop_runtime(&pool).await;
+        let credential_store = CredentialStore::new(pool.clone());
 
         let result = async {
             schedule_single_task(
                 &pool,
+                &credential_store,
                 &queue,
                 &*bridge_store,
                 &*task_dispatcher,
@@ -1499,10 +1506,12 @@ mod tests {
                 .await;
         let (queue, bridge_store, task_dispatcher, config, resolver) =
             scheduler_noop_runtime(&pool).await;
+        let credential_store = CredentialStore::new(pool.clone());
 
         let result = async {
             schedule_single_task(
                 &pool,
+                &credential_store,
                 &queue,
                 &*bridge_store,
                 &*task_dispatcher,
@@ -1574,13 +1583,13 @@ mod tests {
                 r#"
                 INSERT INTO joysafeter_agents (
                     id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                    skills, tools, agents, commands, permission_mode, metadata,
+                    skills, tools, agents, commands, metadata,
                     multiagent, version, environment_id
                 )
                 VALUES (
                     $1, $2, 'claude', $3, 'scheduler snapshot system', $4, $5,
                     '[]'::jsonb, $6, '[]'::jsonb, '[]'::jsonb,
-                    'bypassPermissions', '{}'::jsonb, NULL, 3, $7
+                    '{}'::jsonb, NULL, 3, $7
                 )
                 "#,
             )

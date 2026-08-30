@@ -163,6 +163,31 @@ message SandboxFileResponse {
   uint64 size = 12;
 }
 
+enum ToolDecision {
+  TOOL_DECISION_UNSPECIFIED = 0;
+  TOOL_DECISION_ALLOW = 1;
+  TOOL_DECISION_ASK = 2;
+  TOOL_DECISION_DENY = 3;
+}
+
+message McpToolSelector {
+  string server_name = 1;
+  optional string tool_name = 2;
+}
+
+message ToolRule {
+  ToolDecision decision = 1;
+  oneof selector {
+    string builtin_name = 2;
+    McpToolSelector mcp = 3;
+  }
+}
+
+message ToolPolicy {
+  ToolDecision default_decision = 1;
+  repeated ToolRule rules = 2;
+}
+
 message MemoryFileUpdate {
   string store_mount_name = 1;
   string relative_path = 2;
@@ -171,24 +196,21 @@ message MemoryFileUpdate {
 }
 
 message SetupSandbox {
-  reserved 7;
-  reserved 13 to 14;
-  reserved "secrets", "files", "file_refs";
+  reserved 7 to 8;
+  reserved 13 to 17;
+  reserved "secrets", "files", "file_refs", "permission_mode", "allowed_tools", "disallowed_tools", "ask_tools";
   repeated SkillArchive skills = 1;
   repeated McpConfig mcp_servers = 2;
   repeated CustomTool custom_tools = 3;
   repeated string setup_commands = 4;
   optional string work_dir = 5;
   map<string, string> env = 6;
-  optional string permission_mode = 8;
   string provider = 9;
   optional string model = 10;
   optional string memory_system_prompt = 11;
   repeated MemoryStoreMount memory_mounts = 12;
-  repeated string allowed_tools = 15;
-  repeated string disallowed_tools = 16;
-  repeated string ask_tools = 17;
   repeated RepoConfig repos = 18;
+  ToolPolicy tool_policy = 19;
 }
 
 message MemoryStoreMount {
@@ -213,8 +235,8 @@ message MemoryFileSync {
 }
 
 message StartTask {
-  reserved 10;
-  reserved "secrets";
+  reserved 10, 15 to 17, 20;
+  reserved "secrets", "allowed_tools", "disallowed_tools", "permission_mode", "ask_tools";
   string task_id = 1;
   string provider = 2;
   string prompt = 3;
@@ -228,17 +250,14 @@ message StartTask {
   repeated RepoConfig repos = 12;
   optional string work_dir = 13;
   repeated SkillArchive skills = 14;
-  repeated string allowed_tools = 15;
-  repeated string disallowed_tools = 16;
-  optional string permission_mode = 17;
   repeated string setup_commands = 18;
   repeated CustomTool custom_tools = 19;
-  repeated string ask_tools = 20;
   // "append" (default): --append-system-prompt (CC keeps its built-in prompt)
   // "replace": --system-prompt (CC built-in prompt is replaced)
   optional string system_prompt_mode = 21;
   repeated FileMount files = 22;
   repeated FileRef file_refs = 23;
+  ToolPolicy tool_policy = 24;
 }
 
 message CustomTool {

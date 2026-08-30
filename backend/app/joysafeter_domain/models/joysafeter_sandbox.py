@@ -43,6 +43,22 @@ class JoySafeterSandbox(JoySafeterModel):
             "runtime_config_status IN ('ready', 'restart_required')",
             name="ck_joysafeter_sandboxes_runtime_config_status",
         ),
+        CheckConstraint(
+            "runner_auth_state IN ('admission', 'active', 'revoked')",
+            name="ck_sandbox_runner_auth_state",
+        ),
+        CheckConstraint(
+            "(runner_auth_state = 'admission' "
+            "AND runner_token_digest ~ '^[0-9a-f]{64}$' "
+            "AND runner_auth_expires_at IS NOT NULL) OR "
+            "(runner_auth_state = 'active' "
+            "AND runner_token_digest ~ '^[0-9a-f]{64}$' "
+            "AND runner_auth_expires_at IS NULL) OR "
+            "(runner_auth_state = 'revoked' "
+            "AND runner_token_digest IS NULL "
+            "AND runner_auth_expires_at IS NULL)",
+            name="ck_sandbox_runner_auth_shape",
+        ),
         Index("idx_csb_status", "status"),
         Index(
             "idx_csb_pool",
@@ -60,6 +76,7 @@ class JoySafeterSandbox(JoySafeterModel):
             unique=True,
             postgresql_where=(
                 "chat_session_id IS NOT NULL AND destroyed_at IS NULL AND "
+                "runner_auth_state <> 'revoked' AND "
                 "status IN ('creating', 'provisioning', 'idle', 'running', "
                 "'stopped', 'error')"
             ),
@@ -83,6 +100,9 @@ class JoySafeterSandbox(JoySafeterModel):
     provider: Mapped[str] = mapped_column(Text, nullable=False, default="docker")
     status: Mapped[str] = mapped_column(Text, nullable=False, default="creating")
     config: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+    runner_auth_state: Mapped[str] = mapped_column(Text, nullable=False, server_default="revoked")
+    runner_token_digest: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    runner_auth_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     chat_session_id: Mapped[Optional[SessionId]] = mapped_column(EntityIdType(SessionId), nullable=True)
     image: Mapped[str] = mapped_column(Text, nullable=False)
     last_task_id: Mapped[Optional[TaskId]] = mapped_column(EntityIdType(TaskId), nullable=True)

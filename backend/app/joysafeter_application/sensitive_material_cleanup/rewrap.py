@@ -144,6 +144,7 @@ async def _rewrap_task_identities(
             await db.execute(
                 select(JoySafeterTaskIdentityContext)
                 .where(
+                    JoySafeterTaskIdentityContext.state == "captured",
                     JoySafeterTaskIdentityContext.encrypted_credential.is_not(None),
                     JoySafeterTaskIdentityContext.encrypted_credential != "",
                     JoySafeterTaskIdentityContext.expires_at > utc_now(),

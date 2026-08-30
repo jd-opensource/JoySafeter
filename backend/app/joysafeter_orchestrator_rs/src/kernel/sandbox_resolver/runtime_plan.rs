@@ -51,7 +51,7 @@ pub(crate) fn provisioning_config(
     message: &str,
     complete: bool,
     expected: &ExpectedFingerprint,
-    runner_token: Option<&str>,
+    egress_proxy_token: Option<&str>,
 ) -> serde_json::Value {
     let mut config = serde_json::json!({
         "provisioning": {
@@ -64,10 +64,10 @@ pub(crate) fn provisioning_config(
         "fingerprint": expected.to_json(),
     });
 
-    if let Some(token) = runner_token {
+    if let Some(token) = egress_proxy_token {
         if let Some(obj) = config.as_object_mut() {
             obj.insert(
-                "runner_token".to_string(),
+                "egress_proxy_token".to_string(),
                 serde_json::Value::String(token.to_string()),
             );
         }

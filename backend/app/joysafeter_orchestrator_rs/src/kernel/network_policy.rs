@@ -13,6 +13,7 @@ use crate::ids::SandboxId;
 pub mod application;
 pub mod authority;
 pub mod envoy_model;
+pub(crate) mod identity;
 pub mod material;
 pub mod ports;
 pub(crate) mod reconciler;

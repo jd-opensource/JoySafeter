@@ -1,26 +1,14 @@
 use std::collections::HashMap;
-use std::fmt;
-use std::path::{Component, Path};
-#[cfg(test)]
+use std::path::Path;
 use std::sync::Arc;
 
-use base64::Engine as _;
-use flate2::write::GzEncoder;
-use flate2::Compression;
-use sha2::{Digest, Sha256};
-use sqlx::{FromRow, PgPool};
-use tar::{Builder, Header};
+use sqlx::PgPool;
 #[cfg(test)]
 use tokio::sync::Notify;
-use tracing::{debug, warn};
-use uuid::Uuid;
+use tracing::debug;
 
 use crate::db::queries;
-use crate::grpc::proto;
-use crate::ids::{
-    OrganizationId, ProjectId, SandboxId, SessionId, SkillId, SkillSecurityScanId, SkillUsageId,
-    SkillVersionId, TaskId,
-};
+use crate::ids::SandboxId;
 use crate::kernel::credentials::access::{
     CredentialAccessContext, CredentialMaterialAccessService,
 };
@@ -28,16 +16,32 @@ use crate::kernel::credentials::error::{require_bound_credential_id, CredentialR
 #[cfg(test)]
 use crate::kernel::credentials::material::ManagedCredentialMaterialAdapter;
 use crate::kernel::environment_binding::{self, EnvironmentBinding};
+use crate::kernel::harness_contract::{HarnessCustomTool, HarnessInput};
 use crate::kernel::mcp_runtime_plan::{
     effective_network_mode, resolve_mcp_runtime_plan_from_metadata,
 };
 #[cfg(test)]
 use crate::kernel::mcp_url;
+use crate::kernel::repository_access::material::RepositoryAccessMaterial;
+#[cfg(test)]
 use crate::kernel::repository_access::material::RepositoryAccessMaterialAdapter;
 use crate::kernel::run_spec::{
     agent_for_execution, environment_for_execution, SnapshotEnvironment,
 };
 use crate::kernel::runtime_freshness::RuntimeFreshnessError;
+use crate::kernel::tool_policy::ToolPolicy;
+
+mod conversation_history;
+mod generation_fence;
+mod session_resources;
+mod skill_archives;
+
+#[cfg(test)]
+use skill_archives::{
+    ensure_skill_entrypoint, parse_semver, published_version_scan_audit,
+    resolve_skill_version_request, safe_archive_path, SkillFileForArchive, SkillForArchive,
+    SkillVersionForArchive,
+};
 
 fn apply_runtime_protocol_env(
     env: &mut HashMap<String, String>,
@@ -57,19 +61,17 @@ fn apply_runtime_protocol_env(
     }
 }
 
-const CONVERSATION_HISTORY_EVENT_LIMIT: i64 = 100;
-const CONVERSATION_HISTORY_MAX_CHARS: usize = 24_000;
-
 /// Constructs gRPC SetupSandbox and StartTask messages from task/agent/session data.
 ///
 /// This mirrors Python `build_harness_input`: agent model/env/model credential, MCP
 /// credentials (resolved from the session's credential groups), memory stores, packed
 /// skills/agents/commands, session file resources, conversation history, custom tools,
-/// and permission mode all flow through one builder.
+/// and a provider-neutral tool policy all flow through one builder.
+#[derive(Clone)]
 pub struct HarnessInputBuilder {
     pool: PgPool,
-    #[cfg(test)]
-    credential_material: Option<ManagedCredentialMaterialAdapter>,
+    credential_access: CredentialMaterialAccessService,
+    repository_material: Arc<dyn RepositoryAccessMaterial>,
     /// When true, all MCP server URLs are downgraded from https to http before
     /// being sent to the sandbox. In Envoy-limited networking, the sandbox cannot
     /// do end-to-end TLS (no trusted CA store); Envoy does TLS origination to the
@@ -90,73 +92,24 @@ enum HarnessBuildCheckpoint {
 }
 
 #[cfg(test)]
+#[derive(Clone)]
 struct HarnessBuildTestHook {
     checkpoint: HarnessBuildCheckpoint,
     reached: Arc<Notify>,
     resume: Arc<Notify>,
 }
 
-#[derive(Clone, Default)]
-pub struct HarnessInput {
-    pub provider: String,
-    pub model: Option<String>,
-    pub system_prompt: Option<String>,
-    pub prompt: String,
-    pub env: HashMap<String, String>,
-    pub permission_mode: Option<String>,
-    pub harness_session_id: Option<String>,
-    pub mcp_servers: Vec<proto::McpConfig>,
-    pub custom_tools: Vec<proto::CustomTool>,
-    pub skills: Vec<proto::SkillArchive>,
-    pub setup_commands: Vec<String>,
-    pub memory_system_prompt: Option<String>,
-    pub memory_mounts: Vec<proto::MemoryStoreMount>,
-    pub files: Vec<proto::FileMount>,
-    pub file_refs: Vec<proto::FileRef>,
-    pub repos: Vec<proto::RepoConfig>,
-    pub allowed_tools: Vec<String>,
-    pub ask_tools: Vec<String>,
-    pub work_dir: Option<String>,
-    pub max_turns: u32,
-    /// "append" (default) or "replace" — controls --append-system-prompt vs --system-prompt
-    pub system_prompt_mode: String,
-}
-
-impl fmt::Debug for HarnessInput {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("HarnessInput")
-            .field("provider", &self.provider)
-            .field("model", &self.model)
-            .field("system_prompt", &"<redacted>")
-            .field("prompt", &"<redacted>")
-            .field("env", &"<redacted>")
-            .field("permission_mode", &self.permission_mode)
-            .field("harness_session_id", &self.harness_session_id)
-            .field("mcp_servers", &self.mcp_servers.len())
-            .field("custom_tools", &self.custom_tools.len())
-            .field("skills", &self.skills.len())
-            .field("setup_commands", &"<redacted>")
-            .field("memory_system_prompt", &"<redacted>")
-            .field("memory_mounts", &self.memory_mounts.len())
-            .field("files", &self.files.len())
-            .field("file_refs", &self.file_refs.len())
-            .field("repos", &self.repos.len())
-            .field("allowed_tools", &self.allowed_tools.len())
-            .field("ask_tools", &self.ask_tools.len())
-            .field("work_dir", &self.work_dir)
-            .field("max_turns", &self.max_turns)
-            .field("system_prompt_mode", &self.system_prompt_mode)
-            .finish()
-    }
-}
-
 impl HarnessInputBuilder {
-    pub fn new(pool: PgPool, envoy_enabled: bool) -> Self {
+    pub(crate) fn with_services(
+        pool: PgPool,
+        credential_access: CredentialMaterialAccessService,
+        repository_material: Arc<dyn RepositoryAccessMaterial>,
+        envoy_enabled: bool,
+    ) -> Self {
         Self {
             pool,
-            #[cfg(test)]
-            credential_material: None,
+            credential_access,
+            repository_material,
             envoy_enabled,
             #[cfg(test)]
             checkpoint_hook: None,
@@ -164,11 +117,21 @@ impl HarnessInputBuilder {
     }
 
     #[cfg(test)]
+    pub fn new(pool: PgPool, envoy_enabled: bool) -> Self {
+        let credential_access = CredentialMaterialAccessService::new(pool.clone());
+        let repository_material = Arc::new(RepositoryAccessMaterialAdapter::from_env());
+        Self::with_services(pool, credential_access, repository_material, envoy_enabled)
+    }
+
+    #[cfg(test)]
     fn with_credential_material_adapter(
         mut self,
         credential_material: ManagedCredentialMaterialAdapter,
     ) -> Self {
-        self.credential_material = Some(credential_material);
+        self.credential_access = CredentialMaterialAccessService::with_material_adapter(
+            self.pool.clone(),
+            credential_material,
+        );
         self
     }
 
@@ -208,9 +171,7 @@ impl HarnessInputBuilder {
     ) -> anyhow::Result<HarnessInput> {
         let initial_fence = match task.session_id {
             Some(session_id) => {
-                let fence = self
-                    .load_generation_fence(session_id, sandbox_db_id)
-                    .await?;
+                let fence = generation_fence::load(&self.pool, session_id, sandbox_db_id).await?;
                 fence.validate(sandbox_db_id)?;
                 Some(fence)
             }
@@ -221,15 +182,7 @@ impl HarnessInputBuilder {
             Some(task.id),
             initial_fence.as_ref().map(|fence| fence.generation),
         );
-        #[cfg(not(test))]
-        let credential_access = CredentialMaterialAccessService::new(self.pool.clone());
-        #[cfg(test)]
-        let credential_access = match self.credential_material.clone() {
-            Some(material) => {
-                CredentialMaterialAccessService::with_material_adapter(self.pool.clone(), material)
-            }
-            None => CredentialMaterialAccessService::new(self.pool.clone()),
-        };
+        let credential_access = &self.credential_access;
         #[cfg(test)]
         self.pause_at_checkpoint(HarnessBuildCheckpoint::AfterInitialRead)
             .await;
@@ -297,13 +250,7 @@ impl HarnessInputBuilder {
             )?
             .runner_servers();
             input.custom_tools = parse_custom_tools(agent.tools.as_ref());
-            let (allowed, ask) = parse_tool_permission_rules(agent.tools.as_ref());
-            input.allowed_tools = allowed;
-            input.ask_tools = ask;
-            input.permission_mode = agent
-                .permission_mode
-                .clone()
-                .or_else(|| Some(derive_permission_mode_from_tools(agent.tools.as_ref())));
+            input.tool_policy = ToolPolicy::from_agent_tools(agent.tools.as_ref())?;
             input.setup_commands = Self::resolve_environment_setup_commands(
                 snapshot_environment.as_ref(),
                 live_environment.as_ref(),
@@ -345,13 +292,19 @@ impl HarnessInputBuilder {
             input
                 .env
                 .extend(json_object_to_string_map(agent.env.as_ref()));
-            self.resolve_skill_archives(agent, task, &mut input).await?;
+            skill_archives::resolve(&self.pool, agent, task, &mut input).await?;
         }
 
         if let Some(ref session) = session {
-            self.load_memory_stores(session.id, &mut input).await?;
-            self.load_session_files(session.id, &mut input).await?;
-            self.load_session_repos(session.id, &mut input).await?;
+            session_resources::load_memory_stores(&self.pool, session.id, &mut input).await?;
+            session_resources::load_session_files(&self.pool, session.id, &mut input).await?;
+            session_resources::load_session_repos(
+                &self.pool,
+                self.repository_material.as_ref(),
+                session.id,
+                &mut input,
+            )
+            .await?;
             input.work_dir = session_container_work_dir(session.last_work_dir.as_deref());
         }
 
@@ -376,7 +329,7 @@ impl HarnessInputBuilder {
             .unwrap_or(false);
         if should_inject_conversation_history(&input.provider, has_harness_resume) {
             if let Some(sid) = task.session_id {
-                let history = self.build_conversation_history(sid, task.id).await;
+                let history = conversation_history::load(&self.pool, sid, task.id).await;
                 if !history.is_empty() {
                     input.prompt = format!("{history}\n\n{}", input.prompt);
                 }
@@ -384,9 +337,8 @@ impl HarnessInputBuilder {
         }
 
         if let Some(initial_fence) = initial_fence {
-            let final_fence = self
-                .load_generation_fence(initial_fence.session_id, sandbox_db_id)
-                .await?;
+            let final_fence =
+                generation_fence::load(&self.pool, initial_fence.session_id, sandbox_db_id).await?;
             if final_fence.generation != initial_fence.generation {
                 return Err(RuntimeFreshnessError::GenerationChanged {
                     expected: initial_fence.generation,
@@ -402,61 +354,6 @@ impl HarnessInputBuilder {
 
         debug!(task_id = %task.id, "Built harness input");
         Ok(input)
-    }
-
-    pub fn build_setup_sandbox(input: &HarnessInput) -> proto::SetupSandbox {
-        proto::SetupSandbox {
-            skills: input.skills.clone(),
-            mcp_servers: input.mcp_servers.clone(),
-            custom_tools: input.custom_tools.clone(),
-            setup_commands: input.setup_commands.clone(),
-            work_dir: input.work_dir.clone(),
-            env: input.env.clone(),
-            permission_mode: input.permission_mode.clone(),
-            provider: input.provider.clone(),
-            model: input.model.clone(),
-            memory_system_prompt: input.memory_system_prompt.clone(),
-            memory_mounts: input.memory_mounts.clone(),
-            allowed_tools: input.allowed_tools.clone(),
-            disallowed_tools: vec![],
-            ask_tools: input.ask_tools.clone(),
-            repos: input.repos.clone(),
-        }
-    }
-
-    pub fn build_start_task(
-        input: &HarnessInput,
-        task: &crate::db::models::JoySafeterTask,
-        timeout_seconds: u64,
-    ) -> proto::StartTask {
-        proto::StartTask {
-            task_id: task.id.to_string(),
-            provider: input.provider.clone(),
-            prompt: input.prompt.clone(),
-            system_prompt: input.system_prompt.clone(),
-            harness_session_id: input.harness_session_id.clone(),
-            model: input.model.clone(),
-            max_turns: Some(input.max_turns),
-            timeout_seconds,
-            env: input.env.clone(),
-            mcp_servers: input.mcp_servers.clone(),
-            repos: input.repos.clone(),
-            work_dir: input.work_dir.clone(),
-            skills: input.skills.clone(),
-            allowed_tools: input.allowed_tools.clone(),
-            disallowed_tools: vec![],
-            ask_tools: input.ask_tools.clone(),
-            permission_mode: input.permission_mode.clone(),
-            setup_commands: input.setup_commands.clone(),
-            custom_tools: input.custom_tools.clone(),
-            system_prompt_mode: if input.system_prompt_mode.is_empty() {
-                None
-            } else {
-                Some(input.system_prompt_mode.clone())
-            },
-            files: input.files.clone(),
-            file_refs: input.file_refs.clone(),
-        }
     }
 
     fn resolve_environment_setup_commands(
@@ -490,35 +387,6 @@ impl HarnessInputBuilder {
         )
         .await
         .map_err(Into::into)
-    }
-
-    async fn load_generation_fence(
-        &self,
-        session_id: SessionId,
-        sandbox_id: SandboxId,
-    ) -> anyhow::Result<HarnessGenerationFence> {
-        sqlx::query_as::<_, HarnessGenerationFence>(
-            r#"
-            SELECT
-                session.id AS session_id,
-                session.project_id AS session_project_id,
-                session.status AS session_status,
-                session.archived_at AS session_archived_at,
-                session.runtime_config_generation AS generation,
-                sandbox.chat_session_id AS sandbox_session_id,
-                sandbox.project_id AS sandbox_project_id,
-                sandbox.runtime_config_status,
-                sandbox.runtime_config_applied_generation AS applied_generation
-            FROM joysafeter_sessions AS session
-            JOIN joysafeter_sandboxes AS sandbox ON sandbox.id = $2
-            WHERE session.id = $1
-            "#,
-        )
-        .bind(session_id)
-        .bind(sandbox_id)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| RuntimeFreshnessError::RuntimeRestartRequired { sandbox_id }.into())
     }
 
     async fn resolve_agent_credential(
@@ -555,529 +423,6 @@ impl HarnessInputBuilder {
             frozen_config.and_then(|config| config.get("env_vars")),
         ));
     }
-
-    async fn resolve_skill_archives(
-        &self,
-        agent: &crate::db::models::JoySafeterAgent,
-        task: &crate::db::models::JoySafeterTask,
-        input: &mut HarnessInput,
-    ) -> anyhow::Result<()> {
-        for (target, items) in [
-            ("skills", agent.skills.as_ref()),
-            ("agents", agent.agents.as_ref()),
-            ("commands", agent.commands.as_ref()),
-        ] {
-            let Some(arr) = items.and_then(|v| v.as_array()) else {
-                continue;
-            };
-            for item in arr {
-                let archive = self.resolve_skill_item(target, item, agent, task).await?;
-                input.skills.push(archive);
-            }
-        }
-        Ok(())
-    }
-
-    async fn resolve_skill_item(
-        &self,
-        target: &str,
-        item: &serde_json::Value,
-        agent: &crate::db::models::JoySafeterAgent,
-        task: &crate::db::models::JoySafeterTask,
-    ) -> anyhow::Result<proto::SkillArchive> {
-        if target != "skills" {
-            let encoded = item
-                .get("tar_gz_b64")
-                .and_then(|value| value.as_str())
-                .ok_or_else(|| anyhow::anyhow!("packed {target} item is missing tar_gz_b64"))?;
-            let data = base64::engine::general_purpose::STANDARD
-                .decode(encoded)
-                .map_err(|error| {
-                    anyhow::anyhow!("failed to decode packed {target} archive: {error}")
-                })?;
-            let name = item
-                .get("name")
-                .and_then(|value| value.as_str())
-                .ok_or_else(|| anyhow::anyhow!("packed {target} item is missing name"))?;
-            return Ok(proto::SkillArchive {
-                name: name.to_string(),
-                tar_gz: data,
-                target: target.to_string(),
-            });
-        }
-
-        let Some(skill_id) = item.get("skill_id").and_then(|v| v.as_str()) else {
-            anyhow::bail!("skill item is missing skill_id");
-        };
-        let version = item
-            .get("version")
-            .and_then(|v| v.as_str())
-            .unwrap_or("latest");
-        let skill_id = SkillId::from_public(skill_id)
-            .map_err(|_| anyhow::anyhow!("invalid skill_id for target {target}: {skill_id}"))?;
-        self.pack_skill(skill_id, version, target, agent, task)
-            .await
-    }
-
-    async fn pack_skill(
-        &self,
-        skill_id: SkillId,
-        version: &str,
-        target: &str,
-        agent: &crate::db::models::JoySafeterAgent,
-        task: &crate::db::models::JoySafeterTask,
-    ) -> anyhow::Result<proto::SkillArchive> {
-        let skill = self
-            .load_skill_for_archive(skill_id, agent.project_id)
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("skill not found: {skill_id}"))?;
-        let project_latest = if version == "latest" && skill.same_project() {
-            self.highest_published_version(skill_id).await
-        } else {
-            None
-        };
-        let resolved_version =
-            resolve_skill_version_request(&skill, version, project_latest.as_deref())?;
-        let version_meta = self
-            .load_skill_version_meta(skill_id, &resolved_version)
-            .await?
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "skill version not found: skill={skill_id} version={resolved_version}"
-                )
-            })?;
-        let mut files = self
-            .load_skill_version_files(skill_id, &resolved_version)
-            .await?;
-        ensure_skill_entrypoint(&mut files, &version_meta.content).map_err(|error| {
-            anyhow::anyhow!(
-                "skill {skill_id} version {resolved_version} has no usable root SKILL.md: {error}"
-            )
-        })?;
-
-        let skill_name = version_meta.skill_name.clone();
-        let data = create_targz(&skill_name, &files)?;
-        let artifact_hash = hex::encode(Sha256::digest(&data));
-        self.record_skill_usage(
-            skill_id,
-            &resolved_version,
-            &version_meta,
-            &skill,
-            &artifact_hash,
-            target,
-            agent,
-            task,
-        )
-        .await;
-
-        Ok(proto::SkillArchive {
-            name: skill_name,
-            tar_gz: data,
-            target: target.to_string(),
-        })
-    }
-
-    async fn load_skill_for_archive(
-        &self,
-        skill_id: SkillId,
-        consumer_project_id: Option<ProjectId>,
-    ) -> anyhow::Result<Option<SkillForArchive>> {
-        sqlx::query_as::<_, SkillForArchive>(
-            r#"
-            SELECT s.source_type,
-                   s.project_id,
-                   skill_project.org_id AS skill_org_id,
-                   $2::uuid AS consumer_project_id,
-                   consumer_project.org_id AS consumer_org_id,
-                   org_version.version AS org_version,
-                   public_version.version AS public_version
-            FROM joysafeter_skills s
-            JOIN joysafeter_organization_projects skill_project
-              ON skill_project.id = s.project_id
-            LEFT JOIN joysafeter_organization_projects consumer_project
-              ON consumer_project.id = $2
-            LEFT JOIN joysafeter_skill_versions org_version
-              ON org_version.id = s.org_version_id
-            LEFT JOIN joysafeter_skill_versions public_version
-              ON public_version.id = s.public_version_id
-            WHERE s.id = $1
-            "#,
-        )
-        .bind(skill_id)
-        .bind(consumer_project_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(Into::into)
-    }
-
-    async fn load_skill_version_meta(
-        &self,
-        skill_id: SkillId,
-        version: &str,
-    ) -> anyhow::Result<Option<SkillVersionForArchive>> {
-        sqlx::query_as::<_, SkillVersionForArchive>(
-            r#"
-            SELECT id, skill_name, content, security_scan_id, target_hash
-            FROM joysafeter_skill_versions
-            WHERE skill_id = $1 AND version = $2
-            "#,
-        )
-        .bind(skill_id)
-        .bind(version)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(Into::into)
-    }
-
-    async fn record_skill_usage(
-        &self,
-        skill_id: SkillId,
-        skill_version: &str,
-        version_meta: &SkillVersionForArchive,
-        skill: &SkillForArchive,
-        artifact_hash: &str,
-        target: &str,
-        agent: &crate::db::models::JoySafeterAgent,
-        task: &crate::db::models::JoySafeterTask,
-    ) {
-        let skill_version_id = Some(version_meta.id);
-        let (security_scan_id, target_hash) = published_version_scan_audit(version_meta);
-        if let Err(e) = sqlx::query(
-            r#"
-            INSERT INTO joysafeter_skill_usage_log
-              (id, skill_id, skill_name, skill_source_type, skill_version, skill_version_id,
-               target, security_scan_id, target_hash, artifact_hash,
-               session_id, agent_id, project_id, user_id, created_at, updated_at)
-            VALUES ($1, $2, $3, $4, $5,
-                    CASE WHEN $6::uuid IS NULL THEN NULL
-                         WHEN EXISTS (SELECT 1 FROM joysafeter_skill_versions WHERE id = $6) THEN $6
-                         ELSE NULL END,
-                    $7, $8, $9, $10, $11, $12, $13, NULL, NOW(), NOW())
-            "#,
-        )
-        .bind(SkillUsageId::from_uuid(Uuid::now_v7()))
-        .bind(skill_id)
-        .bind(&version_meta.skill_name)
-        .bind(skill.source_type.as_deref())
-        .bind(skill_version)
-        .bind(skill_version_id)
-        .bind(target)
-        .bind(security_scan_id)
-        .bind(target_hash)
-        .bind(artifact_hash)
-        .bind(task.session_id.map(|id| id.as_uuid()))
-        .bind(agent.id.as_uuid())
-        .bind(agent.project_id)
-        .execute(&self.pool)
-        .await
-        {
-            warn!(skill_id = %skill_id, "Failed to write skill usage audit row: {e}");
-        }
-    }
-
-    /// Return the highest published version string for a skill, or None if it
-    /// has never been published. Versions are MAJOR.MINOR.PATCH (the publish
-    /// API rejects prerelease/build), so a numeric tuple sort is exact.
-    async fn highest_published_version(&self, skill_id: SkillId) -> Option<String> {
-        let versions: Vec<String> = sqlx::query_scalar::<_, String>(
-            "SELECT version FROM joysafeter_skill_versions WHERE skill_id = $1",
-        )
-        .bind(skill_id)
-        .fetch_all(&self.pool)
-        .await
-        .unwrap_or_default();
-
-        versions
-            .into_iter()
-            .filter_map(|v| parse_semver(&v).map(|key| (key, v)))
-            .max_by(|a, b| a.0.cmp(&b.0))
-            .map(|(_, v)| v)
-    }
-
-    async fn load_skill_version_files(
-        &self,
-        skill_id: SkillId,
-        version: &str,
-    ) -> anyhow::Result<Vec<SkillFileForArchive>> {
-        sqlx::query_as::<_, SkillFileForArchive>(
-            r#"
-            SELECT vf.path, vf.file_name, vf.content
-            FROM joysafeter_skill_version_files vf
-            JOIN joysafeter_skill_versions sv ON sv.id = vf.version_id
-            WHERE sv.skill_id = $1 AND sv.version = $2
-            ORDER BY vf.path, vf.file_name
-            "#,
-        )
-        .bind(skill_id)
-        .bind(version)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(Into::into)
-    }
-
-    async fn load_memory_stores(
-        &self,
-        session_id: SessionId,
-        input: &mut HarnessInput,
-    ) -> anyhow::Result<()> {
-        let stores = queries::list_session_memory_stores(&self.pool, session_id)
-            .await
-            .map_err(|e| {
-                anyhow::anyhow!("failed to load memory stores for session {session_id}: {e}")
-            })?;
-
-        let mut prompt_parts = vec![
-            "# Memory".to_string(),
-            "The following memory stores are mounted. Use them to persist and retrieve information across sessions.".to_string(),
-            String::new(),
-        ];
-
-        for store in stores {
-            let mount_path = format!("/mnt/memory/{}", store.mount_name);
-            let mut files = vec![];
-            let rows = queries::load_memory_files(&self.pool, store.store_id, 10000)
-                .await
-                .map_err(|e| {
-                    anyhow::anyhow!(
-                        "failed to load memory files for store {} mounted on session {}: {e}",
-                        store.store_id,
-                        session_id
-                    )
-                })?;
-            for row in rows {
-                files.push(proto::MemoryFile {
-                    relative_path: row.path,
-                    content: row.content.unwrap_or_default().into_bytes(),
-                });
-            }
-
-            input.memory_mounts.push(proto::MemoryStoreMount {
-                mount_name: store.mount_name.clone(),
-                mount_path: mount_path.clone(),
-                access: store.access.clone(),
-                files,
-            });
-
-            prompt_parts.push(format!("- `{}` (access: {})", mount_path, store.access));
-            if let Some(instructions) = store.instructions.as_deref().filter(|v| !v.is_empty()) {
-                prompt_parts.push(format!("  Instructions: {instructions}"));
-            }
-        }
-
-        if input.memory_mounts.is_empty() {
-            return Ok(());
-        }
-        input.memory_system_prompt = Some(prompt_parts.join("\n"));
-        Ok(())
-    }
-
-    async fn load_session_files(
-        &self,
-        session_id: SessionId,
-        input: &mut HarnessInput,
-    ) -> anyhow::Result<()> {
-        let rows: Vec<SessionFileRow> = sqlx::query_as(
-            r#"
-            SELECT sf.mount_path, f.filename, f.storage_key, f.size_bytes
-            FROM joysafeter_session_files sf
-            JOIN joysafeter_files f ON f.id = sf.file_id
-            WHERE sf.session_id = $1 AND f.deleted_at IS NULL
-            ORDER BY sf.mount_path
-            "#,
-        )
-        .bind(session_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| {
-            anyhow::anyhow!("failed to load session file rows for session {session_id}: {e}")
-        })?;
-
-        for row in rows {
-            let content = load_session_file_resource(&row).await.map_err(|e| {
-                anyhow::anyhow!(
-                    "failed to prepare session file '{}' from storage key '{}': {e}",
-                    row.filename,
-                    row.storage_key
-                )
-            })?;
-            input.files.push(proto::FileMount {
-                path: row.mount_path,
-                content,
-                filename: row.filename,
-            });
-        }
-        Ok(())
-    }
-
-    /// Load session-scoped GitHub repository resources and validate their clone
-    /// material through the Repository Access adapter. Repos live on the session
-    /// (``joysafeter_session_repos``), not on ``agent.metadata``; the token is
-    /// and never expose clone material to the runner.
-    async fn load_session_repos(
-        &self,
-        session_id: SessionId,
-        input: &mut HarnessInput,
-    ) -> anyhow::Result<()> {
-        let rows: Vec<SessionRepoRow> = sqlx::query_as(
-            r#"
-            SELECT url, branch, mount_path, mount_name,
-                   CASE
-                       WHEN token_expires_at IS NULL OR token_expires_at > NOW()
-                       THEN encrypted_token
-                       ELSE ''
-                   END AS encrypted_token
-            FROM joysafeter_session_repos
-            WHERE session_id = $1
-            ORDER BY created_at
-            "#,
-        )
-        .bind(session_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| {
-            anyhow::anyhow!("failed to load session repos for session {session_id}: {e}")
-        })?;
-
-        if rows.is_empty() {
-            return Ok(());
-        }
-
-        let material_adapter = RepositoryAccessMaterialAdapter::from_env();
-        for (idx, row) in rows.into_iter().enumerate() {
-            let token = material_adapter.reveal_optional(&row.encrypted_token)?;
-            let has_token = token.is_some();
-            // Validate the token through the adapter, but
-            // never hand it to the sandbox. When a token exists, the clone URL is
-            // rewritten to the Envoy egress boundary; Envoy injects the real
-            // credential. Public repos (no token) keep their original URL.
-            let url = if has_token {
-                // Repoint the clone URL at the placeholder egress host + a stable
-                // per-repo slug over plaintext http:// — the sandbox never learns
-                // the real git host. Envoy matches `/git/<slug>/`, injects the
-                // credential, and rewrites host+path to the real remote.
-                let slug =
-                    crate::kernel::network_policy::envoy_model::git_repo_slug(&row.mount_name, idx);
-                format!(
-                    "http://{}/git/{}/",
-                    crate::kernel::network_policy::envoy_model::GIT_EGRESS_HOST,
-                    slug
-                )
-            } else {
-                row.url
-            };
-            input.repos.push(proto::RepoConfig {
-                url,
-                branch: row.branch,
-                path: row.mount_path,
-                // Token never enters the sandbox — injected at the egress boundary.
-                authorization_token: String::new(),
-                mount_name: row.mount_name,
-            });
-        }
-        Ok(())
-    }
-
-    async fn build_conversation_history(&self, session_id: SessionId, task_id: TaskId) -> String {
-        // I-NEW-12 fix: find the user.message seq BEFORE status_running as the boundary.
-        // The user.message immediately before the current turn's status_running is the
-        // current prompt — it should be excluded from history (matching Python).
-        let current_turn_running_seq: Option<i64> = sqlx::query_scalar(
-            r#"
-            SELECT MAX(seq) FROM joysafeter_session_events
-            WHERE session_id = $1
-              AND event_type = 'session.status_running'
-              AND payload->>'task_id' = $2
-            "#,
-        )
-        .bind(session_id)
-        .bind(task_id.to_string())
-        .fetch_optional(&self.pool)
-        .await
-        .ok()
-        .flatten()
-        .flatten();
-
-        // Find the last user.message before the status_running event
-        let boundary_seq: Option<i64> = if let Some(running_seq) = current_turn_running_seq {
-            let user_msg_seq: Option<i64> = sqlx::query_scalar(
-                r#"
-                SELECT MAX(seq) FROM joysafeter_session_events
-                WHERE session_id = $1
-                  AND event_type = 'user.message'
-                  AND seq < $2
-                "#,
-            )
-            .bind(session_id)
-            .bind(running_seq)
-            .fetch_optional(&self.pool)
-            .await
-            .ok()
-            .flatten()
-            .flatten();
-            // Use user.message seq if found, else fall back to status_running seq
-            user_msg_seq.or(current_turn_running_seq)
-        } else {
-            None
-        };
-
-        // Load the most recent events BEFORE the boundary (excludes current turn's user message).
-        // A long session must keep the newest context, not the first 500 events ever recorded.
-        let rows: Vec<(String, Option<serde_json::Value>)> = match sqlx::query_as(
-            r#"
-            SELECT event_type, payload FROM (
-                SELECT event_type, payload, seq, created_at
-                FROM joysafeter_session_events
-                WHERE session_id = $1 AND ($2::bigint IS NULL OR seq < $2)
-                ORDER BY seq DESC, created_at DESC
-                LIMIT $3
-            ) recent
-            ORDER BY seq ASC, created_at ASC
-            "#,
-        )
-        .bind(session_id)
-        .bind(boundary_seq)
-        .bind(CONVERSATION_HISTORY_EVENT_LIMIT)
-        .fetch_all(&self.pool)
-        .await
-        {
-            Ok(rows) => rows,
-            Err(_) => return String::new(),
-        };
-
-        let mut lines = Vec::new();
-        for (event_type, payload) in rows {
-            let Some(payload) = payload else { continue };
-            match event_type.as_str() {
-                "user.message" => {
-                    // I16 fix: content may be a plain string OR an array of blocks
-                    // [{type: "text", text: "..."}]. Handle both formats.
-                    let text = extract_content_text(&payload);
-                    if !text.is_empty() {
-                        lines.push(format!("User: {text}"));
-                    }
-                }
-                "agent.message" => {
-                    let text = extract_content_text(&payload);
-                    if !text.is_empty() {
-                        lines.push(format!("Assistant: {text}"));
-                    }
-                }
-                _ => {}
-            }
-        }
-        if lines.is_empty() {
-            return String::new();
-        }
-        let body = trim_history_lines_to_budget(lines, CONVERSATION_HISTORY_MAX_CHARS);
-        if body.is_empty() {
-            return String::new();
-        }
-
-        format!(
-            "[CONVERSATION HISTORY - Prior turns in this session]\n{}\n[END CONVERSATION HISTORY]",
-            body
-        )
-    }
 }
 
 fn should_inject_conversation_history(provider: &str, has_harness_resume: bool) -> bool {
@@ -1094,102 +439,6 @@ fn session_container_work_dir(last_work_dir: Option<&str>) -> Option<String> {
     }
 }
 
-fn trim_history_lines_to_budget(lines: Vec<String>, max_chars: usize) -> String {
-    if lines.is_empty() || max_chars == 0 {
-        return String::new();
-    }
-
-    let mut selected = Vec::new();
-    let mut used = 0usize;
-    for line in lines.into_iter().rev() {
-        let line_chars = line.chars().count();
-        let separator_chars = if selected.is_empty() { 0 } else { 2 };
-        if used + separator_chars + line_chars <= max_chars {
-            used += separator_chars + line_chars;
-            selected.push(line);
-            continue;
-        }
-
-        if selected.is_empty() {
-            let remaining = max_chars.saturating_sub(separator_chars);
-            let truncated = truncate_start_chars(&line, remaining);
-            if !truncated.is_empty() {
-                selected.push(truncated);
-            }
-        }
-        break;
-    }
-
-    selected.reverse();
-    selected.join("\n\n")
-}
-
-fn truncate_start_chars(value: &str, max_chars: usize) -> String {
-    if value.chars().count() <= max_chars {
-        return value.to_string();
-    }
-    if max_chars == 0 {
-        return String::new();
-    }
-    const PREFIX: &str = "...";
-    if max_chars <= PREFIX.len() {
-        return value
-            .chars()
-            .rev()
-            .take(max_chars)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect();
-    }
-
-    let keep_chars = max_chars - PREFIX.len();
-    let suffix: String = value
-        .chars()
-        .rev()
-        .take(keep_chars)
-        .collect::<Vec<_>>()
-        .into_iter()
-        .rev()
-        .collect();
-    format!("{PREFIX}{suffix}")
-}
-
-/// Extract text content from a session event payload.
-///
-/// Content may be stored as:
-/// - A plain string: `{"content": "hello"}`
-/// - An array of blocks: `{"content": [{"type": "text", "text": "hello"}]}`
-///
-/// Returns the concatenated text, trimmed.  Empty string if nothing found.
-fn extract_content_text(payload: &serde_json::Value) -> String {
-    let content = match payload.get("content") {
-        Some(c) => c,
-        None => return String::new(),
-    };
-
-    // Case 1: plain string
-    if let Some(s) = content.as_str() {
-        return s.trim().to_string();
-    }
-
-    // Case 2: array of blocks [{type: "text", text: "..."}]
-    if let Some(blocks) = content.as_array() {
-        let mut parts = Vec::new();
-        for block in blocks {
-            if block.get("type").and_then(|t| t.as_str()) == Some("text") {
-                if let Some(text) = block.get("text").and_then(|t| t.as_str()) {
-                    parts.push(text);
-                }
-            }
-        }
-        let joined = parts.join("");
-        return joined.trim().to_string();
-    }
-
-    String::new()
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -1202,11 +451,10 @@ mod tests {
     use tokio::sync::Notify;
 
     use super::{
-        apply_runtime_protocol_env, ensure_skill_entrypoint, extract_content_text, parse_semver,
+        apply_runtime_protocol_env, ensure_skill_entrypoint, parse_semver,
         published_version_scan_audit, resolve_skill_version_request, safe_archive_path,
-        session_container_work_dir, should_inject_conversation_history,
-        trim_history_lines_to_budget, HarnessBuildCheckpoint, HarnessInput, HarnessInputBuilder,
-        SkillFileForArchive, SkillForArchive, SkillVersionForArchive,
+        session_container_work_dir, should_inject_conversation_history, HarnessBuildCheckpoint,
+        HarnessInputBuilder, SkillFileForArchive, SkillForArchive, SkillVersionForArchive,
     };
     use crate::ids::{
         AgentId, CredentialGroupId, CredentialId, EnvironmentId, FileId, OrganizationId, ProjectId,
@@ -1222,57 +470,6 @@ mod tests {
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24,
         25, 26, 27, 28, 29, 30, 31,
     ];
-
-    #[test]
-    fn start_task_preserves_session_file_resources() {
-        let input = HarnessInput {
-            files: vec![crate::grpc::proto::FileMount {
-                path: "/workspace/input.txt".to_string(),
-                content: b"inline".to_vec(),
-                filename: "input.txt".to_string(),
-            }],
-            file_refs: vec![crate::grpc::proto::FileRef {
-                path: "/workspace/large.bin".to_string(),
-                url: "https://files.example.test/large.bin".to_string(),
-                filename: "large.bin".to_string(),
-                size_bytes: 4096,
-            }],
-            ..Default::default()
-        };
-        let now = chrono::Utc::now();
-        let task = crate::db::models::JoySafeterTask {
-            id: TaskId::new(),
-            project_id: None,
-            agent_id: None,
-            session_id: None,
-            sandbox_id: None,
-            status: "running".to_string(),
-            prompt: "run".to_string(),
-            system_prompt: None,
-            output: String::new(),
-            error: None,
-            usage: None,
-            timeout_sec: None,
-            retry_count: 0,
-            max_retries: 0,
-            schedule_attempts: 0,
-            next_schedule_at: None,
-            last_schedule_error: None,
-            last_schedule_error_type: None,
-            scheduling_started_at: None,
-            started_at: None,
-            completed_at: None,
-            duration_ms: None,
-            created_at: now,
-            updated_at: now,
-            owner_epoch: None,
-        };
-
-        let start = HarnessInputBuilder::build_start_task(&input, &task, 60);
-
-        assert_eq!(start.files, input.files);
-        assert_eq!(start.file_refs, input.file_refs);
-    }
 
     fn database_url() -> Option<String> {
         env::var("JOYSAFETER_TEST_DATABASE_URL")
@@ -1403,10 +600,10 @@ mod tests {
             r#"
             INSERT INTO joysafeter_agents (
                 id, project_id, name, engine_kind, env, mcp_servers, skills, tools,
-                agents, commands, permission_mode, metadata, version, environment_id
+                agents, commands, metadata, version, environment_id
             )
             VALUES ($1, $2, $3, 'claude', '{}'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, 'default', '{}'::jsonb, 1, $4)
+                    '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, 1, $4)
             "#,
         )
         .bind(agent_id)
@@ -1916,40 +1113,6 @@ mod tests {
     }
 
     #[test]
-    fn trims_history_to_newest_lines_under_budget() {
-        let body = trim_history_lines_to_budget(
-            vec![
-                "User: older".to_string(),
-                "Assistant: middle".to_string(),
-                "User: newest".to_string(),
-            ],
-            31,
-        );
-
-        assert_eq!(body, "Assistant: middle\n\nUser: newest");
-    }
-
-    #[test]
-    fn extracts_plain_string_content() {
-        let payload = serde_json::json!({ "content": " hello " });
-
-        assert_eq!(extract_content_text(&payload), "hello");
-    }
-
-    #[test]
-    fn extracts_text_block_content() {
-        let payload = serde_json::json!({
-            "content": [
-                { "type": "text", "text": "hello" },
-                { "type": "image", "url": "ignored" },
-                { "type": "text", "text": " world" }
-            ]
-        });
-
-        assert_eq!(extract_content_text(&payload), "hello world");
-    }
-
-    #[test]
     fn session_work_dir_uses_absolute_resume_path_only() {
         assert_eq!(
             session_container_work_dir(Some("/workspace")),
@@ -2005,7 +1168,6 @@ mod tests {
                 "name": "snapshot_tool",
                 "description": "from snapshot"
             }],
-            "permission_mode": "bypassPermissions",
             "metadata": {"setup_commands": ["echo snapshot-metadata"], "max_turns": 12},
             "skills": [],
             "agents": [],
@@ -2139,13 +1301,13 @@ mod tests {
                 r#"
                 INSERT INTO joysafeter_agents (
                     id, project_id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                    skills, tools, agents, commands, permission_mode, metadata,
+                    skills, tools, agents, commands, metadata,
                     version, environment_id, model_credential_id
                 )
                 VALUES (
                     $1, $2, $3, 'codex', $4, 'live system', $5, '[]'::jsonb,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    'default', '{}'::jsonb, 8, $6, $7
+                    '{}'::jsonb, 8, $6, $7
                 )
                 "#,
             )
@@ -2335,13 +1497,13 @@ mod tests {
                 r#"
                 INSERT INTO joysafeter_agents (
                     id, project_id, name, engine_kind, model, system_prompt, env,
-                    mcp_servers, skills, tools, agents, commands, permission_mode,
+                    mcp_servers, skills, tools, agents, commands,
                     metadata, version
                 )
                 VALUES (
                     $1, $2, $3, 'claude', $4, '', '{}'::jsonb,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    '[]'::jsonb, 'bypassPermissions', '{}'::jsonb, 1
+                    '[]'::jsonb, '{}'::jsonb, 1
                 )
                 "#,
             )
@@ -2553,12 +1715,12 @@ mod tests {
                 r#"
                 INSERT INTO joysafeter_agents (
                     id, project_id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                    skills, tools, agents, commands, permission_mode, metadata, version
+                    skills, tools, agents, commands, metadata, version
                 )
                 VALUES (
                     $1, $2, $3, 'claude', $4, '', '{}'::jsonb, $5,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    'bypassPermissions', '{}'::jsonb, 1
+                    '{}'::jsonb, 1
                 )
                 "#,
             )
@@ -2776,12 +1938,12 @@ mod tests {
                 r#"
                 INSERT INTO joysafeter_agents (
                     id, project_id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                    skills, tools, agents, commands, permission_mode, metadata, version
+                    skills, tools, agents, commands, metadata, version
                 )
                 VALUES (
                     $1, $2, $3, 'claude', $4, '', '{}'::jsonb, $5,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    'bypassPermissions', '{}'::jsonb, 1
+                    '{}'::jsonb, 1
                 )
                 "#,
             )
@@ -2924,7 +2086,7 @@ fn json_object_to_string_map(value: Option<&serde_json::Value>) -> HashMap<Strin
         .unwrap_or_default()
 }
 
-fn parse_custom_tools(value: Option<&serde_json::Value>) -> Vec<proto::CustomTool> {
+fn parse_custom_tools(value: Option<&serde_json::Value>) -> Vec<HarnessCustomTool> {
     value
         .and_then(|v| v.as_array())
         .map(|arr| {
@@ -2932,7 +2094,7 @@ fn parse_custom_tools(value: Option<&serde_json::Value>) -> Vec<proto::CustomToo
                 .filter(|item| item.get("type").and_then(|v| v.as_str()) == Some("custom"))
                 .filter_map(|item| {
                     let name = item.get("name").and_then(|v| v.as_str())?;
-                    Some(proto::CustomTool {
+                    Some(HarnessCustomTool {
                         name: name.to_string(),
                         description: item
                             .get("description")
@@ -2950,136 +2112,8 @@ fn parse_custom_tools(value: Option<&serde_json::Value>) -> Vec<proto::CustomToo
         .unwrap_or_default()
 }
 
-/// Parse agent toolsets into (allow, ask) permission rule lists, matching the
-/// official Anthropic Managed Agents permission model: the only policies are
-/// `always_allow` and `always_ask` (no "disable"). Defaults match the API:
-/// agent_toolset_20260401 -> always_allow, mcp_toolset -> always_ask.
-/// A per-tool configs[].permission_policy overrides the toolset default.
-/// MCP tool names map to `mcp__<server>__*` / `mcp__<server>__<tool>`.
-fn parse_tool_permission_rules(value: Option<&serde_json::Value>) -> (Vec<String>, Vec<String>) {
-    let mut allow = vec![];
-    let mut ask = vec![];
-    let Some(arr) = value.and_then(|v| v.as_array()) else {
-        return (allow, ask);
-    };
-    for tool in arr {
-        let tool_type = tool.get("type").and_then(|v| v.as_str());
-        let default_policy = tool
-            .get("default_config")
-            .and_then(|c| c.get("permission_policy"))
-            .and_then(|p| p.get("type"))
-            .and_then(|v| v.as_str());
-
-        let cfg_policy = |cfg: &serde_json::Value| -> Option<String> {
-            cfg.get("permission_policy")
-                .and_then(|p| p.get("type"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string())
-                .or_else(|| default_policy.map(|s| s.to_string()))
-        };
-
-        match tool_type {
-            Some("agent_toolset_20260401") => {
-                let Some(configs) = tool.get("configs").and_then(|v| v.as_array()) else {
-                    continue;
-                };
-                for cfg in configs {
-                    let Some(name) = cfg.get("name").and_then(|v| v.as_str()) else {
-                        continue;
-                    };
-                    // Agent toolset default is always_allow.
-                    if cfg_policy(cfg).as_deref() == Some("always_ask") {
-                        ask.push(name.to_string());
-                    } else {
-                        allow.push(name.to_string());
-                    }
-                }
-            }
-            Some("mcp_toolset") => {
-                let server = tool
-                    .get("name")
-                    .and_then(|v| v.as_str())
-                    .or_else(|| tool.get("mcp_server_name").and_then(|v| v.as_str()))
-                    .unwrap_or("");
-                if server.is_empty() {
-                    continue;
-                }
-                let configs = tool.get("configs").and_then(|v| v.as_array());
-                match configs {
-                    Some(cfgs) if !cfgs.is_empty() => {
-                        for cfg in cfgs {
-                            let tool_name = cfg.get("name").and_then(|v| v.as_str()).unwrap_or("");
-                            let rule = if tool_name.is_empty() || tool_name == server {
-                                format!("mcp__{server}__*")
-                            } else {
-                                format!("mcp__{server}__{tool_name}")
-                            };
-                            // MCP toolset default is always_ask.
-                            if cfg_policy(cfg).as_deref() == Some("always_allow") {
-                                allow.push(rule);
-                            } else {
-                                ask.push(rule);
-                            }
-                        }
-                    }
-                    _ => {
-                        let rule = format!("mcp__{server}__*");
-                        // MCP toolset default is always_ask.
-                        if default_policy == Some("always_allow") {
-                            allow.push(rule);
-                        } else {
-                            ask.push(rule);
-                        }
-                    }
-                }
-            }
-            _ => continue,
-        }
-    }
-    (allow, ask)
-}
-
-fn derive_permission_mode_from_tools(tools: Option<&serde_json::Value>) -> String {
-    if let Some(arr) = tools.and_then(|v| v.as_array()) {
-        for tool in arr {
-            if tool
-                .get("default_config")
-                .and_then(|cfg| cfg.get("permission_policy"))
-                .and_then(|p| p.get("type"))
-                .and_then(|v| v.as_str())
-                == Some("always_ask")
-            {
-                return "default".to_string();
-            }
-            if let Some(configs) = tool.get("configs").and_then(|v| v.as_array()) {
-                for cfg in configs {
-                    if cfg
-                        .get("permission_policy")
-                        .and_then(|p| p.get("type"))
-                        .and_then(|v| v.as_str())
-                        == Some("always_ask")
-                    {
-                        return "default".to_string();
-                    }
-                }
-            }
-        }
-    }
-    "bypassPermissions".to_string()
-}
-
 /// Parse a strict ``MAJOR.MINOR.PATCH`` version into a comparable tuple.
 /// Returns None for anything that isn't three numeric components.
-fn parse_semver(v: &str) -> Option<(u64, u64, u64)> {
-    let mut parts = v.split('.');
-    let major = parts.next()?.parse().ok()?;
-    let minor = parts.next()?.parse().ok()?;
-    let patch = parts.next()?.parse().ok()?;
-    if parts.next().is_some() {
-        return None;
-    }
-    Some((major, minor, patch))
-}
 
 fn extract_package_install_commands(packages: Option<&serde_json::Value>) -> Vec<String> {
     let Some(packages) = packages.and_then(|v| v.as_object()) else {
@@ -3141,265 +2175,6 @@ fn combine_system_prompt(base: Option<String>, memory: Option<String>) -> Option
         (Some(base), None) => Some(base),
         (None, Some(memory)) => Some(memory),
         (None, None) => None,
-    }
-}
-
-fn create_targz(root_dir: &str, files: &[SkillFileForArchive]) -> anyhow::Result<Vec<u8>> {
-    let safe_root = safe_archive_component(root_dir).unwrap_or_else(|| "unknown".to_string());
-    let encoder = GzEncoder::new(Vec::new(), Compression::default());
-    let mut tar = Builder::new(encoder);
-
-    for file in files {
-        let Some(path) = safe_archive_path(file) else {
-            continue;
-        };
-        let archive_path = format!("{safe_root}/{path}");
-        let content = file.content.clone().unwrap_or_default().into_bytes();
-        let mut header = Header::new_gnu();
-        header.set_size(content.len() as u64);
-        header.set_mode(0o644);
-        header.set_cksum();
-        tar.append_data(&mut header, archive_path, content.as_slice())?;
-    }
-
-    let encoder = tar.into_inner()?;
-    Ok(encoder.finish()?)
-}
-
-fn ensure_skill_entrypoint(
-    files: &mut Vec<SkillFileForArchive>,
-    version_content: &str,
-) -> anyhow::Result<()> {
-    let roots = files
-        .iter()
-        .filter(|file| {
-            safe_archive_path(file).is_some_and(|path| path.eq_ignore_ascii_case("SKILL.md"))
-        })
-        .collect::<Vec<_>>();
-    if roots.len() > 1 {
-        anyhow::bail!("multiple root SKILL.md files");
-    }
-    if let Some(root) = roots.first() {
-        if root
-            .content
-            .as_deref()
-            .is_none_or(|content| content.trim().is_empty())
-        {
-            anyhow::bail!("root SKILL.md is empty");
-        }
-        return Ok(());
-    }
-    if version_content.trim().is_empty() {
-        anyhow::bail!("published version content is empty");
-    }
-    files.push(SkillFileForArchive {
-        path: Some(String::new()),
-        file_name: Some("SKILL.md".to_string()),
-        content: Some(version_content.to_string()),
-    });
-    Ok(())
-}
-
-fn safe_archive_component(value: &str) -> Option<String> {
-    let normalized = value.replace('\\', "/");
-    let component = Path::new(&normalized)
-        .file_name()?
-        .to_string_lossy()
-        .to_string();
-    if component.is_empty() || component == "." || component == ".." || component.contains('/') {
-        return None;
-    }
-    Some(component)
-}
-
-fn safe_archive_path(file: &SkillFileForArchive) -> Option<String> {
-    let raw_path = file.path.clone().unwrap_or_default().replace('\\', "/");
-    let file_name = file
-        .file_name
-        .clone()
-        .unwrap_or_default()
-        .replace('\\', "/");
-    let candidate = if raw_path.is_empty() || raw_path == "." {
-        file_name
-    } else if raw_path.ends_with('/') {
-        format!("{raw_path}{file_name}")
-    } else if !file_name.is_empty()
-        && Path::new(&raw_path).file_name().and_then(|v| v.to_str()) != Some(file_name.as_str())
-    {
-        format!("{raw_path}/{file_name}")
-    } else {
-        raw_path
-    };
-
-    let mut parts = Vec::new();
-    for component in Path::new(&candidate).components() {
-        match component {
-            Component::Normal(v) => parts.push(v.to_string_lossy().to_string()),
-            Component::CurDir => {}
-            _ => return None,
-        }
-    }
-    if parts.is_empty() {
-        None
-    } else {
-        Some(parts.join("/"))
-    }
-}
-
-// Storage read is now handled by `sandbox::storage::read_file()`.
-
-async fn load_session_file_resource(row: &SessionFileRow) -> anyhow::Result<Vec<u8>> {
-    crate::sandbox::storage::read_file(&row.storage_key).await
-}
-
-#[derive(Debug, FromRow)]
-struct SkillForArchive {
-    source_type: Option<String>,
-    project_id: ProjectId,
-    skill_org_id: OrganizationId,
-    consumer_project_id: Option<ProjectId>,
-    consumer_org_id: Option<OrganizationId>,
-    org_version: Option<String>,
-    public_version: Option<String>,
-}
-
-impl SkillForArchive {
-    fn same_project(&self) -> bool {
-        self.consumer_project_id == Some(self.project_id)
-    }
-
-    fn same_org(&self) -> bool {
-        self.consumer_org_id == Some(self.skill_org_id)
-    }
-
-    fn exposed_versions(&self) -> Vec<&str> {
-        if self.same_project() {
-            return Vec::new();
-        }
-        let mut versions = Vec::new();
-        if let Some(version) = self.public_version.as_deref() {
-            versions.push(version);
-        }
-        if self.same_org() {
-            if let Some(version) = self.org_version.as_deref() {
-                if !versions.contains(&version) {
-                    versions.push(version);
-                }
-            }
-        }
-        versions
-    }
-}
-
-fn resolve_skill_version_request(
-    skill: &SkillForArchive,
-    requested: &str,
-    project_latest: Option<&str>,
-) -> anyhow::Result<String> {
-    if skill.same_project() {
-        if requested == "latest" {
-            return project_latest
-                .map(str::to_string)
-                .ok_or_else(|| anyhow::anyhow!("skill has no published version"));
-        }
-        return Ok(requested.to_string());
-    }
-
-    let exposed = skill.exposed_versions();
-    if requested == "latest" {
-        return exposed
-            .into_iter()
-            .filter_map(|version| parse_semver(version).map(|key| (key, version)))
-            .max_by(|left, right| left.0.cmp(&right.0))
-            .map(|(_, version)| version.to_string())
-            .ok_or_else(|| anyhow::anyhow!("skill has no version exposed to this project"));
-    }
-    if exposed.contains(&requested) {
-        return Ok(requested.to_string());
-    }
-    anyhow::bail!("skill version {requested} is not exposed to this project")
-}
-
-#[derive(Debug, FromRow)]
-struct SkillVersionForArchive {
-    id: SkillVersionId,
-    skill_name: String,
-    content: String,
-    security_scan_id: Option<SkillSecurityScanId>,
-    target_hash: Option<String>,
-}
-
-fn published_version_scan_audit(
-    version_meta: &SkillVersionForArchive,
-) -> (Option<SkillSecurityScanId>, Option<&str>) {
-    (
-        version_meta.security_scan_id,
-        version_meta.target_hash.as_deref(),
-    )
-}
-
-#[derive(Debug, FromRow)]
-struct SkillFileForArchive {
-    path: Option<String>,
-    file_name: Option<String>,
-    content: Option<String>,
-}
-
-#[derive(Debug, FromRow)]
-struct SessionFileRow {
-    mount_path: String,
-    filename: String,
-    storage_key: String,
-    size_bytes: i64,
-}
-
-#[derive(Debug, FromRow)]
-struct SessionRepoRow {
-    url: String,
-    branch: String,
-    mount_path: String,
-    mount_name: String,
-    encrypted_token: String,
-}
-
-#[derive(Debug, FromRow)]
-struct HarnessGenerationFence {
-    session_id: SessionId,
-    session_project_id: Option<ProjectId>,
-    session_status: String,
-    session_archived_at: Option<chrono::DateTime<chrono::Utc>>,
-    sandbox_session_id: Option<SessionId>,
-    sandbox_project_id: Option<ProjectId>,
-    runtime_config_status: String,
-    generation: i64,
-    applied_generation: i64,
-}
-
-impl HarnessGenerationFence {
-    fn validate(&self, sandbox_id: SandboxId) -> Result<(), RuntimeFreshnessError> {
-        if self.session_archived_at.is_some() || self.session_status == "terminated" {
-            return Err(RuntimeFreshnessError::SessionBindingInvalid {
-                session_id: self.session_id,
-                reason: "inactive session",
-            });
-        }
-        if self.sandbox_session_id != Some(self.session_id)
-            || self.sandbox_project_id != self.session_project_id
-        {
-            return Err(RuntimeFreshnessError::Conflict(format!(
-                "sandbox {sandbox_id} ownership changed"
-            )));
-        }
-        if self.applied_generation != self.generation {
-            return Err(RuntimeFreshnessError::GenerationChanged {
-                expected: self.generation,
-                actual: self.applied_generation,
-            });
-        }
-        if self.runtime_config_status != "ready" {
-            return Err(RuntimeFreshnessError::RuntimeRestartRequired { sandbox_id });
-        }
-        Ok(())
     }
 }
 

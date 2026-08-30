@@ -21,6 +21,7 @@ use crate::grpc::proto::{
 };
 use crate::ids::{EventId, SandboxId, SessionId, TaskId};
 use crate::kernel::ha::BridgeStore;
+use crate::kernel::harness_input_builder::HarnessInputBuilder;
 use crate::kernel::memory_sync::MemoryStoreSubscribers;
 use crate::kernel::queue::TaskQueue;
 use crate::kernel::sandbox_bridge::SandboxBridge;
@@ -72,6 +73,7 @@ pub(crate) async fn multi_task_loop(
     event_bus: &EventBus,
     queue: &TaskQueue,
     config: &JoySafeterConfig,
+    harness_input_builder: &HarnessInputBuilder,
     identity_policy: &Arc<dyn SandboxIdentityPolicy>,
     sandbox_db_id: SandboxId,
     sandbox_external_id: &str,
@@ -339,7 +341,7 @@ pub(crate) async fn multi_task_loop(
 
         // Send SetupSandbox if not done yet (pool containers)
         if !bridge.setup_done.load(Ordering::Relaxed) {
-            match send_setup(pool, bridge, sandbox_db_id, tx, config.envoy_enabled).await {
+            match send_setup(pool, bridge, sandbox_db_id, tx, harness_input_builder).await {
                 Ok(true) => bridge.setup_done.store(true, Ordering::Relaxed),
                 Ok(false) if session_id.is_none() => {
                     bridge.setup_done.store(true, Ordering::Relaxed)
@@ -389,7 +391,14 @@ pub(crate) async fn multi_task_loop(
         }
 
         // Build and send StartTask (full field resolution from DB)
-        let start_task = match build_start_task_full(pool, &task, sandbox_db_id, config).await {
+        let start_task = match build_start_task_full(
+            harness_input_builder,
+            &task,
+            sandbox_db_id,
+            config,
+        )
+        .await
+        {
             Ok(start_task) => start_task,
             Err(e) => {
                 let reason = format!("Failed to build harness input before StartTask: {e}");

@@ -2,6 +2,7 @@ use async_trait::async_trait;
 use joysafeter_types::harness::{
     HarnessAdapter, HarnessError, HarnessEvent, HarnessInput, RunningHarness,
 };
+use joysafeter_types::tool_policy::ToolPolicy;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -14,6 +15,35 @@ use tokio::sync::Mutex;
 use tracing::info;
 
 type SharedStdin = Arc<Mutex<Option<tokio::process::ChildStdin>>>;
+
+fn validate_capabilities(
+    tool_policy: &ToolPolicy,
+    has_mcp_servers: bool,
+    has_custom_tools: bool,
+) -> Result<(), HarnessError> {
+    if has_mcp_servers {
+        return Err(HarnessError::UnsupportedCapability {
+            provider: "pi".to_string(),
+            capability: "mcp_servers".to_string(),
+            reason: "MCP configuration is not supported by this runtime".to_string(),
+        });
+    }
+    if has_custom_tools {
+        return Err(HarnessError::UnsupportedCapability {
+            provider: "pi".to_string(),
+            capability: "custom_tools".to_string(),
+            reason: "custom tool registration is not supported by this runtime".to_string(),
+        });
+    }
+    if !tool_policy.is_unconditionally_allow() {
+        return Err(HarnessError::UnsupportedToolPolicy {
+            provider: "pi".to_string(),
+            reason: "interactive or denied tool decisions cannot be enforced by this runtime"
+                .to_string(),
+        });
+    }
+    Ok(())
+}
 
 /// Provider name declared in ~/.pi/agent/models.json by pi-entrypoint.sh.
 /// MUST stay in sync with deploy/docker/pi-entrypoint.sh (PI_PROVIDER_NAME).
@@ -117,6 +147,11 @@ impl PiAdapter {
 impl HarnessAdapter for PiAdapter {
     async fn start(&self, input: HarnessInput, cwd: &Path) -> Result<RunningHarness, HarnessError> {
         use std::time::Instant;
+        validate_capabilities(
+            &input.tool_policy,
+            !input.mcp_configs.is_empty(),
+            !input.custom_tools.is_empty(),
+        )?;
         self.ensure_session(&input, cwd).await?;
 
         let start = Instant::now();
@@ -599,14 +634,6 @@ impl PiAdapter {
             let _ = old.child.wait().await;
         }
 
-        // NOTE: `input.mcp_configs` is intentionally NOT wired for pi. Unlike
-        // codex (which merges `[mcp_servers.*]` into ~/.codex/config.toml), pi
-        // 0.83.0 has NO MCP support by design — its README states "No MCP" and it
-        // exposes no MCP config file, CLI flag, or settings key. pi's tool-
-        // extension mechanism is Skills (CLI tools + READMEs), which JoySafeter
-        // already provisions via the `.pi/` skill layout (see runner skill_base_dir).
-        // Reaching MCP servers from pi would require a separate MCP-bridge
-        // extension; that is out of scope for this adapter.
         let mut args = vec!["--mode".to_string(), "rpc".to_string()];
         if let Some(model) = &input.model {
             args.extend(["--model".to_string(), pi_model_arg(model)]);
@@ -619,9 +646,6 @@ impl PiAdapter {
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped());
         for (k, v) in &input.env {
-            cmd.env(k, v);
-        }
-        for (k, v) in &input.secrets {
             cmd.env(k, v);
         }
         // pi runs on Node 22, whose built-in fetch (undici) does NOT honor the
@@ -685,11 +709,56 @@ impl PiAdapter {
 mod tests {
     use super::*;
     use joysafeter_types::harness::HarnessEvent;
+    use joysafeter_types::tool_policy::{ToolDecision, ToolPolicy, ToolRule};
     // `HarnessResultStatus` is brought in via `super::*` (imported at module scope).
 
     fn map(v: serde_json::Value) -> PiMapped {
         let mut m = HashMap::new();
         map_pi_event(&v, &mut m)
+    }
+
+    #[test]
+    fn pi_rejects_policy_it_cannot_enforce() {
+        let policy = ToolPolicy::new(
+            ToolDecision::Allow,
+            vec![ToolRule::builtin("Bash", ToolDecision::Ask).expect("valid rule")],
+        )
+        .expect("valid policy");
+
+        assert!(super::validate_capabilities(&policy, false, false)
+            .unwrap_err()
+            .to_string()
+            .contains("interactive or denied"));
+    }
+
+    #[test]
+    fn pi_rejects_mcp_configuration() {
+        let policy = ToolPolicy::new(ToolDecision::Allow, vec![]).expect("valid policy");
+
+        let error = super::validate_capabilities(&policy, true, false).unwrap_err();
+        assert!(matches!(
+            error,
+            HarnessError::UnsupportedCapability {
+                provider,
+                capability,
+                ..
+            } if provider == "pi" && capability == "mcp_servers"
+        ));
+    }
+
+    #[test]
+    fn pi_rejects_custom_tools_it_cannot_register() {
+        let policy = ToolPolicy::new(ToolDecision::Allow, vec![]).expect("valid policy");
+
+        let error = super::validate_capabilities(&policy, false, true).unwrap_err();
+        assert!(matches!(
+            error,
+            HarnessError::UnsupportedCapability {
+                provider,
+                capability,
+                ..
+            } if provider == "pi" && capability == "custom_tools"
+        ));
     }
 
     #[test]

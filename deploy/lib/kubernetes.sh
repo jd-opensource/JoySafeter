@@ -21,6 +21,8 @@ deploy 选项:
   --mode MODE         multi 或 leader（默认: multi）
   --replicas N        orchestrator 副本数
   -f, --values FILE   额外 values 文件
+  --sync-images       从统一镜像 Registry 注入 orchestrator 和四个 runtime 镜像
+  --reuse-values      升级时保留 release 已有 values，再应用本次显式覆盖
   --timeout DURATION  Helm/rollout 超时（默认: 180s）
   --dry-run           仅用 helm template 渲染，不访问集群
 
@@ -32,6 +34,7 @@ secrets 选项:
   --from-file FILE    从 env 文件读取上述三个值，不执行该文件
 
 示例:
+  $0 --registry registry.example.com/joysafeter --tag v1 k8s deploy --sync-images
   $0 k8s deploy --namespace joysafeter --values values.local.yaml
   $0 k8s verify --namespace joysafeter
   $0 k8s scale 3 --namespace joysafeter
@@ -66,8 +69,17 @@ kubernetes_validate_replicas() {
     }
 }
 
+kubernetes_component_image_overrides() {
+    local record component helm_key
+    while IFS= read -r record; do
+        IFS='|' read -r component _ _ _ _ _ _ _ _ _ _ _ helm_key <<< "$record"
+        [ "$helm_key" = - ] && continue
+        printf '%s=%s\n' "$helm_key" "$(component_image_ref "$component")"
+    done < <(image_component_source_registry)
+}
+
 kubernetes_deploy() {
-    local namespace=$1 release=$2 context=$3 mode=$4 replicas=$5 values_file=$6 dry_run=$7 timeout=$8
+    local namespace=$1 release=$2 context=$3 mode=$4 replicas=$5 values_file=$6 dry_run=$7 timeout=$8 sync_images=$9 reuse_values=${10}
     local chart_dir="$SCRIPT_DIR/helm/joysafeter-orchestrator"
     local -a helm_args=()
 
@@ -87,9 +99,18 @@ kubernetes_deploy() {
 
     check_command helm || return 1
     if [ "$dry_run" = true ]; then
+        if [ "$reuse_values" = true ]; then
+            log_error "--reuse-values 不能与 --dry-run 同时使用"
+            return 1
+        fi
         helm_args=(template "$release" "$chart_dir" --namespace "$namespace" --set "haMode=$mode")
         [ -n "$replicas" ] && helm_args+=(--set "orchestrator.replicas=$replicas")
         [ -n "$values_file" ] && helm_args+=(-f "$values_file")
+        if [ "$sync_images" = true ]; then
+            while IFS= read -r image_override; do
+                helm_args+=(--set-string "$image_override")
+            done < <(kubernetes_component_image_overrides)
+        fi
         kubernetes_helm "$context" "${helm_args[@]}"
         return
     fi
@@ -102,8 +123,14 @@ kubernetes_deploy() {
     fi
 
     helm_args=(upgrade --install "$release" "$chart_dir" --namespace "$namespace" --create-namespace --wait --timeout "$timeout" --set "haMode=$mode")
+    [ "$reuse_values" = true ] && helm_args+=(--reuse-values)
     [ -n "$replicas" ] && helm_args+=(--set "orchestrator.replicas=$replicas")
     [ -n "$values_file" ] && helm_args+=(-f "$values_file")
+    if [ "$sync_images" = true ]; then
+        while IFS= read -r image_override; do
+            helm_args+=(--set-string "$image_override")
+        done < <(kubernetes_component_image_overrides)
+    fi
 
     kubernetes_helm "$context" "${helm_args[@]}"
     kubernetes_kubectl "$context" rollout status deployment/joysafeter-orchestrator -n "$namespace" --timeout="$timeout"
@@ -218,6 +245,8 @@ run_kubernetes_command() {
     local timeout="180s"
     local since="5m"
     local dry_run=false
+    local sync_images=false
+    local reuse_values=false
     local from_env=false
     local from_file=""
 
@@ -233,6 +262,8 @@ run_kubernetes_command() {
             --timeout) timeout="$2"; shift 2 ;;
             --since) since="$2"; shift 2 ;;
             --dry-run) dry_run=true; shift ;;
+            --sync-images) sync_images=true; shift ;;
+            --reuse-values) reuse_values=true; shift ;;
             --from-env) from_env=true; shift ;;
             --from-file) from_file="$2"; shift 2 ;;
             *)
@@ -248,9 +279,14 @@ run_kubernetes_command() {
         esac
     done
 
+    if { [ "$sync_images" = true ] || [ "$reuse_values" = true ]; } && [ "$action" != deploy ]; then
+        log_error "--sync-images 和 --reuse-values 仅适用于 k8s deploy"
+        return 1
+    fi
+
     case "$action" in
         help|-h|--help) kubernetes_usage ;;
-        deploy) kubernetes_deploy "$namespace" "$release" "$context" "$mode" "$replicas" "$values_file" "$dry_run" "$timeout" ;;
+        deploy) kubernetes_deploy "$namespace" "$release" "$context" "$mode" "$replicas" "$values_file" "$dry_run" "$timeout" "$sync_images" "$reuse_values" ;;
         uninstall) kubernetes_uninstall "$namespace" "$release" "$context" ;;
         verify) kubernetes_verify "$namespace" "$context" "$since" "$timeout" ;;
         scale)

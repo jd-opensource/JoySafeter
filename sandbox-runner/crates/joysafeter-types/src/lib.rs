@@ -9,6 +9,7 @@ pub mod sandbox;
 pub mod session;
 pub mod task;
 pub mod token_usage;
+pub mod tool_policy;
 
 pub use joysafeter_entity_id::{
     AgentId, AgentVersionId, ApiKeyId, CredentialGroupId, CredentialId, EnvironmentId, EventId,

@@ -174,6 +174,11 @@ kubectl get nodes
 ./deploy/deploy.sh k8s deploy --dry-run \
   --release joysafeter-local \
   --namespace joysafeter-local
+
+# 使用刚构建的统一镜像 Registry 覆盖 Helm 中的 orchestrator 与四个 runtime 镜像
+./deploy/deploy.sh --tag local k8s deploy --dry-run --sync-images \
+  --release joysafeter-local \
+  --namespace joysafeter-local
 ```
 
 Runner gRPC and ADS must render as distinct service ports. Deployment verification must wait for

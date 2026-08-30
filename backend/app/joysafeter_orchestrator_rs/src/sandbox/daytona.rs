@@ -56,6 +56,7 @@ impl SandboxProvider for DaytonaProvider {
     }
 
     async fn create(&self, config: &SandboxCreateConfig) -> anyhow::Result<String> {
+        let env = config.provider_environment();
         let mut body = serde_json::json!({
             "labels": {
                 "joysafeter": "true",
@@ -69,8 +70,8 @@ impl SandboxProvider for DaytonaProvider {
         }
 
         // Add env vars
-        if !config.env.is_empty() {
-            body["env"] = serde_json::json!(config.env);
+        if !env.is_empty() {
+            body["env"] = serde_json::json!(env);
         }
 
         let resp = self

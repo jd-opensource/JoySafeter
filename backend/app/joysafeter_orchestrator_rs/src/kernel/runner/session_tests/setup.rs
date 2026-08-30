@@ -52,7 +52,9 @@ async fn send_setup_waits_for_late_session_link_before_marking_done() {
             .expect("link sandbox to session with complete runtime ownership");
         });
 
-        let sent = send_setup(&pool, &bridge, sandbox_id, &tx, false)
+        let harness_input_builder =
+            crate::kernel::harness_input_builder::HarnessInputBuilder::new(pool.clone(), false);
+        let sent = send_setup(&pool, &bridge, sandbox_id, &tx, &harness_input_builder)
             .await
             .expect("send setup after late session link");
         link_task.await.expect("late link task joined");
@@ -190,13 +192,13 @@ async fn build_start_task_full_propagates_harness_input_error_without_minimal_fa
             r#"
                 INSERT INTO joysafeter_agents (
                     id, project_id, name, engine_kind, model, system_prompt, env,
-                    mcp_servers, skills, tools, agents, commands, permission_mode,
+                    mcp_servers, skills, tools, agents, commands,
                     metadata, version
                 )
                 VALUES (
                     $1, $2, $3, 'claude', $4, '', '{}'::jsonb,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    '[]'::jsonb, 'bypassPermissions', '{}'::jsonb, 1
+                    '[]'::jsonb, '{}'::jsonb, 1
                 )
                 "#,
         )
@@ -294,10 +296,17 @@ async fn build_start_task_full_propagates_harness_input_error_without_minimal_fa
             .await
             .expect("load task")
             .expect("task exists");
-        let err = build_start_task_full(&pool, &task, sandbox_id, &JoySafeterConfig::from_env())
-            .await
-            .expect_err("harness input build failure must not produce fallback StartTask")
-            .to_string();
+        let harness_input_builder =
+            crate::kernel::harness_input_builder::HarnessInputBuilder::new(pool.clone(), false);
+        let err = build_start_task_full(
+            &harness_input_builder,
+            &task,
+            sandbox_id,
+            &JoySafeterConfig::from_env(),
+        )
+        .await
+        .expect_err("harness input build failure must not produce fallback StartTask")
+        .to_string();
 
         assert!(err.contains("failed to prepare session file"), "{err}");
         assert!(err.contains(&missing_storage_key), "{err}");

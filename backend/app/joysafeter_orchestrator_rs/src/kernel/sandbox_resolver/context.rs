@@ -5,6 +5,7 @@ use sqlx::{PgPool, Row};
 use crate::config::JoySafeterConfig;
 use crate::db::queries;
 use crate::ids::{AgentId, ProjectId, SessionId, TaskId};
+#[cfg(test)]
 use crate::kernel::agent_identity_provider::AgentIdentityProvider;
 use crate::kernel::credentials::access::{
     CredentialAccessContext, CredentialMaterialAccessService,
@@ -18,16 +19,32 @@ use crate::kernel::mcp_runtime_plan::{
     effective_network_mode, resolve_mcp_runtime_plan_with_access, EffectiveNetworkMode,
 };
 use crate::kernel::network_policy::envoy_model::SandboxCredentials;
+use crate::kernel::network_policy::identity::merge_identity_injection;
 use crate::kernel::network_policy::DesiredNetworkPolicy;
+use crate::kernel::repository_access::material::RepositoryAccessMaterial;
 use crate::kernel::run_spec::{agent_for_execution, environment_for_execution};
 #[cfg(test)]
 use crate::kernel::task_identity::material::TaskIdentityMaterialAdapter;
+use crate::kernel::task_identity::{
+    TaskIdentityContextError, TaskIdentityService, TaskIdentitySubject,
+};
 use crate::sandbox::mounts::resolve_mount_resources;
 
-use super::identity::{TaskIdentityContextError, TaskIdentityService};
 use super::model::{ExpectedFingerprint, ResolveContext};
 use super::networking::SandboxNetworkingService;
 use super::runtime_plan::{effective_networking_config, effective_prefixes};
+
+impl TaskIdentitySubject for crate::db::models::JoySafeterAgent {
+    fn agent_id(&self) -> AgentId {
+        self.id
+    }
+
+    fn provider_config(&self) -> Option<&serde_json::Value> {
+        self.metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("agent_identity"))
+    }
+}
 
 #[derive(Clone)]
 pub struct ResolveContextBuilder {
@@ -35,25 +52,27 @@ pub struct ResolveContextBuilder {
     config: JoySafeterConfig,
     networking: SandboxNetworkingService,
     identity: TaskIdentityService,
+    credential_access: CredentialMaterialAccessService,
+    repository_material: Arc<dyn RepositoryAccessMaterial>,
 }
 
 impl ResolveContextBuilder {
-    pub fn new(
+    pub(crate) fn new(
         pool: PgPool,
         config: JoySafeterConfig,
         networking: SandboxNetworkingService,
+        identity: TaskIdentityService,
+        credential_access: CredentialMaterialAccessService,
+        repository_material: Arc<dyn RepositoryAccessMaterial>,
     ) -> Self {
         Self {
-            identity: TaskIdentityService::new(pool.clone()),
+            identity,
             pool,
             config,
             networking,
+            credential_access,
+            repository_material,
         }
-    }
-
-    pub fn with_identity_provider(mut self, provider: Arc<dyn AgentIdentityProvider>) -> Self {
-        self.identity = self.identity.with_provider(provider);
-        self
     }
 
     #[cfg(test)]
@@ -73,7 +92,7 @@ impl ResolveContextBuilder {
 
     #[cfg(test)]
     pub(crate) fn set_task_identity_material(&mut self, material: TaskIdentityMaterialAdapter) {
-        self.identity.set_material(material);
+        self.identity.set_material(Arc::new(material));
     }
 
     #[cfg(test)]
@@ -138,9 +157,8 @@ impl ResolveContextBuilder {
                 .as_ref()
                 .map(|session| session.runtime_config_generation),
         );
-        let credential_access = CredentialMaterialAccessService::new(self.pool.clone());
         let resolved_env = resolve_agent_env_from(
-            &credential_access,
+            &self.credential_access,
             &access_context,
             agent.as_ref(),
             environment.as_ref(),
@@ -170,7 +188,7 @@ impl ResolveContextBuilder {
         let mcp_plan = match agent.as_ref() {
             Some(agent) => Some(
                 resolve_mcp_runtime_plan_with_access(
-                    &credential_access,
+                    &self.credential_access,
                     &access_context,
                     project_id,
                     session_id,
@@ -199,9 +217,11 @@ impl ResolveContextBuilder {
                     .map(|plan| plan.egress_routes())
                     .unwrap_or_default(),
             );
-            routes.extend(build_git_egress(&self.pool, session_id).await?);
+            routes.extend(
+                build_git_egress(&self.pool, self.repository_material.as_ref(), session_id).await?,
+            );
             let (external_routes, identity_targets) = build_external_egress(
-                &credential_access,
+                &self.credential_access,
                 &access_context,
                 environment.as_ref(),
                 project_id,
@@ -221,7 +241,9 @@ impl ResolveContextBuilder {
                 if let Some(injection) = self
                     .identity
                     .resolve_injection(
-                        agent.as_ref(),
+                        agent
+                            .as_ref()
+                            .map(|agent| agent as &dyn TaskIdentitySubject),
                         task_id,
                         session_id,
                         project_id,
@@ -230,7 +252,7 @@ impl ResolveContextBuilder {
                     .await?
                 {
                     identity_refresh_after_seconds = injection.valid_for_seconds;
-                    TaskIdentityService::merge_into_routes(&mut routes, injection)?;
+                    merge_identity_injection(&mut routes, injection)?;
                 }
             }
 

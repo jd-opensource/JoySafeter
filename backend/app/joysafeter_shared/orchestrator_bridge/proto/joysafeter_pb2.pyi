@@ -7,12 +7,23 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
+class ToolDecision(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    TOOL_DECISION_UNSPECIFIED: _ClassVar[ToolDecision]
+    TOOL_DECISION_ALLOW: _ClassVar[ToolDecision]
+    TOOL_DECISION_ASK: _ClassVar[ToolDecision]
+    TOOL_DECISION_DENY: _ClassVar[ToolDecision]
+
 class McpTransport(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     MCP_TRANSPORT_UNSPECIFIED: _ClassVar[McpTransport]
     MCP_TRANSPORT_STREAMABLE_HTTP: _ClassVar[McpTransport]
     MCP_TRANSPORT_SSE: _ClassVar[McpTransport]
     MCP_TRANSPORT_LOCAL_STDIO: _ClassVar[McpTransport]
+TOOL_DECISION_UNSPECIFIED: ToolDecision
+TOOL_DECISION_ALLOW: ToolDecision
+TOOL_DECISION_ASK: ToolDecision
+TOOL_DECISION_DENY: ToolDecision
 MCP_TRANSPORT_UNSPECIFIED: McpTransport
 MCP_TRANSPORT_STREAMABLE_HTTP: McpTransport
 MCP_TRANSPORT_SSE: McpTransport
@@ -324,6 +335,32 @@ class SandboxFileResponse(_message.Message):
     size: int
     def __init__(self, request_id: _Optional[str] = ..., ok: bool = ..., code: _Optional[str] = ..., error: _Optional[str] = ..., path: _Optional[str] = ..., entries: _Optional[_Iterable[_Union[SandboxFileEntry, _Mapping]]] = ..., encoding: _Optional[str] = ..., content: _Optional[str] = ..., content_bytes: _Optional[bytes] = ..., filename: _Optional[str] = ..., content_type: _Optional[str] = ..., size: _Optional[int] = ...) -> None: ...
 
+class McpToolSelector(_message.Message):
+    __slots__ = ("server_name", "tool_name")
+    SERVER_NAME_FIELD_NUMBER: _ClassVar[int]
+    TOOL_NAME_FIELD_NUMBER: _ClassVar[int]
+    server_name: str
+    tool_name: str
+    def __init__(self, server_name: _Optional[str] = ..., tool_name: _Optional[str] = ...) -> None: ...
+
+class ToolRule(_message.Message):
+    __slots__ = ("decision", "builtin_name", "mcp")
+    DECISION_FIELD_NUMBER: _ClassVar[int]
+    BUILTIN_NAME_FIELD_NUMBER: _ClassVar[int]
+    MCP_FIELD_NUMBER: _ClassVar[int]
+    decision: ToolDecision
+    builtin_name: str
+    mcp: McpToolSelector
+    def __init__(self, decision: _Optional[_Union[ToolDecision, str]] = ..., builtin_name: _Optional[str] = ..., mcp: _Optional[_Union[McpToolSelector, _Mapping]] = ...) -> None: ...
+
+class ToolPolicy(_message.Message):
+    __slots__ = ("default_decision", "rules")
+    DEFAULT_DECISION_FIELD_NUMBER: _ClassVar[int]
+    RULES_FIELD_NUMBER: _ClassVar[int]
+    default_decision: ToolDecision
+    rules: _containers.RepeatedCompositeFieldContainer[ToolRule]
+    def __init__(self, default_decision: _Optional[_Union[ToolDecision, str]] = ..., rules: _Optional[_Iterable[_Union[ToolRule, _Mapping]]] = ...) -> None: ...
+
 class MemoryFileUpdate(_message.Message):
     __slots__ = ("store_mount_name", "relative_path", "content", "operation")
     STORE_MOUNT_NAME_FIELD_NUMBER: _ClassVar[int]
@@ -337,7 +374,7 @@ class MemoryFileUpdate(_message.Message):
     def __init__(self, store_mount_name: _Optional[str] = ..., relative_path: _Optional[str] = ..., content: _Optional[bytes] = ..., operation: _Optional[str] = ...) -> None: ...
 
 class SetupSandbox(_message.Message):
-    __slots__ = ("skills", "mcp_servers", "custom_tools", "setup_commands", "work_dir", "env", "permission_mode", "provider", "model", "memory_system_prompt", "memory_mounts", "allowed_tools", "disallowed_tools", "ask_tools", "repos")
+    __slots__ = ("skills", "mcp_servers", "custom_tools", "setup_commands", "work_dir", "env", "provider", "model", "memory_system_prompt", "memory_mounts", "repos", "tool_policy")
     class EnvEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -351,31 +388,25 @@ class SetupSandbox(_message.Message):
     SETUP_COMMANDS_FIELD_NUMBER: _ClassVar[int]
     WORK_DIR_FIELD_NUMBER: _ClassVar[int]
     ENV_FIELD_NUMBER: _ClassVar[int]
-    PERMISSION_MODE_FIELD_NUMBER: _ClassVar[int]
     PROVIDER_FIELD_NUMBER: _ClassVar[int]
     MODEL_FIELD_NUMBER: _ClassVar[int]
     MEMORY_SYSTEM_PROMPT_FIELD_NUMBER: _ClassVar[int]
     MEMORY_MOUNTS_FIELD_NUMBER: _ClassVar[int]
-    ALLOWED_TOOLS_FIELD_NUMBER: _ClassVar[int]
-    DISALLOWED_TOOLS_FIELD_NUMBER: _ClassVar[int]
-    ASK_TOOLS_FIELD_NUMBER: _ClassVar[int]
     REPOS_FIELD_NUMBER: _ClassVar[int]
+    TOOL_POLICY_FIELD_NUMBER: _ClassVar[int]
     skills: _containers.RepeatedCompositeFieldContainer[SkillArchive]
     mcp_servers: _containers.RepeatedCompositeFieldContainer[McpConfig]
     custom_tools: _containers.RepeatedCompositeFieldContainer[CustomTool]
     setup_commands: _containers.RepeatedScalarFieldContainer[str]
     work_dir: str
     env: _containers.ScalarMap[str, str]
-    permission_mode: str
     provider: str
     model: str
     memory_system_prompt: str
     memory_mounts: _containers.RepeatedCompositeFieldContainer[MemoryStoreMount]
-    allowed_tools: _containers.RepeatedScalarFieldContainer[str]
-    disallowed_tools: _containers.RepeatedScalarFieldContainer[str]
-    ask_tools: _containers.RepeatedScalarFieldContainer[str]
     repos: _containers.RepeatedCompositeFieldContainer[RepoConfig]
-    def __init__(self, skills: _Optional[_Iterable[_Union[SkillArchive, _Mapping]]] = ..., mcp_servers: _Optional[_Iterable[_Union[McpConfig, _Mapping]]] = ..., custom_tools: _Optional[_Iterable[_Union[CustomTool, _Mapping]]] = ..., setup_commands: _Optional[_Iterable[str]] = ..., work_dir: _Optional[str] = ..., env: _Optional[_Mapping[str, str]] = ..., permission_mode: _Optional[str] = ..., provider: _Optional[str] = ..., model: _Optional[str] = ..., memory_system_prompt: _Optional[str] = ..., memory_mounts: _Optional[_Iterable[_Union[MemoryStoreMount, _Mapping]]] = ..., allowed_tools: _Optional[_Iterable[str]] = ..., disallowed_tools: _Optional[_Iterable[str]] = ..., ask_tools: _Optional[_Iterable[str]] = ..., repos: _Optional[_Iterable[_Union[RepoConfig, _Mapping]]] = ...) -> None: ...
+    tool_policy: ToolPolicy
+    def __init__(self, skills: _Optional[_Iterable[_Union[SkillArchive, _Mapping]]] = ..., mcp_servers: _Optional[_Iterable[_Union[McpConfig, _Mapping]]] = ..., custom_tools: _Optional[_Iterable[_Union[CustomTool, _Mapping]]] = ..., setup_commands: _Optional[_Iterable[str]] = ..., work_dir: _Optional[str] = ..., env: _Optional[_Mapping[str, str]] = ..., provider: _Optional[str] = ..., model: _Optional[str] = ..., memory_system_prompt: _Optional[str] = ..., memory_mounts: _Optional[_Iterable[_Union[MemoryStoreMount, _Mapping]]] = ..., repos: _Optional[_Iterable[_Union[RepoConfig, _Mapping]]] = ..., tool_policy: _Optional[_Union[ToolPolicy, _Mapping]] = ...) -> None: ...
 
 class MemoryStoreMount(_message.Message):
     __slots__ = ("mount_name", "mount_path", "access", "files")
@@ -410,7 +441,7 @@ class MemoryFileSync(_message.Message):
     def __init__(self, store_mount_name: _Optional[str] = ..., relative_path: _Optional[str] = ..., content: _Optional[str] = ..., operation: _Optional[str] = ...) -> None: ...
 
 class StartTask(_message.Message):
-    __slots__ = ("task_id", "provider", "prompt", "system_prompt", "harness_session_id", "model", "max_turns", "timeout_seconds", "env", "mcp_servers", "repos", "work_dir", "skills", "allowed_tools", "disallowed_tools", "permission_mode", "setup_commands", "custom_tools", "ask_tools", "system_prompt_mode", "files", "file_refs")
+    __slots__ = ("task_id", "provider", "prompt", "system_prompt", "harness_session_id", "model", "max_turns", "timeout_seconds", "env", "mcp_servers", "repos", "work_dir", "skills", "setup_commands", "custom_tools", "system_prompt_mode", "files", "file_refs", "tool_policy")
     class EnvEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -431,15 +462,12 @@ class StartTask(_message.Message):
     REPOS_FIELD_NUMBER: _ClassVar[int]
     WORK_DIR_FIELD_NUMBER: _ClassVar[int]
     SKILLS_FIELD_NUMBER: _ClassVar[int]
-    ALLOWED_TOOLS_FIELD_NUMBER: _ClassVar[int]
-    DISALLOWED_TOOLS_FIELD_NUMBER: _ClassVar[int]
-    PERMISSION_MODE_FIELD_NUMBER: _ClassVar[int]
     SETUP_COMMANDS_FIELD_NUMBER: _ClassVar[int]
     CUSTOM_TOOLS_FIELD_NUMBER: _ClassVar[int]
-    ASK_TOOLS_FIELD_NUMBER: _ClassVar[int]
     SYSTEM_PROMPT_MODE_FIELD_NUMBER: _ClassVar[int]
     FILES_FIELD_NUMBER: _ClassVar[int]
     FILE_REFS_FIELD_NUMBER: _ClassVar[int]
+    TOOL_POLICY_FIELD_NUMBER: _ClassVar[int]
     task_id: str
     provider: str
     prompt: str
@@ -453,16 +481,13 @@ class StartTask(_message.Message):
     repos: _containers.RepeatedCompositeFieldContainer[RepoConfig]
     work_dir: str
     skills: _containers.RepeatedCompositeFieldContainer[SkillArchive]
-    allowed_tools: _containers.RepeatedScalarFieldContainer[str]
-    disallowed_tools: _containers.RepeatedScalarFieldContainer[str]
-    permission_mode: str
     setup_commands: _containers.RepeatedScalarFieldContainer[str]
     custom_tools: _containers.RepeatedCompositeFieldContainer[CustomTool]
-    ask_tools: _containers.RepeatedScalarFieldContainer[str]
     system_prompt_mode: str
     files: _containers.RepeatedCompositeFieldContainer[FileMount]
     file_refs: _containers.RepeatedCompositeFieldContainer[FileRef]
-    def __init__(self, task_id: _Optional[str] = ..., provider: _Optional[str] = ..., prompt: _Optional[str] = ..., system_prompt: _Optional[str] = ..., harness_session_id: _Optional[str] = ..., model: _Optional[str] = ..., max_turns: _Optional[int] = ..., timeout_seconds: _Optional[int] = ..., env: _Optional[_Mapping[str, str]] = ..., mcp_servers: _Optional[_Iterable[_Union[McpConfig, _Mapping]]] = ..., repos: _Optional[_Iterable[_Union[RepoConfig, _Mapping]]] = ..., work_dir: _Optional[str] = ..., skills: _Optional[_Iterable[_Union[SkillArchive, _Mapping]]] = ..., allowed_tools: _Optional[_Iterable[str]] = ..., disallowed_tools: _Optional[_Iterable[str]] = ..., permission_mode: _Optional[str] = ..., setup_commands: _Optional[_Iterable[str]] = ..., custom_tools: _Optional[_Iterable[_Union[CustomTool, _Mapping]]] = ..., ask_tools: _Optional[_Iterable[str]] = ..., system_prompt_mode: _Optional[str] = ..., files: _Optional[_Iterable[_Union[FileMount, _Mapping]]] = ..., file_refs: _Optional[_Iterable[_Union[FileRef, _Mapping]]] = ...) -> None: ...
+    tool_policy: ToolPolicy
+    def __init__(self, task_id: _Optional[str] = ..., provider: _Optional[str] = ..., prompt: _Optional[str] = ..., system_prompt: _Optional[str] = ..., harness_session_id: _Optional[str] = ..., model: _Optional[str] = ..., max_turns: _Optional[int] = ..., timeout_seconds: _Optional[int] = ..., env: _Optional[_Mapping[str, str]] = ..., mcp_servers: _Optional[_Iterable[_Union[McpConfig, _Mapping]]] = ..., repos: _Optional[_Iterable[_Union[RepoConfig, _Mapping]]] = ..., work_dir: _Optional[str] = ..., skills: _Optional[_Iterable[_Union[SkillArchive, _Mapping]]] = ..., setup_commands: _Optional[_Iterable[str]] = ..., custom_tools: _Optional[_Iterable[_Union[CustomTool, _Mapping]]] = ..., system_prompt_mode: _Optional[str] = ..., files: _Optional[_Iterable[_Union[FileMount, _Mapping]]] = ..., file_refs: _Optional[_Iterable[_Union[FileRef, _Mapping]]] = ..., tool_policy: _Optional[_Union[ToolPolicy, _Mapping]] = ...) -> None: ...
 
 class CustomTool(_message.Message):
     __slots__ = ("name", "description", "input_schema_json")

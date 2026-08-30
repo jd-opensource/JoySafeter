@@ -202,6 +202,7 @@ $(print_image_component_environment)
   # Helm/Kubernetes
   $0 k8s --help
   $0 k8s deploy --namespace joysafeter --values values.local.yaml
+  $0 --registry registry.example.com/joysafeter --tag v1 k8s deploy --sync-images
   $0 k8s verify --namespace joysafeter
 EOF
 }

@@ -21,7 +21,7 @@ use std::collections::HashMap;
 // ---------------------------------------------------------------------------
 
 /// A single target host + the headers to inject on outbound requests to it.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct IdentityEgressTarget {
     /// Stable route ID selected by environment policy.
     pub route_id: String,
@@ -39,6 +39,27 @@ pub struct IdentityEgressTarget {
     pub remove_headers: Vec<String>,
 }
 
+impl std::fmt::Debug for IdentityEgressTarget {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("IdentityEgressTarget")
+            .field("route_id", &self.route_id)
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("tls", &self.tls)
+            .field(
+                "inject_headers",
+                &self
+                    .inject_headers
+                    .iter()
+                    .map(|(name, _)| (name, "<redacted>"))
+                    .collect::<Vec<_>>(),
+            )
+            .field("remove_headers", &self.remove_headers)
+            .finish()
+    }
+}
+
 /// One environment-owned egress route for which identity must be minted.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IdentityEgressRequestTarget {
@@ -51,7 +72,7 @@ pub struct IdentityEgressRequestTarget {
 }
 
 /// Resolved identity injection result for one task execution.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct AgentIdentityInjection {
     /// Per-host injection targets. Empty = no identity injection this run.
     pub targets: Vec<IdentityEgressTarget>,
@@ -59,8 +80,18 @@ pub struct AgentIdentityInjection {
     pub valid_for_seconds: Option<u64>,
 }
 
+impl std::fmt::Debug for AgentIdentityInjection {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AgentIdentityInjection")
+            .field("targets", &self.targets)
+            .field("valid_for_seconds", &self.valid_for_seconds)
+            .finish()
+    }
+}
+
 /// Context passed to the provider for token resolution.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct IdentityResolveContext {
     /// Authenticated project/tenant scope.
     pub project_id: ProjectId,
@@ -88,6 +119,28 @@ pub struct IdentityResolveContext {
     pub provider_config: JsonValue,
     /// Exact routes selected by the environment policy.
     pub egress_targets: Vec<IdentityEgressRequestTarget>,
+}
+
+impl std::fmt::Debug for IdentityResolveContext {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("IdentityResolveContext")
+            .field("project_id", &self.project_id)
+            .field("user_id", &self.user_id)
+            .field("agent_id", &self.agent_id)
+            .field("session_id", &self.session_id)
+            .field("task_id", &self.task_id)
+            .field("identity_token", &"<redacted>")
+            .field(
+                "headers_map",
+                &format_args!("{} keys <redacted>", self.headers_map.len()),
+            )
+            .field("auth_code", &self.auth_code.as_ref().map(|_| "<redacted>"))
+            .field("user_name", &self.user_name)
+            .field("provider_config", &"<redacted>")
+            .field("egress_targets", &self.egress_targets)
+            .finish()
+    }
 }
 
 /// Context for cleanup operations.
@@ -219,5 +272,57 @@ mod tests {
             context.project_id.to_string().split('_').next(),
             Some("proj")
         );
+    }
+
+    #[test]
+    fn identity_debug_output_redacts_credential_material() {
+        let context = IdentityResolveContext {
+            project_id: ProjectId::new(),
+            user_id: UserId::new(),
+            agent_id: AgentId::new(),
+            session_id: SessionId::new(),
+            task_id: TaskId::new(),
+            identity_token: "identity-token-secret".to_string(),
+            headers_map: HashMap::from([("Cookie".to_string(), "sso-cookie-secret".to_string())]),
+            auth_code: Some("auth-code-secret".to_string()),
+            user_name: "user@example.com".to_string(),
+            provider_config: serde_json::json!({"client_secret": "provider-secret"}),
+            egress_targets: vec![IdentityEgressRequestTarget {
+                route_id: "external-identity:crm:0".to_string(),
+                endpoint: "https://api.example.com/v1/customer".to_string(),
+                host: "api.example.com".to_string(),
+                port: 443,
+                tls: true,
+            }],
+        };
+        let injection = AgentIdentityInjection {
+            targets: vec![IdentityEgressTarget {
+                route_id: context.egress_targets[0].route_id.clone(),
+                host: context.egress_targets[0].host.clone(),
+                port: 443,
+                tls: true,
+                inject_headers: vec![(
+                    "Authorization".to_string(),
+                    "Bearer injected-secret".to_string(),
+                )],
+                remove_headers: vec!["authorization".to_string()],
+            }],
+            valid_for_seconds: Some(300),
+        };
+
+        let context_debug = format!("{context:?}");
+        let injection_debug = format!("{injection:?}");
+        for secret in [
+            "identity-token-secret",
+            "sso-cookie-secret",
+            "auth-code-secret",
+            "provider-secret",
+            "injected-secret",
+        ] {
+            assert!(!context_debug.contains(secret));
+            assert!(!injection_debug.contains(secret));
+        }
+        assert!(context_debug.contains("<redacted>"));
+        assert!(injection_debug.contains("<redacted>"));
     }
 }

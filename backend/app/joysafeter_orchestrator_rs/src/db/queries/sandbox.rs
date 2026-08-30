@@ -237,6 +237,216 @@ pub async fn count_degraded_limited_sandboxes(pool: &PgPool) -> Result<i64, sqlx
     .await
 }
 
+pub async fn list_revoked_sandboxes_for_cleanup(
+    pool: &PgPool,
+    provider: &str,
+    limit: i64,
+) -> Result<Vec<JoySafeterSandbox>, sqlx::Error> {
+    sqlx::query_as::<_, JoySafeterSandbox>(
+        r#"
+        SELECT *
+        FROM joysafeter_sandboxes
+        WHERE runner_auth_state = 'revoked'
+          AND provider = $1
+          AND destroyed_at IS NULL
+          AND external_id IS NOT NULL
+          AND external_id != ''
+          AND status IN ('creating', 'provisioning', 'idle', 'running', 'stopped', 'error', 'pooled')
+        ORDER BY updated_at
+        LIMIT $2
+        "#,
+    )
+    .bind(provider)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn stage_sandbox(
+    pool: &PgPool,
+    id: SandboxId,
+    provider: &str,
+    image: &str,
+    session_id: Option<SessionId>,
+    project_id: Option<ProjectId>,
+    workspace_path: Option<&str>,
+    config: Option<&serde_json::Value>,
+    runner_token_digest: &str,
+    runner_auth_expires_at: DateTime<Utc>,
+    captured_generation: Option<i64>,
+) -> Result<JoySafeterSandbox, RuntimeFreshnessError> {
+    let mut transaction = pool.begin().await?;
+    match (session_id, captured_generation) {
+        (Some(session_id), Some(captured_generation)) => {
+            lock_active_session_generation(
+                &mut transaction,
+                session_id,
+                project_id,
+                captured_generation,
+            )
+            .await?;
+        }
+        (None, None) => {}
+        _ => {
+            return Err(RuntimeFreshnessError::Conflict(
+                "sandbox admission requires session and generation together".to_string(),
+            ));
+        }
+    }
+
+    let sandbox = sqlx::query_as::<_, JoySafeterSandbox>(
+        r#"
+        INSERT INTO joysafeter_sandboxes
+            (id, external_id, provider, status, image, chat_session_id, project_id, workspace_path,
+             config, runner_auth_state, runner_token_digest, runner_auth_expires_at,
+             runtime_config_status, runtime_config_last_reason, runtime_config_required_at,
+             runtime_config_applied_generation, last_used_at, created_at, updated_at)
+        VALUES ($1, '', $2, 'creating', $3, $4, $5, $6,
+                $7, 'admission', $8, $9,
+                'ready', NULL, NULL, COALESCE($10, 0), NOW(), NOW(), NOW())
+        RETURNING *
+        "#,
+    )
+    .bind(id)
+    .bind(provider)
+    .bind(image)
+    .bind(session_id)
+    .bind(project_id)
+    .bind(workspace_path)
+    .bind(config)
+    .bind(runner_token_digest)
+    .bind(runner_auth_expires_at)
+    .bind(captured_generation)
+    .fetch_one(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    Ok(sandbox)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn activate_staged_sandbox(
+    pool: &PgPool,
+    sandbox_id: SandboxId,
+    external_id: &str,
+    config: &serde_json::Value,
+    session_id: Option<SessionId>,
+    project_id: Option<ProjectId>,
+    captured_generation: Option<i64>,
+) -> Result<bool, RuntimeFreshnessError> {
+    if external_id.trim().is_empty() {
+        return Ok(false);
+    }
+
+    let mut transaction = pool.begin().await?;
+    match (session_id, captured_generation) {
+        (Some(session_id), Some(captured_generation)) => {
+            lock_active_session_generation(
+                &mut transaction,
+                session_id,
+                project_id,
+                captured_generation,
+            )
+            .await?;
+        }
+        (None, None) => {}
+        _ => {
+            return Err(RuntimeFreshnessError::Conflict(
+                "sandbox activation requires session and generation together".to_string(),
+            ));
+        }
+    }
+
+    let result = sqlx::query(
+        r#"
+        UPDATE joysafeter_sandboxes
+        SET external_id = $2,
+            config = $3,
+            runner_auth_state = 'active',
+            runner_auth_expires_at = NULL,
+            updated_at = NOW()
+        WHERE id = $1
+          AND external_id = ''
+          AND status = 'creating'
+          AND destroyed_at IS NULL
+          AND runner_auth_state = 'admission'
+          AND runner_token_digest IS NOT NULL
+          AND runner_auth_expires_at > NOW()
+          AND chat_session_id IS NOT DISTINCT FROM $4
+          AND project_id IS NOT DISTINCT FROM $5
+          AND runtime_config_applied_generation = COALESCE($6, 0)
+        "#,
+    )
+    .bind(sandbox_id)
+    .bind(external_id)
+    .bind(config)
+    .bind(session_id)
+    .bind(project_id)
+    .bind(captured_generation)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    Ok(result.rows_affected() == 1)
+}
+
+pub async fn claim_staged_sandbox_for_cleanup(
+    pool: &PgPool,
+    sandbox_id: SandboxId,
+    external_id: Option<&str>,
+) -> Result<bool, sqlx::Error> {
+    if external_id.is_some_and(|value| value.trim().is_empty()) {
+        return Ok(false);
+    }
+    let result = sqlx::query(
+        r#"
+        UPDATE joysafeter_sandboxes
+        SET external_id = COALESCE($2, ''),
+            status = 'stopping',
+            runner_auth_state = 'revoked',
+            runner_token_digest = NULL,
+            runner_auth_expires_at = NULL,
+            updated_at = NOW(),
+            idle_since = NULL
+        WHERE id = $1
+          AND external_id = ''
+          AND status = 'creating'
+          AND destroyed_at IS NULL
+          AND runner_auth_state = 'admission'
+        "#,
+    )
+    .bind(sandbox_id)
+    .bind(external_id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() == 1)
+}
+
+pub async fn delete_claimed_staged_sandbox(
+    pool: &PgPool,
+    sandbox_id: SandboxId,
+    external_id: Option<&str>,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        r#"
+        DELETE FROM joysafeter_sandboxes
+        WHERE id = $1
+          AND external_id = COALESCE($2, '')
+          AND status = 'stopping'
+          AND runner_auth_state = 'revoked'
+          AND NOT EXISTS (
+              SELECT 1 FROM joysafeter_tasks
+              WHERE sandbox_id = $1
+                AND status IN ('pending', 'scheduling', 'running')
+          )
+        "#,
+    )
+    .bind(sandbox_id)
+    .bind(external_id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() == 1)
+}
+
 /// Create a new sandbox record.
 pub async fn create_sandbox(
     pool: &PgPool,
@@ -330,6 +540,9 @@ pub async fn mark_sandbox_error(
         r#"
         UPDATE joysafeter_sandboxes
         SET status = 'error',
+            runner_auth_state = 'revoked',
+            runner_token_digest = NULL,
+            runner_auth_expires_at = NULL,
             config = CASE
                 WHEN $2::text IS NULL THEN config
                 ELSE COALESCE(config, '{}'::jsonb) || jsonb_build_object('setup_error', $2::text)
@@ -638,7 +851,12 @@ pub async fn destroy_sandbox(pool: &PgPool, sandbox_id: SandboxId) -> Result<(),
     sqlx::query(
         r#"
         UPDATE joysafeter_sandboxes
-        SET status = 'destroyed', destroyed_at = NOW(), updated_at = NOW()
+        SET status = 'destroyed',
+            destroyed_at = NOW(),
+            runner_auth_state = 'revoked',
+            runner_token_digest = NULL,
+            runner_auth_expires_at = NULL,
+            updated_at = NOW()
         WHERE id = $1
         "#,
     )
@@ -737,6 +955,9 @@ pub async fn destroy_sandbox_if_status_and_external_id(
         UPDATE joysafeter_sandboxes
         SET status = 'destroyed',
             destroyed_at = NOW(),
+            runner_auth_state = 'revoked',
+            runner_token_digest = NULL,
+            runner_auth_expires_at = NULL,
             updated_at = NOW(),
             idle_since = NULL
         WHERE id = $1
@@ -776,6 +997,9 @@ pub async fn destroy_sandbox_after_passive_recovery(
         UPDATE joysafeter_sandboxes
         SET status = 'destroyed',
             destroyed_at = NOW(),
+            runner_auth_state = 'revoked',
+            runner_token_digest = NULL,
+            runner_auth_expires_at = NULL,
             updated_at = NOW(),
             idle_since = NULL
         WHERE id = $1

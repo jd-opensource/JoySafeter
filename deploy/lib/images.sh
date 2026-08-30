@@ -451,7 +451,7 @@ image_component_source_registry() {
         log_error "镜像组件 Registry 不存在: $IMAGE_COMPONENT_REGISTRY_FILE"
         return 1
     }
-    awk -F '\t' 'BEGIN { OFS="|" } !/^#/ && NF { print $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12 }' \
+    awk -F '\t' 'BEGIN { OFS="|" } !/^#/ && NF { print $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13 }' \
         "$IMAGE_COMPONENT_REGISTRY_FILE"
 }
 
@@ -485,7 +485,7 @@ component_image_name() {
 image_component_registry() {
     local record component group label handler dockerfile context target env_keys image_name
     while IFS= read -r record; do
-        IFS='|' read -r component group label handler _ _ dockerfile context target env_keys _ _ <<< "$record"
+        IFS='|' read -r component group label handler _ _ dockerfile context target env_keys _ _ _ <<< "$record"
         image_name="$(component_image_name "$component")" || return 1
         dockerfile="$(resolve_component_path "$dockerfile")"
         context="$(resolve_component_path "$context")"
@@ -513,7 +513,7 @@ image_component_ci_matrix() {
 
     printf '{"include":['
     while IFS= read -r record; do
-        IFS='|' read -r component _ _ handler _ default_image dockerfile context target _ family build_contexts <<< "$record"
+        IFS='|' read -r component _ _ handler _ default_image dockerfile context target _ family build_contexts _ <<< "$record"
         if [ "$requested_family" != all ] && [ "$family" != "$requested_family" ]; then
             continue
         fi
@@ -531,20 +531,20 @@ image_component_ci_matrix() {
 }
 
 print_image_component_registry() {
-    local requested_family=$1 format=$2 record component group label handler image_env default_image dockerfile context target env_keys family build_contexts
+    local requested_family=$1 format=$2 record component group label handler image_env default_image dockerfile context target env_keys family build_contexts helm_key
     if [ "$format" = github ]; then
         image_component_ci_matrix "$requested_family"
         return
     fi
     [ "$format" = table ] || { log_error "未知 Registry 输出格式: $format（可选: table, github）"; return 1; }
-    printf 'COMPONENT\tGROUP\tCI_FAMILY\tHANDLER\tIMAGE\tDOCKERFILE\tTARGET\n'
+    printf 'COMPONENT\tGROUP\tCI_FAMILY\tHANDLER\tIMAGE\tDOCKERFILE\tTARGET\tHELM_KEY\n'
     while IFS= read -r record; do
-        IFS='|' read -r component group label handler image_env default_image dockerfile context target env_keys family build_contexts <<< "$record"
+        IFS='|' read -r component group label handler image_env default_image dockerfile context target env_keys family build_contexts helm_key <<< "$record"
         if [ "$requested_family" != all ] && [ "$family" != "$requested_family" ]; then
             continue
         fi
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-            "$component" "$group" "$family" "$handler" "$(component_image_name "$component")" "$dockerfile" "$target"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$component" "$group" "$family" "$handler" "$(component_image_name "$component")" "$dockerfile" "$target" "$helm_key"
     done < <(image_component_source_registry)
 }
 

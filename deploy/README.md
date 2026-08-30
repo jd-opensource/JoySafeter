@@ -217,9 +217,10 @@ docker compose down
 
 `deploy/image-components.tsv` 是组件名、分组、默认镜像名、Dockerfile、context、runtime target、Compose
 环境变量和 CI build family 的唯一 Registry。`deploy.sh` 的 build/push/pull、Compose 镜像同步，以及
-`.github/workflows/docker-build.yml` / `.github/workflows/release.yml` 的 matrix 都从该文件加载；新增镜像组件
-不得再在脚本或 workflow 中复制一套布尔开关或静态矩阵。`deploy/lib/*.sh` 是入口内部 capability module，
-对用户公开的部署入口仍只有 `deploy/deploy.sh`。
+`.github/workflows/docker-build.yml` / `.github/workflows/release.yml` 的 matrix 都从该文件加载。Helm 部署使用
+`--sync-images` 时，也从同一 Registry 生成 orchestrator、Claude、Codex、Native、Pi 五个镜像覆盖；新增镜像
+组件不得再在脚本、workflow 或 Kubernetes helper 中复制一套镜像名称。`deploy/lib/*.sh` 是入口内部
+capability module，对用户公开的部署入口仍只有 `deploy/deploy.sh`。
 
 ```bash
 cd deploy
@@ -230,9 +231,17 @@ cd deploy
 ./deploy.sh push
 ./deploy.sh pull --registry registry.example.com/your-org --tag v0.3.2
 ./deploy.sh registry
+./deploy.sh --registry registry.example.com/your-org --tag v0.3.2 \
+  k8s deploy --sync-images --namespace joysafeter
 ```
 
 `pull` 成功后会同步 `deploy/.env` 中被拉取镜像对应的变量，后续 `docker compose up --no-build` 会使用本次拉取的镜像。核心部署镜像和 agent runtime 镜像都支持多架构 Buildx push；本地 `build` 未指定单架构时仍只加载第一个目标平台，这是 Docker 本地镜像存储的限制。
+
+`k8s deploy --sync-images` 是显式覆盖模式：全局 `--registry` / `--tag` 必须写在 `k8s` 前面，脚本把统一
+Registry 里的镜像名投影为 Helm `image.orchestrator` 与 `image.sandbox.*`。不传 `--sync-images` 时，Helm
+继续使用 values 文件中的镜像，便于已有生产 values 保持不变。升级已有 release 且只希望替换镜像时，
+同时传 `--reuse-values`，避免 chart 默认值覆盖现有数据库、Redis、Secret 和存储配置；该选项不能与纯模板
+`--dry-run` 同时使用。
 
 Agent runtime 的唯一构建定义是 `deploy/docker/runtime.Dockerfile`。其 `runner-builder` stage 在目标 Linux 平台内编译 `sandbox-runner`，`runtime-with-runner` stage 组装公共工具和 Runner，`claudecode` / `codex` / `native` / `pi` final stage 只安装各自 harness 与 entrypoint。Runner 不再导出到宿主 `target/` 后二次打包，因此 `fuser` 等 Linux 构建逻辑不会落到 macOS；`deploy.sh` 只选择 target、platform 和 image tag，不复制 provider 构建细节。宿主 `cargo-zigbuild` 仅属于 orchestrator 快速打包路径。
 

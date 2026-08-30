@@ -13,7 +13,7 @@ use crate::kernel::network_policy::service::NetworkPolicyService;
 use crate::kernel::network_policy::NetworkPolicyGeneration;
 use crate::kernel::sandbox_lifecycle::SandboxNetworkCleanup;
 
-use super::identity::identity_lease_metadata;
+use super::identity_policy::identity_lease_metadata;
 use super::model::ExpectedFingerprint;
 
 #[derive(Debug, Clone, Copy)]

@@ -1,6 +1,7 @@
 use std::env;
 use std::sync::Arc;
 
+use chrono::{Duration, Utc};
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -44,8 +45,8 @@ async fn create_agent_and_session(pool: &PgPool, status: &str) -> (AgentId, Sess
 
     sqlx::query(
         r#"
-        INSERT INTO joysafeter_agents (id, name, engine_kind, permission_mode, version)
-        VALUES ($1, $2, 'claude', 'bypassPermissions', 1)
+        INSERT INTO joysafeter_agents (id, name, engine_kind, version)
+        VALUES ($1, $2, 'claude', 1)
         "#,
     )
     .bind(agent_id)
@@ -114,6 +115,152 @@ async fn create_task(
     .await
     .expect("insert test task");
     task_id
+}
+
+#[tokio::test]
+async fn staged_sandbox_auth_is_durable_before_external_id_activation() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    let expires_at = Utc::now() + Duration::minutes(5);
+    let token_digest = crate::kernel::runtime_auth::runner_token_digest("runner-token");
+
+    let result = async {
+        stage_sandbox(
+            &pool,
+            sandbox_id,
+            "test",
+            "joysafeter/test:latest",
+            None,
+            None,
+            None,
+            Some(&json!({"provisioning": {"stage": "admission"}})),
+            &token_digest,
+            expires_at,
+            None,
+        )
+        .await
+        .expect("persist staged sandbox admission");
+
+        let staged: (
+            String,
+            String,
+            Option<String>,
+            Option<chrono::DateTime<Utc>>,
+        ) = sqlx::query_as(
+            r#"
+                SELECT external_id, runner_auth_state, runner_token_digest,
+                       runner_auth_expires_at
+                FROM joysafeter_sandboxes
+                WHERE id = $1
+                "#,
+        )
+        .bind(sandbox_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load staged sandbox");
+        assert_eq!(staged.0, "");
+        assert_eq!(staged.1, "admission");
+        assert_eq!(staged.2.as_deref(), Some(token_digest.as_str()));
+        assert_eq!(staged.3, Some(expires_at));
+
+        assert!(activate_staged_sandbox(
+            &pool,
+            sandbox_id,
+            "provider-external-id",
+            &json!({"provisioning": {"stage": "container_started"}}),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("activate staged sandbox"));
+
+        let active: (
+            String,
+            String,
+            Option<String>,
+            Option<chrono::DateTime<Utc>>,
+        ) = sqlx::query_as(
+            r#"
+                SELECT external_id, runner_auth_state, runner_token_digest,
+                       runner_auth_expires_at
+                FROM joysafeter_sandboxes
+                WHERE id = $1
+                "#,
+        )
+        .bind(sandbox_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load active sandbox");
+        assert_eq!(active.0, "provider-external-id");
+        assert_eq!(active.1, "active");
+        assert_eq!(active.2.as_deref(), Some(token_digest.as_str()));
+        assert_eq!(active.3, None);
+    }
+    .await;
+
+    let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+        .bind(sandbox_id)
+        .execute(&pool)
+        .await;
+    result
+}
+
+#[tokio::test]
+async fn expired_staged_sandbox_cannot_activate() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+
+    let result = async {
+        let token_digest = crate::kernel::runtime_auth::runner_token_digest("runner-token");
+        stage_sandbox(
+            &pool,
+            sandbox_id,
+            "test",
+            "joysafeter/test:latest",
+            None,
+            None,
+            None,
+            Some(&json!({"provisioning": {"stage": "admission"}})),
+            &token_digest,
+            Utc::now() - Duration::seconds(1),
+            None,
+        )
+        .await
+        .expect("persist expired staged sandbox fixture");
+
+        assert!(!activate_staged_sandbox(
+            &pool,
+            sandbox_id,
+            "provider-external-id",
+            &json!({"provisioning": {"stage": "container_started"}}),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("reject expired staged sandbox"));
+
+        let state: (String, String) = sqlx::query_as(
+            "SELECT external_id, runner_auth_state FROM joysafeter_sandboxes WHERE id = $1",
+        )
+        .bind(sandbox_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load rejected staged sandbox");
+        assert_eq!(state, (String::new(), "admission".to_string()));
+    }
+    .await;
+
+    let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+        .bind(sandbox_id)
+        .execute(&pool)
+        .await;
+    result
 }
 
 #[tokio::test]

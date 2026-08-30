@@ -70,8 +70,10 @@ struct SandboxPoolMaintenance {
 
 struct SandboxOrphanMaintenance {
     pool: PgPool,
+    bridge_store: Arc<dyn BridgeStore>,
     provider: Arc<dyn SandboxProvider>,
     networking: SandboxNetworkingService,
+    lifecycle: SandboxLifecycleService,
     task_recovery: SandboxTaskRecovery,
 }
 
@@ -96,14 +98,15 @@ impl SandboxController {
         runtime_config: Arc<RuntimeConfig>,
     ) -> Self {
         let networking = SandboxNetworkingService::test_fixture(pool.clone());
+        let lifecycle =
+            SandboxLifecycleService::new(pool.clone(), provider.clone(), networking.clone());
         let pool_provisioner = Arc::new(SandboxPoolService::new(
             pool.clone(),
             provider.clone(),
             config.clone(),
             networking.clone(),
+            lifecycle.clone(),
         ));
-        let lifecycle =
-            SandboxLifecycleService::new(pool.clone(), provider.clone(), networking.clone());
         Self::new_with_components(
             pool,
             queue,
@@ -149,7 +152,7 @@ impl SandboxController {
         };
         let provisioning = ProvisioningSandboxMaintenance {
             pool: pool.clone(),
-            bridge_store,
+            bridge_store: bridge_store.clone(),
             provider: provider.clone(),
             task_recovery: task_recovery.clone(),
         };
@@ -158,13 +161,15 @@ impl SandboxController {
             redis_coordinator,
             config: config.clone(),
             runtime_config,
-            lifecycle,
+            lifecycle: lifecycle.clone(),
             pool_provisioner,
         };
         let orphan = SandboxOrphanMaintenance {
             pool,
+            bridge_store,
             provider,
             networking,
+            lifecycle,
             task_recovery,
         };
         Self {
@@ -1412,6 +1417,62 @@ impl SandboxOrphanMaintenance {
     pub async fn cleanup_orphaned(&self) -> anyhow::Result<usize> {
         let mut cleaned = 0usize;
 
+        for sandbox in queries::list_revoked_sandboxes_for_cleanup(
+            &self.pool,
+            self.provider.provider_name(),
+            20,
+        )
+        .await?
+        {
+            let failure_reason = "sandbox runner authentication revoked";
+            if let Err(error) = self
+                .task_recovery
+                .recover_tasks_for_missing_runtime(sandbox.id, failure_reason)
+                .await
+            {
+                error!(sandbox_id = %sandbox.id, error = %error, "Failed to recover tasks for revoked sandbox runtime");
+                continue;
+            }
+            let restore_status = match queries::claim_sandbox_for_passive_destroy_after_recovery(
+                &self.pool,
+                sandbox.id,
+                &sandbox.status,
+                sandbox.external_id.as_deref(),
+            )
+            .await?
+            {
+                Some(status) => status,
+                None => {
+                    warn!(sandbox_id = %sandbox.id, status = %sandbox.status, "Skipped revoked sandbox destroy because row changed after task recovery");
+                    continue;
+                }
+            };
+            if let Some(external_id) = sandbox.external_id.as_deref() {
+                self.bridge_store.remove(external_id);
+            }
+            match self
+                .lifecycle
+                .finalize_claimed_destroy(
+                    sandbox.id,
+                    sandbox.external_id.as_deref(),
+                    &restore_status,
+                    "revoked runner authentication",
+                )
+                .await
+            {
+                Ok(true) => {
+                    cleaned += 1;
+                    info!(sandbox_id = %sandbox.id, status = %sandbox.status, "Destroyed revoked sandbox runtime after task recovery");
+                }
+                Ok(false) => {
+                    warn!(sandbox_id = %sandbox.id, status = %sandbox.status, "Skipped revoked sandbox destroy because row changed state");
+                }
+                Err(error) => {
+                    warn!(sandbox_id = %sandbox.id, status = %sandbox.status, error = %error, "Failed to destroy revoked sandbox runtime");
+                }
+            }
+        }
+
         for item in self.provider.list_active().await.unwrap_or_default() {
             let external_id = if !item.name.is_empty() {
                 item.name.clone()
@@ -1817,6 +1878,7 @@ mod tests {
         sandbox_id: SandboxId,
         task_id: TaskId,
         external_id: String,
+        provider_status: crate::sandbox::provider::SandboxStatus,
         observed_states: tokio::sync::Mutex<Vec<(String, String, Option<SandboxId>)>>,
         destroyed: tokio::sync::Mutex<Vec<String>>,
     }
@@ -1997,7 +2059,7 @@ mod tests {
             &self,
             _external_id: &str,
         ) -> anyhow::Result<crate::sandbox::provider::SandboxStatus> {
-            Ok(crate::sandbox::provider::SandboxStatus::NotFound)
+            Ok(self.provider_status.clone())
         }
 
         async fn exec(&self, _external_id: &str, _cmd: &[&str]) -> anyhow::Result<String> {
@@ -2447,13 +2509,13 @@ mod tests {
                 r#"
                 INSERT INTO joysafeter_agents (
                     id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                    skills, tools, agents, commands, permission_mode, metadata,
+                    skills, tools, agents, commands, metadata,
                     multiagent, version
                 )
                 VALUES (
                     $1, $2, 'claude', $3, 'missing runtime system', '{}'::jsonb, '[]'::jsonb,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    'bypassPermissions', '{}'::jsonb, NULL, 1
+                    '{}'::jsonb, NULL, 1
                 )
                 "#,
             )
@@ -2626,13 +2688,13 @@ mod tests {
             r#"
             INSERT INTO joysafeter_agents (
                 id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                skills, tools, agents, commands, permission_mode, metadata,
+                skills, tools, agents, commands, metadata,
                 multiagent, version
             )
             VALUES (
                 $1, $2, 'claude', $3, 'missing runtime running system', '{}'::jsonb, '[]'::jsonb,
                 '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                'bypassPermissions', '{}'::jsonb, NULL, 1
+                '{}'::jsonb, NULL, 1
             )
             "#,
         )
@@ -3018,6 +3080,7 @@ mod tests {
                 sandbox_id,
                 task_id,
                 external_id: external_id.clone(),
+                provider_status: crate::sandbox::provider::SandboxStatus::NotFound,
                 observed_states: tokio::sync::Mutex::new(Vec::new()),
                 destroyed: tokio::sync::Mutex::new(Vec::new()),
             });
@@ -3056,6 +3119,95 @@ mod tests {
                 provider.destroyed.lock().await.as_slice(),
                 &[external_id.clone()]
             );
+        }
+        .await;
+
+        let _ = sqlx::query("DELETE FROM joysafeter_tasks WHERE id = $1")
+            .bind(task_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_session_events WHERE session_id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+            .bind(agent_id)
+            .execute(&pool)
+            .await;
+    }
+
+    #[tokio::test]
+    async fn cleanup_orphaned_revoked_runtime_recovers_task_before_destroy() {
+        let Some(pool) = test_pool().await else {
+            return;
+        };
+
+        let prompt = "revoked runner auth cleanup ordering prompt";
+        let (agent_id, session_id, task_id, sandbox_id, external_id) =
+            create_missing_runtime_running_fixture(&pool, "running", 0, 2, prompt).await;
+        sqlx::query("UPDATE joysafeter_sandboxes SET provider = $2 WHERE id = $1")
+            .bind(sandbox_id)
+            .bind("destroy-observes-db-state")
+            .execute(&pool)
+            .await
+            .expect("scope revoked sandbox to cleanup provider");
+
+        async {
+            let provider = Arc::new(DestroyObservesDbStateProvider {
+                pool: pool.clone(),
+                sandbox_id,
+                task_id,
+                external_id: external_id.clone(),
+                provider_status: crate::sandbox::provider::SandboxStatus::Running,
+                observed_states: tokio::sync::Mutex::new(Vec::new()),
+                destroyed: tokio::sync::Mutex::new(Vec::new()),
+            });
+            let redis_client = redis::Client::open("redis://127.0.0.1:1/")
+                .expect("build unreachable redis client");
+            let queue = TaskQueue::new(redis_client);
+            let bridge_registry: Arc<dyn BridgeStore> = Arc::new(BridgeRegistry::new());
+            let config = JoySafeterConfig::from_env();
+            let runtime_config = Arc::new(RuntimeConfig::from_config(&config));
+            let controller = SandboxController::new(
+                pool.clone(),
+                queue,
+                bridge_registry,
+                provider.clone(),
+                None,
+                config,
+                runtime_config,
+            );
+
+            let cleaned = controller
+                .cleanup_orphaned()
+                .await
+                .expect("cleanup revoked runtime");
+            assert_eq!(cleaned, 1);
+            assert_eq!(
+                provider.observed_states.lock().await.as_slice(),
+                &[("stopping".to_string(), "pending".to_string(), None)]
+            );
+            assert_eq!(
+                provider.destroyed.lock().await.as_slice(),
+                &[external_id.clone()]
+            );
+
+            let sandbox: (String, bool) = sqlx::query_as(
+                "SELECT status, destroyed_at IS NOT NULL FROM joysafeter_sandboxes WHERE id = $1",
+            )
+            .bind(sandbox_id)
+            .fetch_one(&pool)
+            .await
+            .expect("load revoked sandbox after cleanup");
+            assert_eq!(sandbox, ("destroyed".to_string(), true));
         }
         .await;
 
@@ -3362,13 +3514,13 @@ mod tests {
                 r#"
                 INSERT INTO joysafeter_agents (
                     id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                    skills, tools, agents, commands, permission_mode, metadata,
+                    skills, tools, agents, commands, metadata,
                     multiagent, version
                 )
                 VALUES (
                     $1, $2, 'claude', $3, 'provisioning race system', '{}'::jsonb, '[]'::jsonb,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    'bypassPermissions', '{}'::jsonb, NULL, 1
+                    '{}'::jsonb, NULL, 1
                 )
                 "#,
             )
@@ -3609,13 +3761,13 @@ mod tests {
                 r#"
                 INSERT INTO joysafeter_agents (
                     id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                    skills, tools, agents, commands, permission_mode, metadata,
+                    skills, tools, agents, commands, metadata,
                     multiagent, version
                 )
                 VALUES (
                     $1, $2, 'claude', $3, 'sandbox reset system', '{}'::jsonb, '[]'::jsonb,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    'bypassPermissions', '{}'::jsonb, NULL, 1
+                    '{}'::jsonb, NULL, 1
                 )
                 "#,
             )
@@ -3766,13 +3918,13 @@ mod tests {
                 r#"
                 INSERT INTO joysafeter_agents (
                     id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                    skills, tools, agents, commands, permission_mode, metadata,
+                    skills, tools, agents, commands, metadata,
                     multiagent, version
                 )
                 VALUES (
                     $1, $2, 'claude', $3, 'sandbox exhausted system', '{}'::jsonb, '[]'::jsonb,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    'bypassPermissions', '{}'::jsonb, NULL, 1
+                    '{}'::jsonb, NULL, 1
                 )
                 "#,
             )

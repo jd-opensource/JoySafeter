@@ -112,6 +112,49 @@ impl SandboxLifecycleService {
         .await
     }
 
+    pub(crate) async fn cleanup_staged_create(
+        &self,
+        sandbox_id: SandboxId,
+        external_id: Option<&str>,
+    ) -> Result<(), RuntimeFreshnessError> {
+        self.networking.forget_ready(sandbox_id);
+        if !queries::claim_staged_sandbox_for_cleanup(&self.pool, sandbox_id, external_id).await? {
+            return Err(RuntimeFreshnessError::Conflict(format!(
+                "sandbox {sandbox_id} staged cleanup ownership was lost"
+            )));
+        }
+
+        let provider_error = if let Some(external_id) = external_id {
+            self.provider
+                .destroy(external_id)
+                .await
+                .err()
+                .map(|error| error.to_string())
+        } else {
+            None
+        };
+        let networking_error = self
+            .networking
+            .teardown(sandbox_id)
+            .await
+            .err()
+            .map(|error| error.to_string());
+        if provider_error.is_some() || networking_error.is_some() {
+            return Err(RuntimeFreshnessError::CleanupFailed(format!(
+                "failed to clean staged sandbox {sandbox_id}: provider={}; networking={}",
+                provider_error.as_deref().unwrap_or("ok"),
+                networking_error.as_deref().unwrap_or("ok")
+            )));
+        }
+
+        if !queries::delete_claimed_staged_sandbox(&self.pool, sandbox_id, external_id).await? {
+            return Err(RuntimeFreshnessError::Conflict(format!(
+                "sandbox {sandbox_id} staged cleanup finalization was lost"
+            )));
+        }
+        Ok(())
+    }
+
     pub(crate) async fn destroy_observed(
         &self,
         sandbox: &JoySafeterSandbox,
@@ -140,6 +183,25 @@ impl SandboxLifecycleService {
             sandbox_id,
             observed_status,
             external_id,
+            reason,
+        )
+        .await
+    }
+
+    pub(crate) async fn finalize_claimed_destroy(
+        &self,
+        sandbox_id: SandboxId,
+        external_id: Option<&str>,
+        restore_status: &str,
+        reason: &str,
+    ) -> anyhow::Result<bool> {
+        crate::kernel::sandbox_lifecycle::finalize_claimed_sandbox_destroy(
+            &self.pool,
+            &self.provider,
+            &self.networking,
+            sandbox_id,
+            external_id,
+            restore_status,
             reason,
         )
         .await

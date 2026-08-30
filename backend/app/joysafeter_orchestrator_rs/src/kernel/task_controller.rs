@@ -927,8 +927,8 @@ mod tests {
         let session_id = SessionId::from_uuid(Uuid::now_v7());
         sqlx::query(
             r#"
-            INSERT INTO joysafeter_agents (id, name, engine_kind, permission_mode, version)
-            VALUES ($1, $2, 'claude', 'bypassPermissions', 1)
+            INSERT INTO joysafeter_agents (id, name, engine_kind, version)
+            VALUES ($1, $2, 'claude', 1)
             "#,
         )
         .bind(agent_id)

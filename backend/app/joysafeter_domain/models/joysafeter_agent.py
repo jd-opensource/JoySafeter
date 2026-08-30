@@ -57,7 +57,6 @@ class JoySafeterAgent(JoySafeterModel):
     tools: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     agents: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
     commands: Mapped[list] = mapped_column(JSONB, nullable=False, server_default="[]")
-    permission_mode: Mapped[str] = mapped_column(Text, nullable=False, default="bypassPermissions")
     metadata_: Mapped[dict] = mapped_column("metadata", JSONB, nullable=False, server_default="{}")
     multiagent: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)

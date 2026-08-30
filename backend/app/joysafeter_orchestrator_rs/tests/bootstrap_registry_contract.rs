@@ -59,8 +59,12 @@ fn composition_root_builds_network_policy_material_behind_its_port() {
     assert!(!networking.contains("PostgresNetworkPolicyMaterialResolver"));
 
     let projection = source("src/kernel/credentials/runtime_projection.rs");
-    assert!(projection.contains("pub(crate) async fn rebuild_sandbox_credentials"));
+    assert!(projection.contains("pub(crate) use recovery::rebuild_sandbox_credentials"));
     assert!(!projection.contains("sandbox_resolver"));
+
+    let recovery = source("src/kernel/credentials/runtime_projection/recovery.rs");
+    assert!(recovery.contains("pub(crate) async fn rebuild_sandbox_credentials"));
+    assert!(!recovery.contains("sandbox_resolver"));
 
     let scheduler = source("src/kernel/scheduler.rs");
     assert!(!scheduler.contains("NetworkPolicyService"));

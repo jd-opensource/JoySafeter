@@ -957,6 +957,7 @@ name = "joysafeter-runner"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "base64",
  "chrono",
  "flate2",
  "fuser",
@@ -991,6 +992,7 @@ dependencies = [
  "joysafeter-types",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tracing",

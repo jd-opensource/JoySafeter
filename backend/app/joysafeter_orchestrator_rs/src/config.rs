@@ -37,6 +37,9 @@ pub struct JoySafeterConfig {
     /// the runner is gone and reap. Mirrors the Python config of the same
     /// name; keep the defaults in sync.
     pub sandbox_bridge_disconnect_grace: u64,
+    /// Maximum lifetime of the pre-start Runner admission credential. The
+    /// provider runtime must bind its external id before this deadline.
+    pub runner_admission_ttl_seconds: u64,
     pub sandbox_pool_enabled: bool,
     pub sandbox_pool_min_size: usize,
     pub sandbox_pool_max_age: u64,
@@ -141,6 +144,9 @@ pub struct JoySafeterConfig {
     /// Envoy-side key injection path from sending credentials to arbitrary
     /// user-controlled base URLs.
     pub llm_egress_allowed_hosts: Vec<String>,
+    /// Hosts eligible for task-scoped identity injection. The identity domain
+    /// receives this parsed policy from bootstrap and never reads process env.
+    pub agent_identity_allowed_hosts: Vec<String>,
 
     // Image builder
     pub image_builder_enabled: bool,
@@ -223,6 +229,7 @@ impl JoySafeterConfig {
                 "JOYSAFETER_SANDBOX_BRIDGE_DISCONNECT_GRACE",
                 90,
             ),
+            runner_admission_ttl_seconds: env_u64("JOYSAFETER_RUNNER_ADMISSION_TTL_SECONDS", 600),
             sandbox_pool_enabled: env_bool("JOYSAFETER_SANDBOX_POOL_ENABLED", false),
             sandbox_pool_min_size: env_usize("JOYSAFETER_SANDBOX_POOL_MIN_SIZE", 2),
             sandbox_pool_max_age: env_u64("JOYSAFETER_SANDBOX_POOL_MAX_AGE", 1800),
@@ -332,6 +339,7 @@ impl JoySafeterConfig {
             ),
             envoy_health_failure_threshold: env_u64("JOYSAFETER_ENVOY_HEALTH_FAILURE_THRESHOLD", 3),
             llm_egress_allowed_hosts: env_list("JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS"),
+            agent_identity_allowed_hosts: env_list("AGENT_IDENTITY_ALLOWED_HOSTS"),
 
             image_builder_enabled: env_bool("JOYSAFETER_IMAGE_BUILDER_ENABLED", false),
             image_builder_base: env_str(
@@ -417,6 +425,9 @@ impl JoySafeterConfig {
     }
 
     pub fn validate(&self) -> anyhow::Result<()> {
+        if self.runner_admission_ttl_seconds == 0 {
+            anyhow::bail!("JOYSAFETER_RUNNER_ADMISSION_TTL_SECONDS must be greater than zero");
+        }
         if let Some(control_volume) = self.runner_control_socket_volume.as_deref() {
             if control_volume == self.envoy_socket_volume {
                 anyhow::bail!(
@@ -869,6 +880,17 @@ mod tests {
             cfg.image_for_provider("claude").unwrap(),
             "joysafeter-claudecode:latest"
         );
+    }
+
+    #[test]
+    fn runner_admission_ttl_must_be_positive() {
+        let mut cfg = JoySafeterConfig::from_env();
+        cfg.runner_admission_ttl_seconds = 0;
+
+        let error = cfg
+            .validate()
+            .expect_err("zero runner admission TTL must be rejected");
+        assert!(error.to_string().contains("RUNNER_ADMISSION_TTL_SECONDS"));
     }
 
     #[test]

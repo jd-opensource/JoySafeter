@@ -76,6 +76,14 @@ def test_task_identity_context_is_task_scoped_and_cascades() -> None:
     assert any(index.name == "uq_task_identity_auth_code_fingerprint" and index.unique for index in table.indexes)
     assert table.c.expires_at.nullable is False
     assert table.c.consumed_at.nullable is True
+    assert table.c.state.nullable is False
+    assert table.c.state.server_default.arg.text == "'captured'"
+    assert table.c.resolution_id.nullable is True
+    assert table.c.resolution_expires_at.nullable is True
+    assert any(
+        constraint.name and constraint.name.endswith("ck_task_identity_resolution_state")
+        for constraint in table.constraints
+    )
 
 
 def test_identity_encryption_uses_versioned_envelope(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -513,24 +521,18 @@ def test_compose_forwards_user_token_exchange_settings() -> None:
     compose = yaml.safe_load((REPO_ROOT / "deploy/docker-compose.yml").read_text())
     common_env = compose["x-backend-common-env"]
 
-    assert common_env["JD_AGENT_IDENTITY_USER_TOKEN_COOKIE_NAME"] == (
-        "${JD_AGENT_IDENTITY_USER_TOKEN_COOKIE_NAME:-}"
-    )
+    assert common_env["JD_AGENT_IDENTITY_USER_TOKEN_COOKIE_NAME"] == ("${JD_AGENT_IDENTITY_USER_TOKEN_COOKIE_NAME:-}")
     assert common_env["JD_AGENT_IDENTITY_EXCHANGE_USER_TOKEN_ENABLED"] == (
         "${JD_AGENT_IDENTITY_EXCHANGE_USER_TOKEN_ENABLED:-true}"
     )
 
 
 def test_helm_renders_canonical_user_token_exchange_contract() -> None:
-    values = yaml.safe_load(
-        (REPO_ROOT / "deploy/helm/joysafeter-orchestrator/values.yaml").read_text()
-    )["agentIdentity"]
-    configmap = (
-        REPO_ROOT / "deploy/helm/joysafeter-orchestrator/templates/configmap.yaml"
-    ).read_text()
-    deployment = (
-        REPO_ROOT / "deploy/helm/joysafeter-orchestrator/templates/deployment.yaml"
-    ).read_text()
+    values = yaml.safe_load((REPO_ROOT / "deploy/helm/joysafeter-orchestrator/values.yaml").read_text())[
+        "agentIdentity"
+    ]
+    configmap = (REPO_ROOT / "deploy/helm/joysafeter-orchestrator/templates/configmap.yaml").read_text()
+    deployment = (REPO_ROOT / "deploy/helm/joysafeter-orchestrator/templates/deployment.yaml").read_text()
 
     assert values["authType"] == CANONICAL_JD_DEFAULTS["JD_AGENT_IDENTITY_AUTH_TYPE"]
     assert values["identityType"] == CANONICAL_JD_DEFAULTS["JD_AGENT_IDENTITY_IDENTITY_TYPE"]
@@ -546,10 +548,7 @@ def test_helm_renders_canonical_user_token_exchange_contract() -> None:
 
 
 def test_agent_identity_trait_assigns_fail_closed_policy_to_application_boundary() -> None:
-    contract = (
-        REPO_ROOT
-        / "backend/app/joysafeter_orchestrator_rs/crates/agent-identity-trait/src/lib.rs"
-    ).read_text()
+    contract = (REPO_ROOT / "backend/app/joysafeter_orchestrator_rs/crates/agent-identity-trait/src/lib.rs").read_text()
 
     assert "Errors are non-fatal" not in contract
     assert "the application boundary must fail closed" in contract

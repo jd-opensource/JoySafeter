@@ -14,6 +14,10 @@ pub enum TaskIdentityMaterialError {
     FieldMissing,
 }
 
+pub trait TaskIdentityMaterial: Send + Sync {
+    fn reveal(&self, encrypted_material: &str) -> Result<String, TaskIdentityMaterialError>;
+}
+
 #[derive(Clone)]
 pub struct TaskIdentityMaterialAdapter {
     protector: VersionedMaterialProtector,
@@ -54,5 +58,11 @@ impl TaskIdentityMaterialAdapter {
         Self {
             protector: VersionedMaterialProtector::without_key(),
         }
+    }
+}
+
+impl TaskIdentityMaterial for TaskIdentityMaterialAdapter {
+    fn reveal(&self, encrypted_material: &str) -> Result<String, TaskIdentityMaterialError> {
+        TaskIdentityMaterialAdapter::reveal(self, encrypted_material)
     }
 }

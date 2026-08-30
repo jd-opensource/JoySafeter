@@ -137,12 +137,12 @@ async fn insert_agent(pool: &PgPool, agent_id: AgentId, project_id: &ProjectId) 
         r#"
         INSERT INTO joysafeter_agents (
             id, project_id, name, engine_kind, model, system_prompt, env, mcp_servers,
-            skills, tools, agents, commands, permission_mode, metadata, version
+            skills, tools, agents, commands, metadata, version
         )
         VALUES (
             $1, $2, $3, 'claude', '{}'::jsonb, '', '{}'::jsonb, '[]'::jsonb,
             '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-            'bypassPermissions', '{}'::jsonb, 1
+            '{}'::jsonb, 1
         )
         "#,
     )

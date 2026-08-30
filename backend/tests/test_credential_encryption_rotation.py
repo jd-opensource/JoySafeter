@@ -517,6 +517,84 @@ async def test_rewrap_is_bounded_across_all_sensitive_material_stores(db_session
 
 
 @pytest.mark.asyncio
+async def test_rewrap_does_not_mutate_claimed_task_identity_material(db_session):
+    legacy = CredentialCipher(LEGACY_KEY)
+    protector = VersionedMaterialProtector(
+        LEGACY_KEY,
+        keyring_json=KEYRING,
+        write_key_id="active-2026-08",
+    )
+    organization = _new_organization(
+        name=f"claim-org-{uuid.uuid4()}",
+        slug=f"claim-org-{uuid.uuid4()}",
+    )
+    user = _new_user(name="Claim User", email=f"claim-{uuid.uuid4()}@example.com")
+    agent = _new_agent(name=f"claim-agent-{uuid.uuid4()}")
+    db_session.add_all([organization, user, agent])
+    await db_session.flush()
+    project = _new_project(
+        org_id=organization.id,
+        name="Claim Project",
+        slug=f"claim-{uuid.uuid4()}",
+    )
+    db_session.add(project)
+    await db_session.flush()
+
+    captured_task = _new_task(
+        agent_id=agent.id,
+        prompt="captured",
+        status="pending",
+        user_id=user.id,
+    )
+    resolving_task = _new_task(
+        agent_id=agent.id,
+        prompt="resolving",
+        status="pending",
+        user_id=user.id,
+    )
+    db_session.add_all([captured_task, resolving_task])
+    await db_session.flush()
+    now = utc_now()
+    captured_ciphertext = legacy.encrypt("captured-secret")
+    resolving_ciphertext = legacy.encrypt("resolving-secret")
+    captured = JoySafeterTaskIdentityContext(
+        task_id=captured_task.id,
+        project_id=project.id,
+        user_id=user.id,
+        credential_kind="identity_token",
+        encrypted_credential=captured_ciphertext,
+        captured_at=now,
+        expires_at=now + timedelta(minutes=10),
+        state="captured",
+    )
+    resolving = JoySafeterTaskIdentityContext(
+        task_id=resolving_task.id,
+        project_id=project.id,
+        user_id=user.id,
+        credential_kind="identity_token",
+        encrypted_credential=resolving_ciphertext,
+        captured_at=now,
+        expires_at=now + timedelta(minutes=10),
+        state="resolving",
+        resolution_id=uuid.uuid4(),
+        resolution_expires_at=now + timedelta(minutes=1),
+    )
+    db_session.add_all([captured, resolving])
+    await db_session.commit()
+
+    result = await rewrap_sensitive_material(db_session, protector, limit_per_store=10)
+    await db_session.commit()
+
+    assert result.task_identities == 1
+    await db_session.refresh(captured)
+    await db_session.refresh(resolving)
+    assert captured.encrypted_credential is not None
+    assert captured.encrypted_credential.startswith("enc:v2:active-2026-08:")
+    assert protector.reveal(captured.encrypted_credential) == "captured-secret"
+    assert resolving.encrypted_credential == resolving_ciphertext
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("surface", "expected_location"),
     [

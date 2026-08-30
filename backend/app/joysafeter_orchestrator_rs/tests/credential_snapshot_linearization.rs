@@ -100,13 +100,13 @@ async fn seed_agent_and_task(
         r#"
         INSERT INTO joysafeter_agents (
             id, project_id, name, engine_kind, model, system_prompt, env, mcp_servers,
-            skills, tools, agents, commands, permission_mode, metadata, version,
+            skills, tools, agents, commands, metadata, version,
             model_credential_id
         )
         VALUES (
             $1, $2, $3, 'claude', $4, 'task 11 system', '{}'::jsonb, '[]'::jsonb,
             '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-            'bypassPermissions', '{}'::jsonb, 1, $5
+            '{}'::jsonb, 1, $5
         )
         "#,
     )

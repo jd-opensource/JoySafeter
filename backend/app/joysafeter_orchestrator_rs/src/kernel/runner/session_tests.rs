@@ -67,8 +67,8 @@ async fn create_agent_and_session(pool: &PgPool) -> (AgentId, SessionId) {
     sqlx::query(
         r#"
             INSERT INTO joysafeter_agents
-                (id, project_id, name, engine_kind, permission_mode, version)
-            VALUES ($1, $2, $3, 'claude', 'bypassPermissions', 1)
+                (id, project_id, name, engine_kind, version)
+            VALUES ($1, $2, $3, 'claude', 1)
             "#,
     )
     .bind(agent_id)

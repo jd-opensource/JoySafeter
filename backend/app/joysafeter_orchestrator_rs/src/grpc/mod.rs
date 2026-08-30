@@ -1,5 +1,7 @@
 /// gRPC server and generated protobuf types.
+pub(crate) mod harness_projection;
 pub mod server;
+pub(crate) mod tool_policy;
 pub(crate) mod transport;
 
 /// Generated protobuf types re-export.

@@ -2,6 +2,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::Utc;
 use sqlx::PgPool;
 use tokio::sync::{mpsc, OwnedSemaphorePermit};
 use tokio_stream::wrappers::ReceiverStream;
@@ -47,6 +48,7 @@ use crate::kernel::runner::task_lifecycle::{
     handle_task_disconnect_before_result, send_start_task_or_handle_failure,
     transition_running_task_and_emit_idle, TaskResult,
 };
+use crate::kernel::runtime_auth::RunnerAuthenticator;
 use crate::kernel::sandbox_bridge::SandboxBridge;
 use crate::kernel::sandbox_resolver::SandboxIdentityPolicy;
 use crate::runtime_config::RuntimeConfig;
@@ -60,6 +62,7 @@ pub(crate) struct RunnerSessionCoordinator {
     event_bus: EventBus,
     queue: TaskQueue,
     pool: PgPool,
+    authenticator: RunnerAuthenticator,
     config: JoySafeterConfig,
     identity_policy: Arc<dyn SandboxIdentityPolicy>,
     runtime_config: Arc<RuntimeConfig>,
@@ -74,6 +77,7 @@ impl RunnerSessionCoordinator {
         event_bus: EventBus,
         queue: TaskQueue,
         pool: PgPool,
+        authenticator: RunnerAuthenticator,
         config: JoySafeterConfig,
         identity_policy: Arc<dyn SandboxIdentityPolicy>,
         redis_coordinator: Option<Arc<crate::kernel::redis_coordinator::RedisCoordinator>>,
@@ -86,6 +90,7 @@ impl RunnerSessionCoordinator {
             event_bus,
             queue,
             pool,
+            authenticator,
             config,
             identity_policy,
             runtime_config,
@@ -109,12 +114,14 @@ impl RunnerSessionCoordinator {
         let event_bus = self.event_bus.clone();
         let queue = self.queue.clone();
         let pool = self.pool.clone();
+        let authenticator = self.authenticator.clone();
         let config = self.config.clone();
         let identity_policy = self.identity_policy.clone();
         let runtime_config = self.runtime_config.clone();
         let redis_coordinator = self.redis_coordinator.clone();
         let memory_subscribers = self.memory_subscribers.clone();
         let execution_semaphore = self.flows.execution_semaphore();
+        let harness_input_builder = self.flows.harness_input_builder();
         let recovery_service = self.flows.recovery();
         let cleanup_service = self.flows.cleanup();
 
@@ -153,74 +160,21 @@ impl RunnerSessionCoordinator {
                 "Runner connected"
             );
 
-            // Authenticate runner token
-            let sandbox_rec = match queries::get_sandbox(&pool, sandbox_db_id).await {
-                Ok(r) => r,
-                Err(e) => {
-                    warn!("DB error looking up sandbox: {e}");
+            let authenticated = match authenticator
+                .authenticate_and_record_connection(
+                    sandbox_db_id,
+                    ready.runner_token.as_deref(),
+                    Utc::now(),
+                )
+                .await
+            {
+                Ok(authenticated) => authenticated,
+                Err(error) => {
+                    warn!(sandbox_id = %sandbox_db_id, error = %error, "Runner authentication rejected");
+                    send_shutdown(&tx, "authentication failed".to_string()).await;
                     return;
                 }
             };
-
-            if let Some(ref sandbox) = sandbox_rec {
-                let expected_token = sandbox
-                    .config
-                    .as_ref()
-                    .and_then(|c| c.get("runner_token"))
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
-
-                if !expected_token.is_empty() {
-                    let runner_token = ready.runner_token.as_deref().unwrap_or("");
-                    if runner_token.is_empty() {
-                        warn!(sandbox_id = %sandbox_db_id, "Runner connected without token, rejecting");
-                        send_shutdown(
-                            &tx,
-                            "authentication required: missing runner token".to_string(),
-                        )
-                        .await;
-                        return;
-                    }
-                    // Compare authentication material in constant time.
-                    use subtle::ConstantTimeEq;
-                    if expected_token
-                        .as_bytes()
-                        .ct_eq(runner_token.as_bytes())
-                        .unwrap_u8()
-                        == 0
-                    {
-                        warn!(sandbox_id = %sandbox_db_id, "Runner token mismatch, rejecting");
-                        send_shutdown(
-                            &tx,
-                            "authentication failed: invalid runner token".to_string(),
-                        )
-                        .await;
-                        return;
-                    }
-                }
-
-                // Reject terminal sandboxes
-                let status = sandbox.status.as_str();
-                if matches!(status, "destroyed" | "error") {
-                    warn!(sandbox_id = %sandbox_db_id, status = status, "Terminal sandbox, rejecting");
-                    send_shutdown(&tx, format!("sandbox terminal: {status}")).await;
-                    return;
-                }
-                if matches!(status, "stopping" | "stopped") {
-                    warn!(sandbox_id = %sandbox_db_id, status = status, "Sandbox being stopped, rejecting");
-                    send_shutdown(&tx, format!("sandbox stopped: {status}")).await;
-                    return;
-                }
-
-                let _ = queries::touch_sandbox(&pool, sandbox_db_id).await;
-                // Successful runner attach → clear any stale disconnect
-                // marker left by a prior crash, so the fallback sweeper
-                // doesn't reap a sandbox that just reconnected.
-                let _ = queries::mark_bridge_connected(&pool, sandbox_db_id).await;
-            } else if ready.runner_token.as_deref().unwrap_or("").is_empty() {
-                warn!(sandbox_id = %sandbox_db_id, "Unknown sandbox with no token, rejecting");
-                return;
-            }
 
             // Create and register bridge
             let bridge = Arc::new(SandboxBridge::new(sandbox_db_id, tx.clone()));
@@ -237,9 +191,9 @@ impl RunnerSessionCoordinator {
             }
 
             // Resolve linked session_id
-            let linked_session_id = sandbox_rec.as_ref().and_then(|s| s.chat_session_id);
+            let linked_session_id = authenticated.linked_session_id;
             let unclaimed_pool_sandbox = should_defer_initial_setup(
-                sandbox_rec.as_ref().map(|sandbox| sandbox.status.as_str()),
+                Some(authenticated.sandbox_status.as_str()),
                 linked_session_id.is_some(),
             );
 
@@ -250,7 +204,7 @@ impl RunnerSessionCoordinator {
                     "Warm-pool sandbox connected; deferring SetupSandbox until session claim"
                 );
             } else if !ready.is_reconnect {
-                match send_setup(&pool, &bridge, sandbox_db_id, &tx, config.envoy_enabled).await {
+                match send_setup(&pool, &bridge, sandbox_db_id, &tx, &harness_input_builder).await {
                     Ok(true) => bridge.setup_done.store(true, Ordering::Relaxed),
                     Ok(false) => {
                         bridge.setup_done.store(false, Ordering::Relaxed);
@@ -342,6 +296,7 @@ impl RunnerSessionCoordinator {
                 &event_bus,
                 &queue,
                 &config,
+                &harness_input_builder,
                 &identity_policy,
                 sandbox_db_id,
                 &sandbox_external_id,

@@ -1,22 +1,33 @@
 use std::sync::Arc;
 
 use crate::config::JoySafeterConfig;
+use crate::db::runner_auth_store::PostgresRunnerAuthStore;
+use crate::db::task_identity_store::PostgresTaskIdentityStore;
 use crate::kernel::agent_identity_provider::AgentIdentityProvider;
+use crate::kernel::credentials::access::CredentialMaterialAccessService;
+use crate::kernel::credentials::CredentialStore;
 use crate::kernel::ha::BridgeStore;
+use crate::kernel::harness_input_builder::HarnessInputBuilder;
 use crate::kernel::network_policy::ports::NetworkPolicyRuntime;
 use crate::kernel::network_policy::reconciler::NetworkPolicyReconciler;
 use crate::kernel::network_policy::service::NetworkPolicyService;
 use crate::kernel::queue::TaskQueue;
 use crate::kernel::redis_coordinator::RedisCoordinator;
+use crate::kernel::repository_access::material::{
+    RepositoryAccessMaterial, RepositoryAccessMaterialAdapter,
+};
 use crate::kernel::runner::{
     RunnerCleanupService, RunnerExecutionService, RunnerFlowSet, RunnerRecoveryService,
 };
+use crate::kernel::runtime_auth::RunnerAuthenticator;
 use crate::kernel::sandbox_controller::SandboxController;
 use crate::kernel::sandbox_resolver::{
     ResolveContextBuilder, SandboxIdentityPolicy, SandboxIdentityPolicyService,
     SandboxLifecycleService, SandboxNetworkingService, SandboxPoolService,
     SandboxProvisioningService, SandboxResolution, SandboxResolver,
 };
+use crate::kernel::task_identity::material::{TaskIdentityMaterial, TaskIdentityMaterialAdapter};
+use crate::kernel::task_identity::TaskIdentityService;
 use crate::runtime_config::RuntimeConfig;
 use crate::sandbox;
 use crate::sandbox::envoy::process::EnvoyProcessSupervisor;
@@ -57,12 +68,43 @@ pub(super) fn register_defaults(registry: &mut ProviderFactoryRegistry) {
     registry.register(["e2b"], Arc::new(E2bFactory));
 }
 
-pub(super) fn build_runner_flows(max_executions: usize) -> RunnerFlowSet {
+pub(super) fn build_credential_access(pool: PgPool) -> CredentialMaterialAccessService {
+    CredentialMaterialAccessService::new(pool)
+}
+
+pub(super) fn build_credential_store(pool: PgPool) -> CredentialStore {
+    CredentialStore::new(pool)
+}
+
+fn build_repository_material() -> Arc<dyn RepositoryAccessMaterial> {
+    Arc::new(RepositoryAccessMaterialAdapter::from_env())
+}
+
+fn build_task_identity_material() -> Arc<dyn TaskIdentityMaterial> {
+    Arc::new(TaskIdentityMaterialAdapter::from_env())
+}
+
+pub(super) fn build_runner_flows(
+    pool: PgPool,
+    envoy_enabled: bool,
+    max_executions: usize,
+) -> RunnerFlowSet {
+    let credential_access = build_credential_access(pool.clone());
     RunnerFlowSet::new(
         RunnerExecutionService::new(max_executions),
         RunnerRecoveryService::new(),
         RunnerCleanupService::new(),
+        HarnessInputBuilder::with_services(
+            pool,
+            credential_access,
+            build_repository_material(),
+            envoy_enabled,
+        ),
     )
+}
+
+pub(super) fn build_runner_authenticator(pool: PgPool) -> RunnerAuthenticator {
+    RunnerAuthenticator::new(Arc::new(PostgresRunnerAuthStore::new(pool)))
 }
 
 pub(super) struct SandboxRuntimeServices {
@@ -84,14 +126,15 @@ pub(super) fn build_sandbox_runtime_services(
     identity_provider: Arc<dyn AgentIdentityProvider>,
 ) -> SandboxRuntimeServices {
     let networking = SandboxNetworkingService::new(pool.clone(), network_policy.clone());
+    let lifecycle =
+        SandboxLifecycleService::new(pool.clone(), provider.clone(), networking.clone());
     let pool_service = SandboxPoolService::new(
         pool.clone(),
         provider.clone(),
         config.clone(),
         networking.clone(),
+        lifecycle.clone(),
     );
-    let lifecycle =
-        SandboxLifecycleService::new(pool.clone(), provider.clone(), networking.clone());
     let provisioning = SandboxProvisioningService::new(
         pool.clone(),
         provider.clone(),
@@ -99,9 +142,20 @@ pub(super) fn build_sandbox_runtime_services(
         networking.clone(),
         lifecycle.clone(),
     );
-    let context_builder =
-        ResolveContextBuilder::new(pool.clone(), config.clone(), networking.clone())
-            .with_identity_provider(identity_provider);
+    let identity = TaskIdentityService::new(
+        Arc::new(PostgresTaskIdentityStore::new(pool.clone())),
+        build_task_identity_material(),
+        config.agent_identity_allowed_hosts.clone(),
+    )
+    .with_provider(identity_provider);
+    let context_builder = ResolveContextBuilder::new(
+        pool.clone(),
+        config.clone(),
+        networking.clone(),
+        identity,
+        build_credential_access(pool.clone()),
+        build_repository_material(),
+    );
     let identity_policy: Arc<dyn SandboxIdentityPolicy> =
         Arc::new(SandboxIdentityPolicyService::new(
             pool.clone(),

@@ -256,7 +256,7 @@ async fn load_source_from_pool(
         r#"
         SELECT id, project_id, name, engine_kind, model->>'id' AS model, system_prompt,
                description, env, mcp_servers, skills, agents, commands, tools,
-               permission_mode, metadata, multiagent, version, environment_id,
+               metadata, multiagent, version, environment_id,
                model_credential_id
         FROM joysafeter_agents
         WHERE id = $1 AND project_id = $2 AND deleted_at IS NULL AND archived_at IS NULL
@@ -280,7 +280,7 @@ async fn load_source_from_connection(
         r#"
         SELECT id, project_id, name, engine_kind, model->>'id' AS model, system_prompt,
                description, env, mcp_servers, skills, agents, commands, tools,
-               permission_mode, metadata, multiagent, version, environment_id,
+               metadata, multiagent, version, environment_id,
                model_credential_id
         FROM joysafeter_agents
         WHERE id = $1 AND project_id = $2 AND deleted_at IS NULL AND archived_at IS NULL
@@ -367,7 +367,6 @@ fn build_source(
         "agents": agent.agents,
         "commands": agent.commands,
         "mcp_servers": agent.mcp_servers,
-        "permission_mode": agent.permission_mode,
         "multiagent": agent.multiagent,
         "environment_id": agent.environment_id.map(|id| id.to_string()),
         "model_credential_id": agent.model_credential_id.map(|id| id.to_string()),

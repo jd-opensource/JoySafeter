@@ -383,8 +383,8 @@ impl K8sProvider {
             sandbox_uuid.to_string(),
         );
 
-        let mut env: Vec<Value> = config
-            .env
+        let runtime_env = config.provider_environment();
+        let mut env: Vec<Value> = runtime_env
             .iter()
             .map(|(name, value)| json!({ "name": name, "value": value }))
             .collect();

@@ -1,8 +1,10 @@
 pub mod claude;
+pub mod claude_project_config;
 pub mod codex;
 pub mod mock;
 pub mod native;
 pub mod pi;
+pub mod tool_policy;
 
 use joysafeter_types::harness::{HarnessAdapter, HarnessResultStatus};
 use serde_json::Value;

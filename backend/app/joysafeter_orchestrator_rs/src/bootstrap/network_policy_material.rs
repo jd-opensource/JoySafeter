@@ -4,15 +4,21 @@ use sqlx::PgPool;
 
 use crate::db::queries;
 use crate::ids::SandboxId;
+use crate::kernel::credentials::access::CredentialMaterialAccessService;
 use crate::kernel::credentials::runtime_projection::rebuild_sandbox_credentials;
 use crate::kernel::network_policy::material::NetworkPolicyMaterialResolver;
 use crate::kernel::network_policy::DesiredNetworkPolicy;
+use crate::kernel::repository_access::material::{
+    RepositoryAccessMaterial, RepositoryAccessMaterialAdapter,
+};
 
 pub(crate) fn build_network_policy_material_resolver(
     pool: PgPool,
     llm_egress_allowed_hosts: Vec<String>,
 ) -> Arc<dyn NetworkPolicyMaterialResolver> {
     Arc::new(PostgresNetworkPolicyMaterialResolver {
+        credential_access: CredentialMaterialAccessService::new(pool.clone()),
+        repository_material: Arc::new(RepositoryAccessMaterialAdapter::from_env()),
         pool,
         llm_egress_allowed_hosts,
     })
@@ -21,6 +27,8 @@ pub(crate) fn build_network_policy_material_resolver(
 #[derive(Clone)]
 struct PostgresNetworkPolicyMaterialResolver {
     pool: PgPool,
+    credential_access: CredentialMaterialAccessService,
+    repository_material: Arc<dyn RepositoryAccessMaterial>,
     llm_egress_allowed_hosts: Vec<String>,
 }
 
@@ -35,9 +43,14 @@ impl NetworkPolicyMaterialResolver for PostgresNetworkPolicyMaterialResolver {
             .as_ref()
             .and_then(|config| config.get("fingerprint"))
             .and_then(|fingerprint| fingerprint.get("networking"));
-        let credentials =
-            rebuild_sandbox_credentials(&self.pool, &sandbox, &self.llm_egress_allowed_hosts)
-                .await?;
+        let credentials = rebuild_sandbox_credentials(
+            &self.pool,
+            &self.credential_access,
+            self.repository_material.as_ref(),
+            &sandbox,
+            &self.llm_egress_allowed_hosts,
+        )
+        .await?;
         DesiredNetworkPolicy::from_inputs(networking, &credentials)
     }
 }

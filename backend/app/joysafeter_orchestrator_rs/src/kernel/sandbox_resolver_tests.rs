@@ -1,5 +1,7 @@
 use super::*;
 use crate::config::JoySafeterConfig;
+use crate::db::models::JoySafeterAgent;
+use crate::db::task_identity_store::PostgresTaskIdentityStore;
 use crate::ids::{CredentialGroupId, FileId, OrganizationId, SessionResourceId};
 use crate::kernel::credentials::access::{
     CredentialAccessContext, CredentialMaterialAccessService,
@@ -10,7 +12,9 @@ use crate::kernel::credentials::runtime_projection::{
 use crate::kernel::mcp_runtime_plan::{resolve_mcp_runtime_plan_with_access, EffectiveNetworkMode};
 use crate::kernel::network_policy::envoy_model::SandboxCredentials;
 use crate::kernel::network_policy::{DesiredNetworkPolicy, NetworkPolicyGeneration};
-use crate::sandbox::provider::{SandboxCreateConfig, SandboxStatus};
+use crate::kernel::repository_access::material::RepositoryAccessMaterialAdapter;
+use crate::kernel::task_identity::material::TaskIdentityMaterialAdapter;
+use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider, SandboxStatus};
 use async_trait::async_trait;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -23,18 +27,62 @@ use std::time::Duration;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
-use super::identity::{identity_lease_matches, TaskIdentityContextError};
+use super::identity_policy::identity_lease_matches;
 use super::model::{ExpectedFingerprint, ResolveContext};
 use super::networking::PreparedSandboxNetworking;
 use super::runtime_plan::{
     apply_claude_code_sandbox_privacy, apply_sandbox_timezone, provisioning_config,
 };
+use crate::kernel::task_identity::{TaskIdentityContextError, TaskIdentityService};
 
 const ENCRYPTED_HELLO_WORLD: &str = "enc:v1:VzniG9ulG62e3VZZD1jujN8lxiW1h/6a0Hdj1jIlJC/Wl9Rvvk7D";
 const TEST_IDENTITY_KEY: [u8; 32] = [
     0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
     26, 27, 28, 29, 30, 31,
 ];
+
+impl SandboxResolver {
+    pub fn new(pool: PgPool, provider: Arc<dyn SandboxProvider>, config: JoySafeterConfig) -> Self {
+        let networking = SandboxNetworkingService::test_fixture(pool.clone());
+        let lifecycle =
+            SandboxLifecycleService::new(pool.clone(), provider.clone(), networking.clone());
+        let pool_service = SandboxPoolService::new(
+            pool.clone(),
+            provider.clone(),
+            config.clone(),
+            networking.clone(),
+            lifecycle.clone(),
+        );
+        let provisioning = SandboxProvisioningService::new(
+            pool.clone(),
+            provider,
+            config.clone(),
+            networking.clone(),
+            lifecycle.clone(),
+        );
+        let identity = TaskIdentityService::new(
+            Arc::new(PostgresTaskIdentityStore::new(pool.clone())),
+            Arc::new(TaskIdentityMaterialAdapter::from_env()),
+            config.agent_identity_allowed_hosts.clone(),
+        );
+        let context_builder = ResolveContextBuilder::new(
+            pool.clone(),
+            config,
+            networking.clone(),
+            identity,
+            CredentialMaterialAccessService::new(pool.clone()),
+            Arc::new(RepositoryAccessMaterialAdapter::from_env()),
+        );
+        Self::new_with_services(
+            pool,
+            networking,
+            lifecycle,
+            pool_service,
+            provisioning,
+            context_builder,
+        )
+    }
+}
 
 struct StaticMcpAddressResolver;
 
@@ -297,7 +345,7 @@ fn identity_headers_merge_only_into_matching_mcp_placeholder_route() {
         remove_headers: vec!["authorization".to_string()],
     }];
 
-    TaskIdentityService::merge_into_routes(
+    crate::kernel::network_policy::identity::merge_identity_injection(
         &mut routes,
         crate::kernel::agent_identity_provider::AgentIdentityInjection {
             targets: vec![
@@ -521,12 +569,12 @@ async fn expired_repository_tokens_are_not_exposed_to_git_egress() {
             r#"
                 INSERT INTO joysafeter_agents (
                     id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                    skills, tools, agents, commands, permission_mode, metadata, version
+                    skills, tools, agents, commands, metadata, version
                 )
                 VALUES (
                     $1, $2, 'claude', $3, '', '{}'::jsonb, '[]'::jsonb,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    'bypassPermissions', '{}'::jsonb, 1
+                    '{}'::jsonb, 1
                 )
                 "#,
         )
@@ -563,7 +611,12 @@ async fn expired_repository_tokens_are_not_exposed_to_git_egress() {
         .execute(&pool)
         .await?;
 
-        let routes = build_git_egress(&pool, Some(session_id)).await?;
+        let routes = build_git_egress(
+            &pool,
+            &RepositoryAccessMaterialAdapter::from_env(),
+            Some(session_id),
+        )
+        .await?;
         anyhow::ensure!(
             routes.is_empty(),
             "expired repository token reached Git egress"
@@ -608,12 +661,12 @@ async fn assert_existing_runtime_requires_restart(
             r#"
                 INSERT INTO joysafeter_agents (
                     id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                    skills, tools, agents, commands, permission_mode, metadata, version
+                    skills, tools, agents, commands, metadata, version
                 )
                 VALUES (
                     $1, $2, 'claude', $3, 'resolver freshness system', '{}'::jsonb, '[]'::jsonb,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    'bypassPermissions', '{}'::jsonb, 1
+                    '{}'::jsonb, 1
                 )
                 "#,
         )
@@ -752,12 +805,12 @@ async fn assert_new_sandbox_generation_rejection_cleanup(destroy_fails: bool) {
             r#"
                 INSERT INTO joysafeter_agents (
                     id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                    skills, tools, agents, commands, permission_mode, metadata, version
+                    skills, tools, agents, commands, metadata, version
                 )
                 VALUES (
                     $1, $2, 'claude', $3, 'resolver generation system', '{}'::jsonb, '[]'::jsonb,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    'bypassPermissions', '{}'::jsonb, 1
+                    '{}'::jsonb, 1
                 )
                 "#,
         )
@@ -821,14 +874,22 @@ async fn assert_new_sandbox_generation_rejection_cleanup(destroy_fails: bool) {
         assert_eq!(provider.created.lock().await.len(), 1);
         assert_eq!(provider.destroyed.lock().await.len(), 1);
         assert_eq!(provider.networking_teardowns.lock().await.len(), 1);
-        let sandbox_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM joysafeter_sandboxes WHERE chat_session_id = $1",
+        let rejected_sandbox: Option<(String, String, Option<String>)> = sqlx::query_as(
+            "SELECT status, runner_auth_state, external_id FROM joysafeter_sandboxes WHERE chat_session_id = $1",
         )
         .bind(session_id)
-        .fetch_one(&pool)
+        .fetch_optional(&pool)
         .await
-        .expect("count rejected sandbox rows");
-        assert_eq!(sandbox_count, 0);
+        .expect("load rejected sandbox row");
+        if destroy_fails {
+            let rejected_sandbox = rejected_sandbox
+                .expect("failed provider cleanup must retain a fenced retryable row");
+            assert_eq!(rejected_sandbox.0, "stopping");
+            assert_eq!(rejected_sandbox.1, "revoked");
+            assert!(rejected_sandbox.2.is_some_and(|value| !value.is_empty()));
+        } else {
+            assert!(rejected_sandbox.is_none());
+        }
     }
     .await;
 
@@ -1067,9 +1128,13 @@ impl NetworkPolicyMaterialResolver for PostgresTestNetworkPolicyMaterialResolver
             .as_ref()
             .and_then(|config| config.get("fingerprint"))
             .and_then(|fingerprint| fingerprint.get("networking"));
+        let credential_access = CredentialMaterialAccessService::new(self.pool.clone());
+        let repository_material = RepositoryAccessMaterialAdapter::from_env();
         let credentials =
             crate::kernel::credentials::runtime_projection::rebuild_sandbox_credentials(
                 &self.pool,
+                &credential_access,
+                &repository_material,
                 &sandbox,
                 &[],
             )
@@ -1646,13 +1711,13 @@ async fn task_identity_context_is_project_scoped_expiring_and_single_consume() {
             r#"
                 INSERT INTO joysafeter_agents (
                     id, project_id, name, engine_kind, model, system_prompt, env,
-                    mcp_servers, skills, tools, agents, commands, permission_mode,
+                    mcp_servers, skills, tools, agents, commands,
                     metadata, version
                 )
                 VALUES (
                     $1, $2, $3, 'claude', $4, '', '{}'::jsonb,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    '[]'::jsonb, 'bypassPermissions', '{}'::jsonb, 1
+                    '[]'::jsonb, '{}'::jsonb, 1
                 )
                 "#,
         )
@@ -1774,7 +1839,7 @@ async fn task_identity_context_is_project_scoped_expiring_and_single_consume() {
                 .resolve_injection(
                     Some(&key_error_agent),
                     task_id,
-                    None,
+                    Some(session_id),
                     Some(project_id),
                     &[identity_target("api.example.com")],
                 )
@@ -1798,17 +1863,30 @@ async fn task_identity_context_is_project_scoped_expiring_and_single_consume() {
         assert_eq!(
             resolver
                 .identity_service()
-                .load_context(task_id, Some(ProjectId::new()))
+                .resolve_injection(
+                    Some(
+                        &queries::get_agent(&pool, agent_id)
+                            .await
+                            .expect("load project-mismatch agent")
+                            .expect("project-mismatch agent exists"),
+                    ),
+                    task_id,
+                    Some(session_id),
+                    Some(ProjectId::new()),
+                    &[identity_target("api.example.com")],
+                )
                 .await
                 .unwrap_err(),
             TaskIdentityContextError::ProjectMismatch
         );
-        assert!(resolver
-            .identity_service()
-            .load_context(expired_task_id, Some(project_id))
-            .await
-            .expect("expired lookup is an absence")
-            .is_none());
+        let expired_state: (String, bool) = sqlx::query_as(
+            "SELECT state, encrypted_credential IS NOT NULL FROM joysafeter_task_identity_contexts WHERE task_id = $1",
+        )
+        .bind(expired_task_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load expired identity state");
+        assert_eq!(expired_state, ("captured".to_string(), true));
 
         assert_eq!(
             resolver
@@ -1915,12 +1993,22 @@ async fn task_identity_context_is_project_scoped_expiring_and_single_consume() {
             TaskIdentityContextError::Provider
         );
         assert_eq!(failing_provider.calls.load(Ordering::SeqCst), 1);
+        let failed_state: (String, bool, bool) = sqlx::query_as(
+            r#"
+                SELECT state, encrypted_credential IS NOT NULL, resolution_id IS NULL
+                FROM joysafeter_task_identity_contexts WHERE task_id = $1
+                "#,
+        )
+        .bind(failing_task_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load retryable identity state after provider failure");
+        assert_eq!(failed_state, ("captured".to_string(), true, true));
 
         assert_eq!(
             resolver
                 .identity_service()
                 .decode_context(
-                    invalid_kind_task_id,
                     Some((
                         user_id,
                         Some("user@example.com".to_string()),
@@ -1949,25 +2037,30 @@ async fn task_identity_context_is_project_scoped_expiring_and_single_consume() {
             &candidate_hosts,
         );
         let (first, second) = tokio::join!(first, second);
-        let first = first.expect("first identity claim resolves without error");
-        let second = second.expect("second identity claim resolves without error");
-        assert_eq!(identity_provider.calls.load(Ordering::SeqCst), 2);
+        let outcomes = [first, second];
         assert_eq!(
-            usize::from(first.is_some()) + usize::from(second.is_some()),
-            2
+            outcomes
+                .iter()
+                .filter(|outcome| matches!(outcome, Ok(Some(_))))
+                .count(),
+            1
         );
-        let mut captured_material = identity_provider.captured_material.lock().await.clone();
-        captured_material.sort_unstable();
-        assert_eq!(captured_material, vec![false, true]);
-        assert!(resolver
-            .identity_service()
-            .load_context(task_id, Some(project_id))
-            .await
-            .expect("consumed lookup is an absence")
-            .is_none());
-        let consumed: (bool, bool) = sqlx::query_as(
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|outcome| matches!(outcome, Err(TaskIdentityContextError::ClaimConflict)))
+                .count(),
+            1
+        );
+        assert_eq!(identity_provider.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            identity_provider.captured_material.lock().await.as_slice(),
+            &[true]
+        );
+        let consumed: (String, bool, bool, bool) = sqlx::query_as(
             r#"
-                SELECT consumed_at IS NOT NULL, encrypted_credential IS NULL
+                SELECT state, consumed_at IS NOT NULL, encrypted_credential IS NULL,
+                       resolution_id IS NULL
                 FROM joysafeter_task_identity_contexts WHERE task_id = $1
                 "#,
         )
@@ -1975,7 +2068,7 @@ async fn task_identity_context_is_project_scoped_expiring_and_single_consume() {
         .fetch_one(&pool)
         .await
         .expect("load consumed identity state");
-        assert_eq!(consumed, (true, true));
+        assert_eq!(consumed, ("issued".to_string(), true, true, true));
     }
     .await;
 
@@ -2012,12 +2105,39 @@ async fn task_identity_sql_errors_are_not_optional_absence() {
         JoySafeterConfig::from_env(),
     )
     .with_identity_allowed_hosts(allow(&["api.example.com"]));
+    let project_id = ProjectId::new();
+    let agent = JoySafeterAgent {
+        id: AgentId::new(),
+        project_id: Some(project_id),
+        name: "closed-pool-identity-agent".to_string(),
+        engine_kind: None,
+        model: None,
+        system_prompt: None,
+        description: None,
+        env: None,
+        mcp_servers: None,
+        skills: None,
+        agents: None,
+        commands: None,
+        tools: None,
+        metadata: None,
+        multiagent: None,
+        version: 1,
+        environment_id: None,
+        model_credential_id: None,
+    };
     pool.close().await;
 
     assert_eq!(
         resolver
             .identity_service()
-            .load_context(TaskId::from_uuid(Uuid::now_v7()), Some(ProjectId::new()))
+            .resolve_injection(
+                Some(&agent),
+                TaskId::from_uuid(Uuid::now_v7()),
+                Some(SessionId::new()),
+                Some(project_id),
+                &[identity_target("api.example.com")],
+            )
             .await
             .unwrap_err(),
         TaskIdentityContextError::Database
@@ -2300,11 +2420,15 @@ async fn sandbox_pool_service_provision_finalizes_pooled_row() {
     config.sandbox_workspace_root = None;
     config.envoy_enabled = false;
 
+    let networking = SandboxNetworkingService::test_fixture(pool.clone());
+    let lifecycle =
+        SandboxLifecycleService::new(pool.clone(), provider.clone(), networking.clone());
     let pool_service = SandboxPoolService::new(
         pool.clone(),
         provider.clone(),
         config,
-        SandboxNetworkingService::test_fixture(pool.clone()),
+        networking,
+        lifecycle,
     );
     let sandbox_id = pool_service
         .provision(&image)
@@ -2329,10 +2453,29 @@ async fn sandbox_pool_service_provision_finalizes_pooled_row() {
                 .and_then(|value| value.as_str()),
             Some("pool_warm")
         );
-        assert!(sandbox.2.get("runner_token").is_some());
+        assert!(sandbox.2.get("runner_token").is_none());
+        let proxy_token = sandbox
+            .2
+            .get("egress_proxy_token")
+            .and_then(serde_json::Value::as_str)
+            .expect("persist dedicated egress proxy token");
+        let fingerprint_env = sandbox
+            .2
+            .get("fingerprint")
+            .and_then(|value| value.get("env"))
+            .and_then(serde_json::Value::as_object)
+            .expect("persist runtime fingerprint env hashes");
+        assert!(!fingerprint_env.contains_key("JOYSAFETER_RUNNER_TOKEN"));
+        assert!(!fingerprint_env.contains_key("JOYSAFETER_EGRESS_PROXY_TOKEN"));
 
         let created = provider.created.lock().await;
         assert_eq!(created.len(), 1);
+        assert!(!created[0].env.contains_key("JOYSAFETER_RUNNER_TOKEN"));
+        assert!(!created[0].env.contains_key("JOYSAFETER_EGRESS_PROXY_TOKEN"));
+        let runner_token = created[0].runtime_credentials.runner_session_token();
+        let projected_proxy_token = created[0].runtime_credentials.egress_proxy_token();
+        assert_eq!(projected_proxy_token, proxy_token);
+        assert_ne!(runner_token, proxy_token);
         assert_eq!(created[0].sandbox_id, sandbox_id);
         assert_eq!(created[0].image.as_str(), image);
         assert_eq!(created[0].workspace_path.as_deref(), None);
@@ -2377,7 +2520,9 @@ async fn sandbox_resolver_pool_ready_error_race_does_not_destroy_changed_runtime
         r#"
             CREATE FUNCTION {function_name}() RETURNS trigger AS $$
             BEGIN
-                IF NEW.image = '{image_literal}' THEN
+                IF NEW.image = '{image_literal}'
+                   AND OLD.external_id = ''
+                   AND NEW.external_id <> '' THEN
                     NEW.status := 'error';
                     NEW.config := COALESCE(NEW.config, '{{}}'::jsonb)
                         || jsonb_build_object('setup_error', 'concurrent pool ready error');
@@ -2393,7 +2538,7 @@ async fn sandbox_resolver_pool_ready_error_race_does_not_destroy_changed_runtime
     sqlx::query(&format!(
         r#"
             CREATE TRIGGER {trigger_name}
-            BEFORE INSERT ON joysafeter_sandboxes
+            BEFORE UPDATE ON joysafeter_sandboxes
             FOR EACH ROW EXECUTE FUNCTION {function_name}()
             "#
     ))
@@ -2406,11 +2551,15 @@ async fn sandbox_resolver_pool_ready_error_race_does_not_destroy_changed_runtime
     config.sandbox_provider = "recording".to_string();
     config.sandbox_workspace_root = None;
     config.envoy_enabled = false;
+    let networking = SandboxNetworkingService::test_fixture(pool.clone());
+    let lifecycle =
+        SandboxLifecycleService::new(pool.clone(), provider.clone(), networking.clone());
     let pool_service = SandboxPoolService::new(
         pool.clone(),
         provider.clone(),
         config,
-        SandboxNetworkingService::test_fixture(pool.clone()),
+        networking,
+        lifecycle,
     );
 
     let result = pool_service.provision(&image).await;
@@ -2471,8 +2620,8 @@ async fn sandbox_resolver_new_sandbox_error_race_does_not_destroy_changed_runtim
 
     sqlx::query(
         r#"
-            INSERT INTO joysafeter_agents (id, name, engine_kind, env, permission_mode, version)
-            VALUES ($1, $2, 'claude', '{}'::jsonb, 'bypassPermissions', 1)
+            INSERT INTO joysafeter_agents (id, name, engine_kind, env, version)
+            VALUES ($1, $2, 'claude', '{}'::jsonb, 1)
             "#,
     )
     .bind(agent_id)
@@ -2491,7 +2640,9 @@ async fn sandbox_resolver_new_sandbox_error_race_does_not_destroy_changed_runtim
         r#"
             CREATE FUNCTION {function_name}() RETURNS trigger AS $$
             BEGIN
-                IF NEW.image = '{image_literal}' THEN
+                IF NEW.image = '{image_literal}'
+                   AND OLD.external_id = ''
+                   AND NEW.external_id <> '' THEN
                     NEW.status := 'error';
                     NEW.config := COALESCE(NEW.config, '{{}}'::jsonb)
                         || jsonb_build_object('setup_error', 'concurrent new sandbox error');
@@ -2507,7 +2658,7 @@ async fn sandbox_resolver_new_sandbox_error_race_does_not_destroy_changed_runtim
     sqlx::query(&format!(
         r#"
             CREATE TRIGGER {trigger_name}
-            BEFORE INSERT ON joysafeter_sandboxes
+            BEFORE UPDATE ON joysafeter_sandboxes
             FOR EACH ROW EXECUTE FUNCTION {function_name}()
             "#
     ))
@@ -2598,8 +2749,8 @@ async fn sandbox_resolver_pool_claim_accepts_runner_ready_idle_race() {
     let result = async {
             sqlx::query(
                 r#"
-                INSERT INTO joysafeter_agents (id, name, engine_kind, env, permission_mode, version)
-                VALUES ($1, $2, 'claude', '{}'::jsonb, 'bypassPermissions', 1)
+            INSERT INTO joysafeter_agents (id, name, engine_kind, env, version)
+            VALUES ($1, $2, 'claude', '{}'::jsonb, 1)
                 "#,
             )
             .bind(agent_id)
@@ -2738,8 +2889,8 @@ async fn sandbox_resolver_stopped_pool_claim_starts_after_db_claim() {
     let result = async {
         sqlx::query(
             r#"
-                INSERT INTO joysafeter_agents (id, name, engine_kind, env, permission_mode, version)
-                VALUES ($1, $2, 'claude', '{}'::jsonb, 'bypassPermissions', 1)
+            INSERT INTO joysafeter_agents (id, name, engine_kind, env, version)
+            VALUES ($1, $2, 'claude', '{}'::jsonb, 1)
                 "#,
         )
         .bind(agent_id)
@@ -2873,8 +3024,8 @@ async fn sandbox_resolver_pool_claim_error_race_does_not_destroy_changed_runtime
     let result = async {
         sqlx::query(
             r#"
-                INSERT INTO joysafeter_agents (id, name, engine_kind, env, permission_mode, version)
-                VALUES ($1, $2, 'claude', '{}'::jsonb, 'bypassPermissions', 1)
+            INSERT INTO joysafeter_agents (id, name, engine_kind, env, version)
+            VALUES ($1, $2, 'claude', '{}'::jsonb, 1)
                 "#,
         )
         .bind(agent_id)
@@ -3004,8 +3155,8 @@ async fn sandbox_resolver_pool_cleanup_failure_keeps_attached_runtime_non_ready(
     let result = async {
         sqlx::query(
             r#"
-                INSERT INTO joysafeter_agents (id, name, engine_kind, env, permission_mode, version)
-                VALUES ($1, $2, 'claude', '{}'::jsonb, 'bypassPermissions', 1)
+            INSERT INTO joysafeter_agents (id, name, engine_kind, env, version)
+            VALUES ($1, $2, 'claude', '{}'::jsonb, 1)
                 "#,
         )
         .bind(agent_id)
@@ -3224,12 +3375,12 @@ async fn sandbox_resolver_builds_mcp_egress_from_session_credential_groups() {
             r#"
                 INSERT INTO joysafeter_agents (
                     id, project_id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                    skills, tools, agents, commands, permission_mode, metadata, version
+                    skills, tools, agents, commands, metadata, version
                 )
                 VALUES (
                     $1, $2, $3, 'claude', $4, '', '{}'::jsonb, $5,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    'bypassPermissions', '{}'::jsonb, 1
+                    '{}'::jsonb, 1
                 )
                 "#,
         )
@@ -3428,12 +3579,12 @@ async fn sandbox_resolver_restart_does_not_resurrect_concurrent_error() {
             r#"
                 INSERT INTO joysafeter_agents (
                     id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                    skills, tools, agents, commands, permission_mode, metadata, version
+                    skills, tools, agents, commands, metadata, version
                 )
                 VALUES (
                     $1, $2, 'claude', $3, 'resolver race system', '{}'::jsonb, '[]'::jsonb,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    'bypassPermissions', '{}'::jsonb, 1
+                    '{}'::jsonb, 1
                 )
                 "#,
         )
@@ -3569,12 +3720,12 @@ async fn sandbox_resolver_restart_claims_row_before_provider_start() {
                 r#"
                 INSERT INTO joysafeter_agents (
                     id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                    skills, tools, agents, commands, permission_mode, metadata, version
+                    skills, tools, agents, commands, metadata, version
                 )
                 VALUES (
                     $1, $2, 'claude', $3, 'resolver restart ordering system', '{}'::jsonb, '[]'::jsonb,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    'bypassPermissions', '{}'::jsonb, 1
+                    '{}'::jsonb, 1
                 )
                 "#,
             )
@@ -3717,12 +3868,12 @@ async fn assert_restart_failure_restores_runtime_configuration(
                 r#"
                 INSERT INTO joysafeter_agents (
                     id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                    skills, tools, agents, commands, permission_mode, metadata, version
+                    skills, tools, agents, commands, metadata, version
                 )
                 VALUES (
                     $1, $2, 'claude', $3, 'resolver restart compensation system', '{}'::jsonb, '[]'::jsonb,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    'bypassPermissions', '{}'::jsonb, 1
+                    '{}'::jsonb, 1
                 )
                 "#,
             )
@@ -3954,12 +4105,12 @@ async fn sandbox_resolver_isolates_stale_creating_before_provider_destroy() {
                 r#"
                 INSERT INTO joysafeter_agents (
                     id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                    skills, tools, agents, commands, permission_mode, metadata, version
+                    skills, tools, agents, commands, metadata, version
                 )
                 VALUES (
                     $1, $2, 'claude', $3, 'resolver stale creating system', '{}'::jsonb, '[]'::jsonb,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    'bypassPermissions', '{}'::jsonb, 1
+                    '{}'::jsonb, 1
                 )
                 "#,
             )
@@ -4092,7 +4243,6 @@ async fn sandbox_resolver_uses_session_snapshot_for_image_network_and_env() {
         "skills": [],
         "agents": [],
         "commands": [],
-        "permission_mode": "bypassPermissions",
         "environment_id": environment_id.to_string(),
         "environment": {
             "environment_id": environment_id.to_string(),
@@ -4131,13 +4281,13 @@ async fn sandbox_resolver_uses_session_snapshot_for_image_network_and_env() {
             r#"
                 INSERT INTO joysafeter_agents (
                     id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                    skills, tools, agents, commands, permission_mode, metadata,
+                    skills, tools, agents, commands, metadata,
                     version, environment_id
                 )
                 VALUES (
                     $1, $2, 'codex', $3, 'live system', $4, '[]'::jsonb,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    'default', '{}'::jsonb, 4, $5
+                    '{}'::jsonb, 4, $5
                 )
                 "#,
         )
@@ -4282,7 +4432,6 @@ async fn new_limited_sandbox_networking_failure_is_destroyed_and_not_returned() 
         "skills": [],
         "agents": [],
         "commands": [],
-        "permission_mode": "bypassPermissions",
         "environment_id": environment_id.to_string(),
         "environment": {
             "environment_id": environment_id.to_string(),
@@ -4297,12 +4446,12 @@ async fn new_limited_sandbox_networking_failure_is_destroyed_and_not_returned() 
         r#"
             INSERT INTO joysafeter_agents (
                 id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                skills, tools, agents, commands, permission_mode, metadata, version
+                skills, tools, agents, commands, metadata, version
             )
             VALUES (
                 $1, $2, 'claude', $3, '', '{}'::jsonb, '[]'::jsonb,
                 '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                'bypassPermissions', '{}'::jsonb, 1
+                '{}'::jsonb, 1
             )
             "#,
     )
@@ -4398,7 +4547,6 @@ async fn new_sandbox_ack_persistence_error_runs_complete_compensation() {
         "skills": [],
         "agents": [],
         "commands": [],
-        "permission_mode": "bypassPermissions",
         "environment_id": environment_id.to_string(),
         "environment": {
             "environment_id": environment_id.to_string(),
@@ -4412,10 +4560,10 @@ async fn new_sandbox_ack_persistence_error_runs_complete_compensation() {
     sqlx::query(
         r#"INSERT INTO joysafeter_agents (
                 id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                skills, tools, agents, commands, permission_mode, metadata, version
+                skills, tools, agents, commands, metadata, version
             ) VALUES ($1, $2, 'claude', $3, '', '{}'::jsonb, '[]'::jsonb,
                 '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                'bypassPermissions', '{}'::jsonb, 1)"#,
+                '{}'::jsonb, 1)"#,
     )
     .bind(agent_id)
     .bind(format!("ack-failure-agent-{unique}"))
@@ -4530,7 +4678,6 @@ async fn reused_limited_sandbox_networking_failure_is_not_returned() {
         "skills": [],
         "agents": [],
         "commands": [],
-        "permission_mode": "bypassPermissions",
         "environment_id": environment_id.to_string(),
         "environment": {
             "environment_id": environment_id.to_string(),
@@ -4545,12 +4692,12 @@ async fn reused_limited_sandbox_networking_failure_is_not_returned() {
         r#"
             INSERT INTO joysafeter_agents (
                 id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                skills, tools, agents, commands, permission_mode, metadata, version
+                skills, tools, agents, commands, metadata, version
             )
             VALUES (
                 $1, $2, 'claude', $3, '', '{}'::jsonb, '[]'::jsonb,
                 '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                'bypassPermissions', '{}'::jsonb, 1
+                '{}'::jsonb, 1
             )
             "#,
     )
@@ -4703,13 +4850,13 @@ async fn sandbox_resolver_snapshot_session_file_injection_storage_missing_fails_
             r#"
                 INSERT INTO joysafeter_agents (
                     id, project_id, name, engine_kind, model, system_prompt, env,
-                    mcp_servers, skills, tools, agents, commands, permission_mode,
+                    mcp_servers, skills, tools, agents, commands,
                     metadata, version
                 )
                 VALUES (
                     $1, $2, $3, 'claude', $4, '', '{}'::jsonb,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    '[]'::jsonb, 'bypassPermissions', '{}'::jsonb, 1
+                    '[]'::jsonb, '{}'::jsonb, 1
                 )
                 "#,
         )

@@ -1,4 +1,4 @@
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.joysafeter_domain.models.joysafeter_task_identity import JoySafeterTaskIdentityContext
@@ -15,6 +15,13 @@ async def erase_expired_task_identity_material(db: AsyncSession, *, limit: int =
                 .where(
                     JoySafeterTaskIdentityContext.encrypted_credential.is_not(None),
                     JoySafeterTaskIdentityContext.expires_at <= utc_now(),
+                    or_(
+                        JoySafeterTaskIdentityContext.state == "captured",
+                        and_(
+                            JoySafeterTaskIdentityContext.state == "resolving",
+                            JoySafeterTaskIdentityContext.resolution_expires_at <= utc_now(),
+                        ),
+                    ),
                 )
                 .order_by(JoySafeterTaskIdentityContext.expires_at, JoySafeterTaskIdentityContext.task_id)
                 .limit(limit)
@@ -30,6 +37,13 @@ async def erase_expired_task_identity_material(db: AsyncSession, *, limit: int =
             JoySafeterTaskIdentityContext.task_id.in_(task_ids),
             JoySafeterTaskIdentityContext.encrypted_credential.is_not(None),
         )
-        .values(encrypted_credential=None, erased_at=utc_now(), updated_at=utc_now())
+        .values(
+            state="expired",
+            encrypted_credential=None,
+            resolution_id=None,
+            resolution_expires_at=None,
+            erased_at=utc_now(),
+            updated_at=utc_now(),
+        )
     )
     return result.rowcount or 0

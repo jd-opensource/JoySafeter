@@ -149,61 +149,6 @@ pub enum PermissionPolicy {
     AlwaysAsk,
 }
 
-impl PermissionPolicy {
-    pub fn to_mode_str(&self) -> &'static str {
-        match self {
-            Self::AlwaysAllow => "bypassPermissions",
-            Self::AlwaysAsk => "default",
-        }
-    }
-}
-
-pub fn extract_permission_mode(tools: &[AgentTool]) -> String {
-    for tool in tools {
-        match tool {
-            AgentTool::AgentToolset {
-                default_config,
-                configs,
-            } => {
-                let base = default_config
-                    .as_ref()
-                    .map(|c| &c.permission_policy)
-                    .unwrap_or(&PermissionPolicy::AlwaysAllow);
-                if matches!(base, PermissionPolicy::AlwaysAsk) {
-                    return "default".to_string();
-                }
-                if configs
-                    .iter()
-                    .any(|c| matches!(c.permission_policy, Some(PermissionPolicy::AlwaysAsk)))
-                {
-                    return "default".to_string();
-                }
-            }
-            AgentTool::McpToolset {
-                default_config,
-                configs,
-                ..
-            } => {
-                let base = default_config
-                    .as_ref()
-                    .map(|c| &c.permission_policy)
-                    .unwrap_or(&PermissionPolicy::AlwaysAsk);
-                if matches!(base, PermissionPolicy::AlwaysAsk) {
-                    return "default".to_string();
-                }
-                if configs
-                    .iter()
-                    .any(|c| matches!(c.permission_policy, Some(PermissionPolicy::AlwaysAsk)))
-                {
-                    return "default".to_string();
-                }
-            }
-            AgentTool::Custom { .. } => {}
-        }
-    }
-    "bypassPermissions".to_string()
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackedItem {
     pub name: String,

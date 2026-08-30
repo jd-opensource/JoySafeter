@@ -6,12 +6,38 @@ use sqlx::PgPool;
 
 use crate::db::queries;
 use crate::ids::{SandboxId, TaskId};
-use crate::kernel::credentials::runtime_projection::sandbox_runner_token;
+use crate::kernel::runtime_auth;
 
 use super::context::ResolveContextBuilder;
-use super::identity::{identity_lease_matches, identity_lease_refresh_after_seconds};
 use super::lifecycle::SandboxLifecycleService;
 use super::networking::{SandboxNetworkingService, TaskIdentityNetworkLease};
+
+pub(crate) fn identity_lease_metadata(
+    task_id: TaskId,
+    refresh_after_seconds: Option<u64>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "task_id": task_id.to_string(),
+        "refresh_after_seconds": refresh_after_seconds,
+    })
+}
+
+pub(crate) fn identity_lease_matches(config: Option<&serde_json::Value>, task_id: TaskId) -> bool {
+    config
+        .and_then(|value| value.get("agent_identity_lease"))
+        .and_then(|lease| lease.get("task_id"))
+        .and_then(serde_json::Value::as_str)
+        == Some(task_id.to_string().as_str())
+}
+
+pub(crate) fn identity_lease_refresh_after_seconds(
+    config: Option<&serde_json::Value>,
+) -> Option<u64> {
+    config
+        .and_then(|value| value.get("agent_identity_lease"))
+        .and_then(|lease| lease.get("refresh_after_seconds"))
+        .and_then(serde_json::Value::as_u64)
+}
 
 #[async_trait]
 pub(crate) trait SandboxIdentityPolicy: Send + Sync {
@@ -100,7 +126,7 @@ impl SandboxIdentityPolicy for SandboxIdentityPolicyService {
         let agent_id = task
             .agent_id
             .ok_or_else(|| anyhow::anyhow!("Agent Identity refresh task has no agent"))?;
-        let proxy_auth_token = sandbox_runner_token(&sandbox);
+        let proxy_auth_token = runtime_auth::egress_proxy_token(sandbox.config.as_ref());
         let _ = sandbox
             .external_id
             .as_deref()

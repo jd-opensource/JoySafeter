@@ -6,6 +6,7 @@ mod repos;
 mod runner;
 mod sandbox_files;
 mod stream;
+mod tool_policy;
 
 pub mod proto {
     tonic::include_proto!("joysafeter");
@@ -14,6 +15,7 @@ pub mod proto {
 use proto::agent_bridge_client::AgentBridgeClient;
 use proto::{RunnerHarnessResult, RunnerHeartbeat, RunnerIdle, RunnerMessage};
 
+use base64::Engine;
 use joysafeter_runtime::AdapterRegistry;
 use joysafeter_types::TaskId;
 use std::os::unix::fs::FileTypeExt;
@@ -122,11 +124,20 @@ async fn wait_for_unix_socket(path: &Path, purpose: &str) -> bool {
     false
 }
 
-fn configure_proxy_env(runner_token: Option<&String>) {
-    let port = egress_bridge::BRIDGE_PORT;
-    let proxy = runner_token
-        .map(|token| format!("http://sandbox:{}@127.0.0.1:{port}", url_escape(token)))
-        .unwrap_or_else(|| format!("http://127.0.0.1:{port}"));
+fn local_proxy_url() -> String {
+    format!("http://127.0.0.1:{}", egress_bridge::BRIDGE_PORT)
+}
+
+fn proxy_authorization(egress_proxy_token: Option<&str>) -> anyhow::Result<String> {
+    let token = egress_proxy_token
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("managed egress requires JOYSAFETER_EGRESS_PROXY_TOKEN"))?;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(format!("sandbox:{token}"));
+    Ok(format!("Basic {encoded}"))
+}
+
+fn configure_proxy_env() {
+    let proxy = local_proxy_url();
     std::env::set_var("HTTP_PROXY", &proxy);
     std::env::set_var("HTTPS_PROXY", &proxy);
     std::env::set_var("http_proxy", &proxy);
@@ -140,10 +151,14 @@ fn configure_proxy_env(runner_token: Option<&String>) {
 /// reachable immediately; the accept/forward loop then connects to the Envoy
 /// Unix socket lazily per connection, retrying until it appears. Returns whether
 /// the listener bound successfully.
-async fn start_http_proxy_bridge(http_sock: PathBuf) -> bool {
+async fn start_http_proxy_bridge(http_sock: PathBuf, proxy_authorization: String) -> bool {
     match egress_bridge::bind().await {
         Ok(listener) => {
-            tokio::spawn(egress_bridge::serve(listener, http_sock));
+            tokio::spawn(egress_bridge::serve(
+                listener,
+                http_sock,
+                proxy_authorization.into(),
+            ));
             true
         }
         Err(e) => {
@@ -179,23 +194,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let orch_url = std::env::var("JOYSAFETER_ORCHESTRATOR_URL")
         .unwrap_or_else(|_| "http://127.0.0.1:9090".into());
     let sandbox_id = std::env::var("JOYSAFETER_SANDBOX_ID").unwrap_or_default();
-    // Read the runner token from env or from a file (the entrypoint may have
-    // moved it to a file and unset the env var to prevent leakage via
-    // `docker exec env`).
-    let runner_token = std::env::var("JOYSAFETER_RUNNER_TOKEN").ok().or_else(|| {
-        std::env::var("JOYSAFETER_RUNNER_TOKEN_FILE")
-            .ok()
-            .and_then(|path| {
-                let token = std::fs::read_to_string(&path).ok()?.trim().to_string();
-                // Delete the file after reading — one-shot.
-                let _ = std::fs::remove_file(&path);
-                if token.is_empty() {
-                    None
-                } else {
-                    Some(token)
-                }
-            })
-    });
+    let runner_token =
+        read_runtime_credential("JOYSAFETER_RUNNER_TOKEN", "JOYSAFETER_RUNNER_TOKEN_FILE")?
+            .ok_or_else(|| anyhow::anyhow!("runner session credential is required"))?;
+    let egress_proxy_token = read_runtime_credential(
+        "JOYSAFETER_EGRESS_PROXY_TOKEN",
+        "JOYSAFETER_EGRESS_PROXY_TOKEN_FILE",
+    )?;
 
     let grpc_sock_path = if orch_url.starts_with("unix://") {
         let grpc_path = orch_url.strip_prefix("unix://").unwrap();
@@ -222,12 +227,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let http_proxy_ready = if let Some(ref http_sock) = http_sock_path {
-        configure_proxy_env(runner_token.as_ref());
+        let proxy_authorization = proxy_authorization(egress_proxy_token.as_deref())?;
+        configure_proxy_env();
         let http_sock = http_sock.clone();
         // Bind the bridge listener up front (synchronous, immediate) so the proxy
         // endpoint is ready before the agent starts. The accept loop connects to
         // the Envoy socket lazily, so we no longer block on socket materialization.
-        let ready = start_http_proxy_bridge(http_sock).await;
+        let ready = start_http_proxy_bridge(http_sock, proxy_authorization).await;
         let (_ready_tx, ready_rx) = watch::channel(ready);
         // `_ready_tx` is dropped here; receivers read the initial `ready` value
         // via borrow(). A dropped sender just means no further transitions, which
@@ -357,7 +363,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 is_reconnect,
                 active_task_id: active_task_id.clone(),
                 capabilities: vec!["file_mount".to_string(), "url_download".to_string()],
-                runner_token: runner_token.clone(),
+                runner_token: Some(runner_token.clone()),
             })),
         };
         if runner_tx.send(ready).await.is_err() {
@@ -370,14 +376,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Connected successfully
         retry_count = 0;
-        if is_first_connect {
-            // Defense-in-depth: scrub the runner token from this process's env.
-            // The entrypoint wrapper already removed it from the container-level
-            // env (preventing `docker exec env` exposure), but this also covers
-            // legacy images that run joysafeter-runner directly as ENTRYPOINT.
-            std::env::remove_var("JOYSAFETER_RUNNER_TOKEN");
-            std::env::remove_var("JOYSAFETER_RUNNER_TOKEN_FILE");
-        }
         is_first_connect = false;
         info!(
             sandbox_id = %sandbox_id,
@@ -451,17 +449,43 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn url_escape(value: &str) -> String {
-    let mut escaped = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
-                escaped.push(byte as char)
-            }
-            _ => escaped.push_str(&format!("%{byte:02X}")),
+fn read_runtime_credential(value_name: &str, file_name: &str) -> anyhow::Result<Option<String>> {
+    let inline = match std::env::var(value_name) {
+        Ok(value) => Some(value),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(error) => return Err(error.into()),
+    };
+    let file_path = match std::env::var(file_name) {
+        Ok(path) => Some(path),
+        Err(std::env::VarError::NotPresent) => None,
+        Err(error) => return Err(error.into()),
+    };
+
+    std::env::remove_var(value_name);
+    std::env::remove_var(file_name);
+
+    match (inline, file_path) {
+        (Some(_), Some(_)) => {
+            anyhow::bail!("runtime credential {value_name} has ambiguous inline and file sources")
         }
+        (Some(value), None) => validate_runtime_credential(value_name, value).map(Some),
+        (None, Some(path)) => {
+            let value = std::fs::read_to_string(&path)
+                .map_err(|error| anyhow::anyhow!("read {file_name} path {path}: {error}"))?;
+            std::fs::remove_file(&path).map_err(|error| {
+                anyhow::anyhow!("remove consumed {file_name} path {path}: {error}")
+            })?;
+            validate_runtime_credential(value_name, value.trim().to_string()).map(Some)
+        }
+        (None, None) => Ok(None),
     }
-    escaped
+}
+
+fn validate_runtime_credential(name: &str, value: String) -> anyhow::Result<String> {
+    if value.is_empty() {
+        anyhow::bail!("runtime credential {name} must not be empty");
+    }
+    Ok(value)
 }
 
 async fn handle_retry(retry_count: &mut u32, surviving_task: &Option<SurvivingTask>) -> bool {
@@ -1049,6 +1073,26 @@ async fn run_session(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn managed_http_proxy_url_does_not_expose_egress_token() {
+        let proxy = local_proxy_url();
+
+        assert_eq!(
+            proxy,
+            format!("http://127.0.0.1:{}", egress_bridge::BRIDGE_PORT)
+        );
+        assert!(!proxy.contains("egress-token"));
+    }
+
+    #[test]
+    fn proxy_authorization_uses_dedicated_egress_token() {
+        assert_eq!(
+            proxy_authorization(Some("egress-token")).expect("proxy authorization"),
+            "Basic c2FuZGJveDplZ3Jlc3MtdG9rZW4="
+        );
+        assert!(proxy_authorization(None).is_err());
+    }
 
     #[test]
     fn start_task_id_requires_canonical_platform_task_id() {

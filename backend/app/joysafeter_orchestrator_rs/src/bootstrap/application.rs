@@ -7,7 +7,8 @@ use crate::{db, events, grpc, kernel, runtime_config, xds};
 use tracing::{error, info, warn};
 
 use super::runtime_factories::{
-    build_runner_flows, build_sandbox_controller_tasks, build_sandbox_runtime_services,
+    build_credential_store, build_runner_authenticator, build_runner_flows,
+    build_sandbox_controller_tasks, build_sandbox_runtime_services,
 };
 use super::supervisor::{
     shutdown_signal, spawn_health_server, ReadinessGate, ServiceCriticality, TaskSupervisor,
@@ -399,12 +400,17 @@ impl OrchestratorApplication {
             event_bus.clone(),
             queue.clone(),
             db_pool.clone(),
+            build_runner_authenticator(db_pool.clone()),
             config.clone(),
             sandbox_runtime.identity_policy.clone(),
             redis_coordinator.clone(),
             memory_subscribers.clone(),
             runtime_config.clone(),
-            build_runner_flows(config.grpc_max_executions),
+            build_runner_flows(
+                db_pool.clone(),
+                config.envoy_enabled,
+                config.grpc_max_executions,
+            ),
         ));
         let runner_transport = Arc::new(grpc::transport::RunnerTransport::new(
             runner_coordinator,
@@ -461,6 +467,7 @@ impl OrchestratorApplication {
         // Start task scheduler (after sandbox controller so pool_replenish_notify is available)
         let scheduler_handle = kernel::scheduler::spawn_scheduler(
             db_pool.clone(),
+            build_credential_store(db_pool.clone()),
             queue.clone(),
             bridge_store.clone(),
             ha.task_dispatcher.clone(),

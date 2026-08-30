@@ -24,9 +24,11 @@ use ids::{
     AgentId, CredentialGroupId, CredentialId, EnvironmentId, OrganizationId, ProjectId, SandboxId,
     SessionId, TaskId,
 };
+use kernel::credentials::access::CredentialMaterialAccessService;
 use kernel::credentials::error::{require_bound_credential_id, CredentialRuntimeError};
-use kernel::credentials::runtime_projection::rebuild_sandbox_credentials;
+use kernel::credentials::runtime_projection::rebuild_sandbox_credentials as rebuild_sandbox_credentials_with_access;
 use kernel::harness_input_builder::HarnessInputBuilder;
+use kernel::repository_access::material::RepositoryAccessMaterialAdapter;
 use serde_json::{json, Value};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -48,6 +50,23 @@ async fn test_pool() -> PgPool {
         .connect(&database_url())
         .await
         .expect("connect to migrated PostgreSQL test database")
+}
+
+async fn rebuild_sandbox_credentials(
+    pool: &PgPool,
+    sandbox: &JoySafeterSandbox,
+    llm_egress_allowed_hosts: &[String],
+) -> anyhow::Result<kernel::network_policy::envoy_model::SandboxCredentials> {
+    let credential_access = CredentialMaterialAccessService::new(pool.clone());
+    let repository_material = RepositoryAccessMaterialAdapter::from_env();
+    rebuild_sandbox_credentials_with_access(
+        pool,
+        &credential_access,
+        &repository_material,
+        sandbox,
+        llm_egress_allowed_hosts,
+    )
+    .await
 }
 
 async fn insert_project(pool: &PgPool, unique: &str, project_id: &ProjectId) -> OrganizationId {
@@ -127,13 +146,13 @@ async fn insert_agent(
         r#"
         INSERT INTO joysafeter_agents (
             id, project_id, name, engine_kind, model, system_prompt, env, mcp_servers,
-            skills, tools, agents, commands, permission_mode, metadata, version,
+            skills, tools, agents, commands, metadata, version,
             environment_id, model_credential_id
         )
         VALUES (
             $1, $2, $3, $4, '{}'::jsonb, '', '{}'::jsonb, $5,
             '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-            'bypassPermissions', '{}'::jsonb, 1, $6, $7
+            '{}'::jsonb, 1, $6, $7
         )
         "#,
     )
@@ -225,6 +244,9 @@ fn sandbox_for(session_id: SessionId) -> JoySafeterSandbox {
         external_id: Some("runtime-contract-sandbox".to_string()),
         status: "ready".to_string(),
         config: None,
+        runner_auth_state: "revoked".to_string(),
+        runner_token_digest: None,
+        runner_auth_expires_at: None,
         chat_session_id: Some(session_id),
         image: None,
         disconnected_at: None,
@@ -394,13 +416,13 @@ async fn model_credential_fk_and_harness_builder_reject_invalid_bindings() {
         r#"
         INSERT INTO joysafeter_agents (
             id, project_id, name, engine_kind, model, system_prompt, env, mcp_servers,
-            skills, tools, agents, commands, permission_mode, metadata, version,
+            skills, tools, agents, commands, metadata, version,
             model_credential_id
         )
         VALUES (
             $1, $2, $3, 'claude', '{}'::jsonb, '', '{}'::jsonb, '[]'::jsonb,
             '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-            'bypassPermissions', '{}'::jsonb, 1, $4
+            '{}'::jsonb, 1, $4
         )
         "#,
     )

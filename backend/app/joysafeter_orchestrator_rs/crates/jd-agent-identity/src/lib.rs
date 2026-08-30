@@ -31,7 +31,7 @@ use agent_identity_trait::{
 // Protocol request/response types
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 struct CreateBotTokenRequest {
     trace_id: String,
@@ -57,11 +57,43 @@ struct CreateBotTokenRequest {
     extensions: Option<HashMap<String, serde_json::Value>>,
 }
 
+impl std::fmt::Debug for CreateBotTokenRequest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CreateBotTokenRequest")
+            .field("trace_id", &self.trace_id)
+            .field("client_id", &self.client_id)
+            .field("platform_id", &self.platform_id)
+            .field("agent_id", &self.agent_id)
+            .field("session_id", &self.session_id)
+            .field("request_id", &self.request_id)
+            .field("scope", &self.scope)
+            .field("tenant_code", &self.tenant_code)
+            .field("auth_type", &self.auth_type)
+            .field("identity_type", &self.identity_type)
+            .field("identity_token", &"<redacted>")
+            .field("agent_scene", &self.agent_scene)
+            .field("force_refresh", &self.force_refresh)
+            .field("env_info", &self.env_info.as_ref().map(|_| "<redacted>"))
+            .field(
+                "headers_map",
+                &format_args!("{} keys <redacted>", self.headers_map.len()),
+            )
+            .field("timestamp", &self.timestamp)
+            .field("signature", &"<redacted>")
+            .field(
+                "extensions",
+                &self.extensions.as_ref().map(|_| "<redacted>"),
+            )
+            .finish()
+    }
+}
+
 /// Standard response envelope from the JD identity platform.
 ///
 /// Note: `code` is a STRING ("200" = success), and there is a top-level
 /// `success` boolean. `message` is retained for bounded, sanitized diagnostics.
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct ApiResponse<T> {
     #[serde(default)]
     success: bool,
@@ -70,6 +102,18 @@ struct ApiResponse<T> {
     #[serde(default)]
     message: Option<String>,
     data: Option<T>,
+}
+
+impl<T> std::fmt::Debug for ApiResponse<T> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ApiResponse")
+            .field("success", &self.success)
+            .field("code", &self.code)
+            .field("message", &self.message.as_ref().map(|_| "<redacted>"))
+            .field("data", &self.data.as_ref().map(|_| "<redacted>"))
+            .finish()
+    }
 }
 
 impl<T> ApiResponse<T> {
@@ -93,7 +137,7 @@ fn diagnostic_message(message: &str) -> String {
     sanitized
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct BotTokenData {
     bot_token: String,
@@ -102,7 +146,17 @@ struct BotTokenData {
     expires_in: u64,
 }
 
-#[derive(Debug, Deserialize)]
+impl std::fmt::Debug for BotTokenData {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("BotTokenData")
+            .field("bot_token", &"<redacted>")
+            .field("expires_in", &self.expires_in)
+            .finish()
+    }
+}
+
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct AgentTokenData {
     agent_token: String,
@@ -110,10 +164,29 @@ struct AgentTokenData {
     expires_in: u64,
 }
 
-#[derive(Debug)]
+impl std::fmt::Debug for AgentTokenData {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AgentTokenData")
+            .field("agent_token", &"<redacted>")
+            .field("expires_in", &self.expires_in)
+            .finish()
+    }
+}
+
 struct CachedToken {
     value: String,
     remaining_seconds: u64,
+}
+
+impl std::fmt::Debug for CachedToken {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("CachedToken")
+            .field("value", &"<redacted>")
+            .field("remaining_seconds", &self.remaining_seconds)
+            .finish()
+    }
 }
 
 #[derive(Serialize)]
@@ -136,7 +209,7 @@ struct ExchangeUserTokenRequest {
     extensions: Option<HashMap<String, serde_json::Value>>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct UserIdentityData {
     user_name: String,
@@ -144,6 +217,17 @@ struct UserIdentityData {
     /// Credential validity in seconds. Some successful responses omit it.
     #[serde(default)]
     expires_in: u64,
+}
+
+impl std::fmt::Debug for UserIdentityData {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("UserIdentityData")
+            .field("user_name", &"<redacted>")
+            .field("identity_token", &"<redacted>")
+            .field("expires_in", &self.expires_in)
+            .finish()
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -322,7 +406,6 @@ fn collect_env_info(
 /// 2. exchangeAgentToken (per-task, short-lived)
 /// 3. exchangeUserToken (server-side cached, injected as a user credential)
 /// 4. destroyBotToken (cleanup on agent deletion)
-#[derive(Debug)]
 pub struct JdAgentIdentityProvider {
     http: reqwest::Client,
     base_url: String,
@@ -341,6 +424,30 @@ pub struct JdAgentIdentityProvider {
     pod_ip: Option<String>,
     app_name: Option<String>,
     redis_client: redis::Client,
+}
+
+impl std::fmt::Debug for JdAgentIdentityProvider {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("JdAgentIdentityProvider")
+            .field("http", &"<redacted>")
+            .field("base_url", &self.base_url)
+            .field("sign_secret", &"<redacted>")
+            .field("client_id", &self.client_id)
+            .field("platform_id", &self.platform_id)
+            .field("auth_type", &self.auth_type)
+            .field("identity_type", &self.identity_type)
+            .field("agent_scene", &self.agent_scene)
+            .field(
+                "exchange_user_token_enabled",
+                &self.exchange_user_token_enabled,
+            )
+            .field("user_token_cookie_name", &self.user_token_cookie_name)
+            .field("pod_ip", &self.pod_ip)
+            .field("app_name", &self.app_name)
+            .field("redis_client", &"<redacted>")
+            .finish()
+    }
 }
 
 fn default_user_token_cookie_name(auth_type: &str) -> &'static str {
@@ -1499,9 +1606,9 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
 mod tests {
     use super::{
         cache_ttl_seconds, collect_env_info, default_user_token_cookie_name, diagnostic_message,
-        validate_app_name, validate_enum_value, validate_pod_ip, ApiResponse,
-        CreateBotTokenRequest, ExchangeUserTokenRequest, JdAgentIdentityProvider, JdIdentityConfig,
-        UserIdentityData,
+        validate_app_name, validate_enum_value, validate_pod_ip, AgentTokenData, ApiResponse,
+        BotTokenData, CachedToken, CreateBotTokenRequest, ExchangeUserTokenRequest,
+        JdAgentIdentityProvider, JdIdentityConfig, UserIdentityData,
     };
     use agent_identity_trait::{
         AgentId, AgentIdentityProvider, IdentityResolveContext, ProjectId, SessionId, TaskId,
@@ -1535,6 +1642,99 @@ mod tests {
             app_name: Some("joysafeter-orchestrator".to_string()),
             redis_client: redis::Client::open("redis://127.0.0.1:1/").expect("create Redis client"),
         }
+    }
+
+    fn assert_debug_redacts<T: std::fmt::Debug>(value: &T, secrets: &[&str]) {
+        let rendered = format!("{value:?}");
+        for secret in secrets {
+            assert!(
+                !rendered.contains(secret),
+                "debug output leaked credential material: {rendered}"
+            );
+        }
+        assert!(rendered.contains("<redacted>"));
+    }
+
+    #[test]
+    fn debug_output_redacts_provider_credentials() {
+        let request = CreateBotTokenRequest {
+            trace_id: "trace-id".to_string(),
+            client_id: "client-id".to_string(),
+            platform_id: "platform-id".to_string(),
+            agent_id: "agent-id".to_string(),
+            session_id: "session-id".to_string(),
+            request_id: "request-id".to_string(),
+            scope: "api.example.com".to_string(),
+            tenant_code: "tenant".to_string(),
+            auth_type: "SSO".to_string(),
+            identity_type: "cookie".to_string(),
+            identity_token: "identity-token-must-not-leak".to_string(),
+            agent_scene: "test".to_string(),
+            force_refresh: false,
+            env_info: None,
+            headers_map: HashMap::from([(
+                "Cookie".to_string(),
+                "cookie-secret-must-not-leak".to_string(),
+            )]),
+            timestamp: 1,
+            signature: "signature-must-not-leak".to_string(),
+            extensions: None,
+        };
+        assert_debug_redacts(
+            &request,
+            &[
+                "identity-token-must-not-leak",
+                "cookie-secret-must-not-leak",
+                "signature-must-not-leak",
+            ],
+        );
+
+        let response = ApiResponse {
+            success: true,
+            code: "200".to_string(),
+            message: Some("response-message-must-not-leak".to_string()),
+            data: Some(BotTokenData {
+                bot_token: "bot-token-must-not-leak".to_string(),
+                expires_in: 300,
+            }),
+        };
+        assert_debug_redacts(
+            &response,
+            &["response-message-must-not-leak", "bot-token-must-not-leak"],
+        );
+        assert_debug_redacts(
+            &BotTokenData {
+                bot_token: "bot-token-must-not-leak".to_string(),
+                expires_in: 300,
+            },
+            &["bot-token-must-not-leak"],
+        );
+        assert_debug_redacts(
+            &AgentTokenData {
+                agent_token: "agent-token-must-not-leak".to_string(),
+                expires_in: 120,
+            },
+            &["agent-token-must-not-leak"],
+        );
+        assert_debug_redacts(
+            &CachedToken {
+                value: "cached-token-must-not-leak".to_string(),
+                remaining_seconds: 60,
+            },
+            &["cached-token-must-not-leak"],
+        );
+        assert_debug_redacts(
+            &UserIdentityData {
+                user_name: "user@example.com".to_string(),
+                identity_token: "user-token-must-not-leak".to_string(),
+                expires_in: 90,
+            },
+            &["user-token-must-not-leak"],
+        );
+
+        let mut provider = provider_for_config_tests();
+        provider.sign_secret = "sign-secret-must-not-leak".to_string();
+        assert_debug_redacts(&provider, &["sign-secret-must-not-leak"]);
     }
 
     #[test]

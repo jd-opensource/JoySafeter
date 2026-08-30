@@ -62,8 +62,6 @@ pub fn agent_for_execution(
             .unwrap_or_else(|| live.and_then(|agent| agent.commands.clone())),
         tools: snapshot_value_override(snapshot, "tools")
             .unwrap_or_else(|| live.and_then(|agent| agent.tools.clone())),
-        permission_mode: snapshot_string_override(snapshot, "permission_mode")
-            .unwrap_or_else(|| live.and_then(|agent| agent.permission_mode.clone())),
         metadata: snapshot_value_override(snapshot, "metadata")
             .unwrap_or_else(|| live.and_then(|agent| agent.metadata.clone())),
         multiagent: snapshot_value_override(snapshot, "multiagent")

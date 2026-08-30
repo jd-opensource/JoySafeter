@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use chrono::{Duration, Utc};
 use sqlx::PgPool;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -8,7 +9,9 @@ use uuid::Uuid;
 use crate::config::JoySafeterConfig;
 use crate::db::queries;
 use crate::ids::{SandboxId, TaskId};
-use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider};
+use crate::kernel::runtime_auth::runner_token_digest;
+use crate::kernel::runtime_freshness::RuntimeFreshnessError;
+use crate::sandbox::provider::{SandboxCreateConfig, SandboxProvider, SandboxRuntimeCredentials};
 
 use super::lifecycle::SandboxLifecycleService;
 use super::model::{ResolveContext, ResolvedSandbox};
@@ -65,7 +68,12 @@ impl SandboxProvisioningService {
         let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
         let expected = context.expected.clone();
         let image = expected.image.clone();
-        let runner_token = generate_runner_token();
+        let runner_session_token = generate_runner_token();
+        let runner_token_digest = runner_token_digest(&runner_session_token);
+        let egress_proxy_token = generate_runner_token();
+        let admission_ttl = i64::try_from(self.config.runner_admission_ttl_seconds)
+            .map_err(|_| anyhow::anyhow!("runner admission TTL exceeds supported duration"))?;
+        let runner_auth_expires_at = Utc::now() + Duration::seconds(admission_ttl);
 
         let mut env = expected.env.clone();
         apply_sandbox_timezone(&mut env, &self.config.sandbox_timezone);
@@ -73,7 +81,6 @@ impl SandboxProvisioningService {
             "JOYSAFETER_SANDBOX_ID".to_string(),
             sandbox_id.as_uuid().to_string(),
         );
-        env.insert("JOYSAFETER_RUNNER_TOKEN".to_string(), runner_token.clone());
         apply_claude_code_sandbox_privacy(&mut env);
         if !self.config.sandbox_timezone.trim().is_empty() {
             env.entry("TZ".to_string())
@@ -118,6 +125,10 @@ impl SandboxProvisioningService {
             sandbox_id,
             image: image.clone(),
             env,
+            runtime_credentials: SandboxRuntimeCredentials::new(
+                runner_session_token,
+                egress_proxy_token.clone(),
+            ),
             labels,
             cpu_limit: self.config.sandbox_cpu,
             memory_limit_mb: self.config.sandbox_memory_mb,
@@ -158,58 +169,79 @@ impl SandboxProvisioningService {
             })?;
         }
 
+        let admission_config = provisioning_config(
+            "runner_admission",
+            10,
+            "Runner admission staged before provider creation",
+            false,
+            &expected,
+            Some(&egress_proxy_token),
+        );
         let sandbox_config = provisioning_config(
             "container_started",
             70,
             "Sandbox created, waiting for runner ready",
             false,
             &expected,
-            Some(&runner_token),
+            Some(&egress_proxy_token),
         );
+
+        queries::stage_sandbox(
+            &self.pool,
+            sandbox_id,
+            self.config.sandbox_provider.as_str(),
+            &image,
+            context.session_id,
+            context.project_id,
+            create_config.workspace_path.as_deref(),
+            Some(&admission_config),
+            &runner_token_digest,
+            runner_auth_expires_at,
+            context
+                .session_id
+                .map(|_| context.runtime_config_generation),
+        )
+        .await?;
 
         let external_id = match self.provider.create(&create_config).await {
             Ok(external_id) => external_id,
             Err(error) => {
-                let _ = self.networking.teardown(sandbox_id).await;
+                self.lifecycle
+                    .cleanup_staged_create(sandbox_id, None)
+                    .await?;
                 return Err(error);
             }
         };
 
-        let create_result = if let Some(session_id) = context.session_id {
-            queries::create_session_bound_sandbox_guarded(
-                &self.pool,
-                sandbox_id,
-                &external_id,
-                self.config.sandbox_provider.as_str(),
-                &image,
-                session_id,
-                context.project_id,
-                create_config.workspace_path.as_deref(),
-                Some(&sandbox_config),
-                context.runtime_config_generation,
-            )
-            .await
-            .map_err(anyhow::Error::new)
-        } else {
-            queries::create_sandbox(
-                &self.pool,
-                sandbox_id,
-                &external_id,
-                self.config.sandbox_provider.as_str(),
-                &image,
-                None,
-                context.project_id,
-                create_config.workspace_path.as_deref(),
-                Some(&sandbox_config),
-            )
-            .await
-            .map_err(anyhow::Error::new)
-        };
-        if let Err(error) = create_result {
-            self.lifecycle
-                .cleanup_rejected_create(sandbox_id, &external_id, None)
-                .await?;
-            return Err(error);
+        match queries::activate_staged_sandbox(
+            &self.pool,
+            sandbox_id,
+            &external_id,
+            &sandbox_config,
+            context.session_id,
+            context.project_id,
+            context
+                .session_id
+                .map(|_| context.runtime_config_generation),
+        )
+        .await
+        {
+            Ok(true) => {}
+            Ok(false) => {
+                self.lifecycle
+                    .cleanup_staged_create(sandbox_id, Some(&external_id))
+                    .await?;
+                return Err(RuntimeFreshnessError::Conflict(format!(
+                    "sandbox {sandbox_id} admission expired or changed before activation"
+                ))
+                .into());
+            }
+            Err(error) => {
+                self.lifecycle
+                    .cleanup_staged_create(sandbox_id, Some(&external_id))
+                    .await?;
+                return Err(error.into());
+            }
         }
 
         if !create_config.start_immediately {
@@ -263,7 +295,7 @@ impl SandboxProvisioningService {
                                 refresh_after_seconds: context.identity_refresh_after_seconds,
                             },
                         ),
-                        proxy_auth_token: Some(runner_token.clone()),
+                        proxy_auth_token: Some(egress_proxy_token.clone()),
                     },
                 )
                 .await

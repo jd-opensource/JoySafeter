@@ -192,11 +192,9 @@ mod tests {
             max_turns: None,
             timeout: Duration::from_secs(30),
             env: HashMap::new(),
-            secrets: HashMap::new(),
             mcp_configs: vec![],
-            permission_mode: "default".to_string(),
-            allowed_tools: vec![],
-            ask_tools: vec![],
+            custom_tools: vec![],
+            tool_policy: joysafeter_types::tool_policy::ToolPolicy::default(),
         }
     }
 

@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::config::JoySafeterConfig;
 use crate::db::queries;
+use crate::grpc::harness_projection;
 use crate::grpc::proto;
 use crate::grpc::proto::{orchestrator_message, OrchestratorMessage};
 use crate::ids::{SandboxId, TaskId};
@@ -56,7 +57,7 @@ pub(crate) async fn send_setup(
     _bridge: &Arc<SandboxBridge>,
     sandbox_db_id: SandboxId,
     tx: &mpsc::Sender<OrchestratorMessage>,
-    envoy_enabled: bool,
+    harness_input_builder: &HarnessInputBuilder,
 ) -> anyhow::Result<bool> {
     let mut session_id = None;
     for attempt in 0..50 {
@@ -108,8 +109,7 @@ pub(crate) async fn send_setup(
         owner_epoch: None,
     };
 
-    let builder = HarnessInputBuilder::new(pool.clone(), envoy_enabled);
-    let input = builder
+    let input = harness_input_builder
         .build(
             &setup_task,
             &sandbox_db_id.as_uuid().to_string(),
@@ -118,7 +118,7 @@ pub(crate) async fn send_setup(
         .await?;
     let msg = OrchestratorMessage {
         payload: Some(orchestrator_message::Payload::Setup(
-            HarnessInputBuilder::build_setup_sandbox(&input),
+            harness_projection::setup_sandbox(&input),
         )),
     };
     tx.send(msg)
@@ -134,7 +134,7 @@ pub(crate) async fn send_setup(
 // ---------------------------------------------------------------------------
 
 pub(crate) async fn build_start_task_full(
-    pool: &PgPool,
+    harness_input_builder: &HarnessInputBuilder,
     task: &crate::db::models::JoySafeterTask,
     sandbox_db_id: SandboxId,
     config: &JoySafeterConfig,
@@ -142,13 +142,12 @@ pub(crate) async fn build_start_task_full(
     let timeout_seconds = task
         .timeout_sec
         .unwrap_or(config.task_default_timeout as i32) as u64;
-    let builder = HarnessInputBuilder::new(pool.clone(), config.envoy_enabled);
-    let input = builder
+    let input = harness_input_builder
         .build(task, &sandbox_db_id.as_uuid().to_string(), sandbox_db_id)
         .await?;
-    Ok(HarnessInputBuilder::build_start_task(
+    Ok(harness_projection::start_task(
         &input,
-        task,
+        task.id,
         timeout_seconds,
     ))
 }

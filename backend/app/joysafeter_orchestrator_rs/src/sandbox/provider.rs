@@ -41,12 +41,59 @@ pub struct ProviderCapabilities {
     pub stop_preserves_state: bool,
 }
 
+#[derive(Clone)]
+pub struct SandboxRuntimeCredentials {
+    runner_session_token: String,
+    egress_proxy_token: String,
+}
+
+impl SandboxRuntimeCredentials {
+    pub(crate) fn new(runner_session_token: String, egress_proxy_token: String) -> Self {
+        Self {
+            runner_session_token,
+            egress_proxy_token,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn runner_session_token(&self) -> &str {
+        &self.runner_session_token
+    }
+
+    #[cfg(test)]
+    pub(crate) fn egress_proxy_token(&self) -> &str {
+        &self.egress_proxy_token
+    }
+
+    fn apply_to_environment(&self, env: &mut HashMap<String, String>) {
+        env.insert(
+            "JOYSAFETER_RUNNER_TOKEN".to_string(),
+            self.runner_session_token.clone(),
+        );
+        env.insert(
+            "JOYSAFETER_EGRESS_PROXY_TOKEN".to_string(),
+            self.egress_proxy_token.clone(),
+        );
+    }
+}
+
+impl std::fmt::Debug for SandboxRuntimeCredentials {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SandboxRuntimeCredentials")
+            .field("runner_session_token", &"<redacted>")
+            .field("egress_proxy_token", &"<redacted>")
+            .finish()
+    }
+}
+
 /// Configuration for creating a sandbox container.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SandboxCreateConfig {
     pub sandbox_id: SandboxId,
     pub image: String,
     pub env: HashMap<String, String>,
+    pub(crate) runtime_credentials: SandboxRuntimeCredentials,
     pub labels: HashMap<String, String>,
     pub cpu_limit: Option<f64>,
     pub memory_limit_mb: Option<u64>,
@@ -62,6 +109,37 @@ pub struct SandboxCreateConfig {
     /// Platform-authorized external filesystem mounts. Credentials and backing
     /// host/PVC details are resolved outside the sandbox from deployment config.
     pub mounts: Vec<SandboxMount>,
+}
+
+impl SandboxCreateConfig {
+    pub(crate) fn provider_environment(&self) -> HashMap<String, String> {
+        let mut env = self.env.clone();
+        self.runtime_credentials.apply_to_environment(&mut env);
+        env
+    }
+}
+
+impl std::fmt::Debug for SandboxCreateConfig {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SandboxCreateConfig")
+            .field("sandbox_id", &self.sandbox_id)
+            .field("image", &self.image)
+            .field(
+                "env",
+                &format_args!("{} entries <redacted>", self.env.len()),
+            )
+            .field("runtime_credentials", &self.runtime_credentials)
+            .field("labels", &self.labels)
+            .field("cpu_limit", &self.cpu_limit)
+            .field("memory_limit_mb", &self.memory_limit_mb)
+            .field("network", &self.network)
+            .field("start_immediately", &self.start_immediately)
+            .field("workspace_path", &self.workspace_path)
+            .field("memory_mounts", &self.memory_mounts)
+            .field("mounts", &self.mounts)
+            .finish()
+    }
 }
 
 /// Active sandbox known by a provider.
@@ -181,5 +259,40 @@ pub trait SandboxProvider: Send + Sync + 'static {
     /// Daytona/E2B: `[ProviderFallback]`
     fn supported_injection_strategies(&self) -> Vec<InjectionStrategy> {
         vec![InjectionStrategy::ProviderFallback]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SandboxCreateConfig, SandboxRuntimeCredentials};
+    use crate::ids::SandboxId;
+
+    #[test]
+    fn sandbox_create_debug_redacts_environment_and_runtime_credentials() {
+        let config = SandboxCreateConfig {
+            sandbox_id: SandboxId::new(),
+            image: "runtime:test".to_string(),
+            env: [("MODEL_API_KEY".to_string(), "model-secret".to_string())]
+                .into_iter()
+                .collect(),
+            runtime_credentials: SandboxRuntimeCredentials::new(
+                "runner-secret".to_string(),
+                "egress-secret".to_string(),
+            ),
+            labels: Default::default(),
+            cpu_limit: None,
+            memory_limit_mb: None,
+            network: None,
+            start_immediately: true,
+            workspace_path: None,
+            memory_mounts: vec![],
+            mounts: vec![],
+        };
+
+        let rendered = format!("{config:?}");
+        for secret in ["model-secret", "runner-secret", "egress-secret"] {
+            assert!(!rendered.contains(secret));
+        }
+        assert!(rendered.contains("<redacted>"));
     }
 }

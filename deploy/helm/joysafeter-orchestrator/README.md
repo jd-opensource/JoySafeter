@@ -70,6 +70,24 @@ values 文件里只保留两处**引用名**（非敏感）：
 
 ### 1. Helm 部署
 
+优先通过统一入口部署。下面命令从 `deploy/image-components.tsv` 投影 orchestrator 和四个独立 runtime
+镜像，避免构建脚本与 Helm values 分别维护镜像名称：
+
+```bash
+cd deploy
+./deploy.sh --registry aisec-repo.jd.com/joysafeter --tag <release-tag> \
+  k8s deploy --sync-images --namespace joysafeter-pre \
+  --release joysafeter-pre --values helm/joysafeter-orchestrator/values-pre.yaml
+
+# 已存在 release，仅替换为本次统一 Registry 中的镜像
+./deploy.sh --registry aisec-repo.jd.com/joysafeter --tag <release-tag> \
+  k8s deploy --sync-images --reuse-values \
+  --namespace joysafeter-pre --release joysafeter-pre
+```
+
+不传 `--sync-images` 时，chart 继续使用 values 文件中的镜像。直接调用 Helm 仅用于需要完全手工控制
+values 的运维场景：
+
 ```bash
 cd deploy/helm/joysafeter-orchestrator
 

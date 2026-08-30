@@ -7,13 +7,13 @@ use sha2::{Digest, Sha256};
 use thiserror::Error;
 use url::Url;
 
-use crate::grpc::proto;
 use crate::ids::{AgentId, CredentialId, ProjectId, SessionId};
 use crate::kernel::credentials::access::{
     CredentialAccessContext, CredentialMaterialAccessService,
 };
 use crate::kernel::credentials::mcp::{McpHeaderInjection, ResolvedMcpCredential};
 use crate::kernel::credentials::record::McpCredentialMetadataRecord;
+use crate::kernel::harness_contract::{HarnessMcpServer, HarnessMcpTransport};
 use crate::kernel::mcp_network_policy::{
     resolve_vetted_addresses_with, McpAddressResolver, McpNetworkPolicy, McpNetworkPolicyError,
     SystemMcpAddressResolver,
@@ -76,11 +76,11 @@ impl McpTransport {
         }
     }
 
-    fn proto_value(self) -> i32 {
+    fn harness_value(self) -> HarnessMcpTransport {
         match self {
-            Self::StreamableHttp => proto::McpTransport::StreamableHttp as i32,
-            Self::Sse => proto::McpTransport::Sse as i32,
-            Self::LocalStdio => proto::McpTransport::LocalStdio as i32,
+            Self::StreamableHttp => HarnessMcpTransport::StreamableHttp,
+            Self::Sse => HarnessMcpTransport::Sse,
+            Self::LocalStdio => HarnessMcpTransport::LocalStdio,
         }
     }
 }
@@ -190,24 +190,28 @@ impl fmt::Debug for ResolvedMcpRuntimePlan {
 }
 
 impl ResolvedMcpRuntimePlan {
-    pub fn runner_servers(&self) -> Vec<proto::McpConfig> {
+    pub fn runner_servers(&self) -> Vec<HarnessMcpServer> {
         self.servers
             .iter()
             .map(
                 |server| match (&server.original_endpoint, &server.local_command) {
-                    (Some(_), None) => proto::McpConfig {
+                    (Some(_), None) => HarnessMcpServer {
                         name: server.display_name.clone(),
-                        transport: server.transport.proto_value(),
+                        command: String::new(),
+                        args: Vec::new(),
+                        env: HashMap::new(),
                         url: server.sandbox_endpoint.clone().unwrap_or_default(),
-                        ..Default::default()
+                        headers: HashMap::new(),
+                        transport: server.transport.harness_value(),
                     },
-                    (None, Some(command)) => proto::McpConfig {
+                    (None, Some(command)) => HarnessMcpServer {
                         name: server.display_name.clone(),
                         command: command.command.clone(),
                         args: command.args.clone(),
                         env: command.env.clone(),
-                        transport: server.transport.proto_value(),
-                        ..Default::default()
+                        url: String::new(),
+                        headers: HashMap::new(),
+                        transport: server.transport.harness_value(),
                     },
                     _ => unreachable!("validated MCP plan has exactly one transport payload"),
                 },
@@ -809,10 +813,10 @@ mod tests {
 
     use uuid::Uuid;
 
-    use crate::grpc::proto::McpTransport as ProtoMcpTransport;
     use crate::ids::{AgentId, CredentialGroupId, CredentialId, ProjectId};
     use crate::kernel::credentials::mcp::{McpHeaderInjection, ResolvedMcpCredential};
     use crate::kernel::credentials::record::McpCredentialMetadataRecord;
+    use crate::kernel::harness_contract::HarnessMcpTransport;
     use crate::kernel::mcp_network_policy::{
         McpAddressResolver, McpNetworkPolicy, McpNetworkPolicyError,
     };
@@ -1188,10 +1192,7 @@ mod tests {
         assert_eq!(plan.servers[1].transport, McpTransport::LocalStdio);
 
         let runner = plan.runner_servers();
-        assert_eq!(
-            runner[0].transport,
-            ProtoMcpTransport::StreamableHttp as i32
-        );
+        assert_eq!(runner[0].transport, HarnessMcpTransport::StreamableHttp);
         assert!(runner[0].url.starts_with("http://mcp-egress.internal/r/"));
         assert!(runner[0].url.ends_with("/?tenant=a"));
         assert!(!runner[0].url.contains("mcp.example.com"));

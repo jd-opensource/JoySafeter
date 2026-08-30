@@ -73,7 +73,9 @@ WORKDIR /workspace
 FROM runtime-base AS runtime-with-runner
 
 COPY --from=runner-builder /src/sandbox-runner/target/release/joysafeter-runner /usr/local/bin/joysafeter-runner
-RUN chmod +x /usr/local/bin/joysafeter-runner
+COPY deploy/docker/runtime-credentials.sh /usr/local/lib/joysafeter/runtime-credentials.sh
+RUN chmod +x /usr/local/bin/joysafeter-runner \
+    && chmod 755 /usr/local/lib/joysafeter/runtime-credentials.sh
 
 FROM runtime-with-runner AS claudecode
 

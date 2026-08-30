@@ -89,7 +89,6 @@ def _agent(agent_id: AgentId | None = None):
         tools=[],
         agents=[],
         commands=[],
-        permission_mode="bypassPermissions",
         metadata_={},
         multiagent=None,
     )

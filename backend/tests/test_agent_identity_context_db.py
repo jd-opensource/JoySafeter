@@ -107,6 +107,9 @@ async def test_terminal_task_transition_erases_unconsumed_identity_material(db_s
             encrypted_credential="enc:v1:still-secret",
             captured_at=utc_now(),
             expires_at=utc_now() + timedelta(minutes=5),
+            state="resolving",
+            resolution_id=uuid.uuid4(),
+            resolution_expires_at=utc_now() + timedelta(minutes=1),
         )
     )
     await db_session.commit()
@@ -117,4 +120,7 @@ async def test_terminal_task_transition_erases_unconsumed_identity_material(db_s
     identity = await db_session.get(JoySafeterTaskIdentityContext, task.id)
 
     assert identity is not None
+    assert identity.state == "discarded"
     assert identity.encrypted_credential is None
+    assert identity.resolution_id is None
+    assert identity.resolution_expires_at is None

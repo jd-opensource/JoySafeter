@@ -85,12 +85,7 @@ if [ -n "$models_json" ]; then
     printf '%s\n' "$models_json" > /home/agent/.pi/agent/models.json
 fi
 
-TOKEN_FILE="/tmp/.runner-token"
-if [ -n "${JOYSAFETER_RUNNER_TOKEN:-}" ]; then
-    printf '%s' "$JOYSAFETER_RUNNER_TOKEN" > "$TOKEN_FILE"
-    chmod 600 "$TOKEN_FILE"
-    export JOYSAFETER_RUNNER_TOKEN_FILE="$TOKEN_FILE"
-    unset JOYSAFETER_RUNNER_TOKEN
-fi
+. /usr/local/lib/joysafeter/runtime-credentials.sh
+prepare_runtime_credentials
 
 exec joysafeter-runner "$@"

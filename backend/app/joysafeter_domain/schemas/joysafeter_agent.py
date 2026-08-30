@@ -40,11 +40,6 @@ class JoySafeterModelConfig(BaseModel):
 class PermissionPolicy(BaseModel):
     type: Literal["always_allow", "always_ask"] = "always_allow"
 
-    def to_mode_str(self) -> str:
-        if self.type == "always_allow":
-            return "bypassPermissions"
-        return "default"
-
 
 class ToolDefaultConfig(BaseModel):
     permission_policy: PermissionPolicy = Field(default_factory=PermissionPolicy)
@@ -311,14 +306,3 @@ class InjectConfig(BaseModel):
     name: str
     target: str
     tar_gz_b64: str
-
-
-def extract_permission_mode(tools: list[dict]) -> str:
-    for tool in tools:
-        tool_type = tool.get("type", "")
-        if tool_type in ("agent_toolset_20260401", "mcp_toolset"):
-            dc = tool.get("default_config", {})
-            pp = dc.get("permission_policy", {})
-            if pp.get("type") == "always_ask":
-                return "default"
-    return "bypassPermissions"

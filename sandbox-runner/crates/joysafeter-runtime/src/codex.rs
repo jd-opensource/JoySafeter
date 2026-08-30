@@ -3,6 +3,7 @@ use joysafeter_types::harness::{
     HarnessAdapter, HarnessError, HarnessEvent, HarnessInput, HarnessResult, RunningHarness,
 };
 use joysafeter_types::token_usage::TokenUsage;
+use joysafeter_types::tool_policy::{ToolDecision, ToolPolicy};
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -22,6 +23,19 @@ type PendingMap = Arc<Mutex<HashMap<i64, oneshot::Sender<Result<Value, String>>>
 /// out to the user (as agent.tool_use is_control_request) and resolve them
 /// when the user posts a user.tool_confirmation back via send_input.
 type PendingApprovals = Arc<Mutex<HashMap<String, oneshot::Sender<bool>>>>;
+
+fn validate_capabilities(
+    custom_tools: &[joysafeter_types::harness::CustomToolDefinition],
+) -> Result<(), HarnessError> {
+    if !custom_tools.is_empty() {
+        return Err(HarnessError::UnsupportedCapability {
+            provider: "codex".to_string(),
+            capability: "custom_tools".to_string(),
+            reason: "custom tool registration is not supported by this runtime".to_string(),
+        });
+    }
+    Ok(())
+}
 
 /// Prefix used by the orchestrator's "live input" channel for steering an
 /// in-flight task — same string as in claude.rs. Kept duplicated to avoid
@@ -54,15 +68,7 @@ struct TurnState {
     call_id_to_tool: Arc<std::sync::Mutex<HashMap<String, String>>>,
     agent_message_text_by_id: Arc<std::sync::Mutex<HashMap<String, String>>>,
     model: String,
-    /// Tool names from `HarnessInput.allowed_tools` for this turn. Used by the
-    /// reader loop to auto-accept ExecApprovalRequest events whose derived tool
-    /// name matches the agent's allowlist — i.e. translate JoySafeter's
-    /// `always_allow` to codex's approval protocol without going through the UI.
-    allowed_tools: Vec<String>,
-    /// Tool names the agent explicitly wants to ask the user about. Listed here
-    /// so we can treat them as the only ones that always reach the user, even
-    /// if we later refine the default behavior.
-    ask_tools: Vec<String>,
+    tool_policy: ToolPolicy,
     /// Multi-agent active-thread tracker.
     ///
     /// Codex's parent turn ends as soon as the parent model loop returns,
@@ -153,10 +159,6 @@ impl CodexAdapter {
         for (k, v) in &input.env {
             cmd.env(k, v);
         }
-        for (k, v) in &input.secrets {
-            cmd.env(k, v);
-        }
-
         // Merge MCP servers from HarnessInput into ~/.codex/config.toml so the
         // codex CLI advertises them to the model. Codex CLI looks for
         // ``[mcp_servers.<name>]`` blocks in this file.
@@ -264,39 +266,28 @@ impl CodexAdapter {
                         let params = msg.params.clone().unwrap_or(Value::Null);
                         let tool_name = derive_approval_tool_name(method, &params);
 
-                        // Fast path: if the current turn's allowed_tools list
-                        // covers this approval, skip the UI roundtrip and reply
-                        // accept directly. This is how JoySafeter's
-                        // ``always_allow`` policy maps onto codex's approval
-                        // protocol. ``ask_tools`` is checked separately so it
-                        // explicitly takes priority over allow when both lists
-                        // somehow contain the same tool (mirrors claude
-                        // settings.json semantics).
-                        let auto_accept: Option<bool> = {
+                        let decision = {
                             let turn_guard = reader_current_turn.lock().await;
-                            if let Some(turn) = turn_guard.as_ref() {
-                                if approval_matches_tool(&turn.ask_tools, &tool_name) {
-                                    None
-                                } else if approval_matches_tool(&turn.allowed_tools, &tool_name) {
-                                    Some(true)
-                                } else {
-                                    None
-                                }
-                            } else {
-                                None
-                            }
+                            turn_guard.as_ref().map(|turn| {
+                                crate::tool_policy::decision_for_runtime_tool(
+                                    &turn.tool_policy,
+                                    &tool_name,
+                                )
+                            })
                         };
 
-                        if auto_accept == Some(true) {
+                        if matches!(decision, Some(ToolDecision::Allow | ToolDecision::Deny)) {
+                            let approved = decision == Some(ToolDecision::Allow);
                             info!(
                                 method = %method,
                                 tool = %tool_name,
-                                "Auto-approving codex tool call from allowed_tools"
+                                approved,
+                                "Applying Codex tool policy decision"
                             );
                             let response = serde_json::json!({
                                 "jsonrpc": "2.0",
                                 "id": req_id_value,
-                                "result": approval_kind.result_json(true)
+                                "result": approval_kind.result_json(approved)
                             });
                             let line = format!("{}\n", response);
                             let mut guard = reader_stdin.lock().await;
@@ -534,6 +525,7 @@ impl CodexAdapter {
 #[async_trait]
 impl HarnessAdapter for CodexAdapter {
     async fn start(&self, input: HarnessInput, cwd: &Path) -> Result<RunningHarness, HarnessError> {
+        validate_capabilities(&input.custom_tools)?;
         self.ensure_session(&input, cwd).await?;
 
         let start = Instant::now();
@@ -562,8 +554,7 @@ impl HarnessAdapter for CodexAdapter {
             call_id_to_tool: Arc::new(std::sync::Mutex::new(HashMap::new())),
             agent_message_text_by_id: Arc::new(std::sync::Mutex::new(HashMap::new())),
             model: input.model.clone().unwrap_or_else(|| "codex".to_string()),
-            allowed_tools: input.allowed_tools.clone(),
-            ask_tools: input.ask_tools.clone(),
+            tool_policy: input.tool_policy.clone(),
             active_threads,
             main_thread_id,
         };
@@ -868,47 +859,6 @@ impl ApprovalKind {
             }
         }
     }
-}
-
-/// Return true if the agent's tool list authorizes the approval whose derived
-/// name is ``tool_name``.
-///
-/// ``derive_approval_tool_name`` produces strings like ``"Bash"`` or
-/// ``"Bash (git)"`` (exec) and ``"mcp__<server>__*"`` (MCP elicitation).
-/// JoySafeter agents express permissions by short tool name (``Bash``, ``Write``,
-/// …) and MCP rules as ``mcp__<server>__*`` / ``mcp__<server>__<tool>``. We match:
-///  - exact (``rule == tool_name``),
-///  - by leading word (``Bash (git)`` matches rule ``Bash``), or
-///  - by MCP server prefix, so the derived ``mcp__server__*`` matches a more
-///    specific rule ``mcp__server__tool`` (and vice-versa).
-fn approval_matches_tool(rules: &[String], tool_name: &str) -> bool {
-    if rules.is_empty() {
-        return false;
-    }
-    let leading = tool_name.split_whitespace().next().unwrap_or(tool_name);
-
-    // For MCP names, compare on the ``mcp__<server>__`` prefix so wildcard and
-    // per-tool rules are interchangeable at the server granularity codex gives us.
-    let mcp_server_prefix = |s: &str| -> Option<String> {
-        let rest = s.strip_prefix("mcp__")?;
-        let server = rest.split("__").next()?;
-        if server.is_empty() {
-            None
-        } else {
-            Some(format!("mcp__{server}__"))
-        }
-    };
-    let tool_mcp_prefix = mcp_server_prefix(leading);
-
-    rules.iter().any(|r| {
-        if r == tool_name || r == leading {
-            return true;
-        }
-        match (&tool_mcp_prefix, mcp_server_prefix(r)) {
-            (Some(tp), Some(rp)) => tp == &rp,
-            _ => false,
-        }
-    })
 }
 
 /// Pick a user-facing tool name for an approval request so the frontend banner
@@ -1792,10 +1742,6 @@ async fn merge_codex_mcp_servers(
 ) -> Result<(), String> {
     use joysafeter_types::agent::McpServerConfig;
 
-    if servers.is_empty() {
-        return Ok(());
-    }
-
     let config_dir = match std::env::var("HOME") {
         Ok(h) => std::path::PathBuf::from(h).join(".codex"),
         Err(_) => std::path::PathBuf::from("/home/agent/.codex"),
@@ -1813,9 +1759,11 @@ async fn merge_codex_mcp_servers(
     const END: &str = "# <<< joysafeter mcp_servers <<<";
     let mut base = String::new();
     let mut in_block = false;
+    let mut had_managed_block = false;
     for line in existing.lines() {
         if line.trim_start().starts_with(BEGIN) {
             in_block = true;
+            had_managed_block = true;
             continue;
         }
         if line.trim_start().starts_with(END) {
@@ -1826,6 +1774,14 @@ async fn merge_codex_mcp_servers(
             base.push_str(line);
             base.push('\n');
         }
+    }
+    if servers.is_empty() {
+        if had_managed_block {
+            tokio::fs::write(&path, base)
+                .await
+                .map_err(|e| format!("write {}: {e}", path.display()))?;
+        }
+        return Ok(());
     }
     // Ensure a trailing newline before our block.
     if !base.is_empty() && !base.ends_with('\n') {
@@ -1904,6 +1860,7 @@ fn toml_escape(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use joysafeter_types::harness::CustomToolDefinition;
 
     static TEST_HOME_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
@@ -1986,42 +1943,6 @@ mod tests {
     }
 
     #[test]
-    fn approval_matches_tool_handles_exact_and_leading_word() {
-        let rules: Vec<String> = vec!["Bash".into(), "Write".into()];
-        assert!(super::approval_matches_tool(&rules, "Bash"));
-        assert!(super::approval_matches_tool(&rules, "Bash (git)"));
-        assert!(super::approval_matches_tool(&rules, "Write"));
-        assert!(!super::approval_matches_tool(&rules, "Read"));
-        assert!(!super::approval_matches_tool(&rules, "ApplyPatch"));
-        assert!(!super::approval_matches_tool(&[], "Bash"));
-        // Exact-match still wins when a rule includes the parens form
-        let exact: Vec<String> = vec!["Bash (git)".into()];
-        assert!(super::approval_matches_tool(&exact, "Bash (git)"));
-        // …but doesn't accidentally match a different leading word
-        assert!(!super::approval_matches_tool(&exact, "Read"));
-    }
-
-    #[test]
-    fn approval_matches_tool_handles_mcp_server_granularity() {
-        // Wildcard rule (what _build_permission_rules emits for a server-level
-        // mcp_toolset) matches the derived ``mcp__server__*`` name.
-        let wildcard: Vec<String> = vec!["mcp__echo-test__*".into()];
-        assert!(super::approval_matches_tool(&wildcard, "mcp__echo-test__*"));
-        // Per-tool rule still matches at server granularity (codex only gives
-        // us the server name in elicitation requests).
-        let per_tool: Vec<String> = vec!["mcp__echo-test__echo".into()];
-        assert!(super::approval_matches_tool(&per_tool, "mcp__echo-test__*"));
-        // A different server must NOT match.
-        assert!(!super::approval_matches_tool(&wildcard, "mcp__other__*"));
-        // MCP rule must not match a plain builtin tool and vice-versa.
-        assert!(!super::approval_matches_tool(&wildcard, "Bash"));
-        assert!(!super::approval_matches_tool(
-            &["Bash".into()],
-            "mcp__echo-test__*"
-        ));
-    }
-
-    #[test]
     fn approval_kind_serializes_per_protocol() {
         use super::ApprovalKind;
         assert_eq!(
@@ -2063,6 +1984,25 @@ mod tests {
             super::derive_approval_tool_name("mcpServer/elicitation/request", &params),
             "mcp__echo-test__*"
         );
+    }
+
+    #[test]
+    fn codex_rejects_custom_tools_it_cannot_register() {
+        let custom_tools = vec![CustomToolDefinition {
+            name: "lookup".to_string(),
+            description: "Lookup a record".to_string(),
+            input_schema: serde_json::json!({"type": "object"}),
+        }];
+
+        let error = super::validate_capabilities(&custom_tools).unwrap_err();
+        assert!(matches!(
+            error,
+            HarnessError::UnsupportedCapability {
+                provider,
+                capability,
+                ..
+            } if provider == "codex" && capability == "custom_tools"
+        ));
     }
 
     #[tokio::test]
@@ -2124,6 +2064,36 @@ mod tests {
         assert!(body.contains("model = \"gpt-5\""));
         assert!(body.contains("[model_providers.codex]"));
         assert!(body.contains("[mcp_servers.\"echo\"]"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[tokio::test]
+    async fn merge_codex_mcp_servers_empty_input_clears_managed_block() {
+        let _guard = TEST_HOME_LOCK.lock().await;
+        let tmp = std::env::temp_dir().join(format!("codex_mcp_clear_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(tmp.join(".codex")).unwrap();
+        let path = tmp.join(".codex/config.toml");
+        std::fs::write(
+            &path,
+            concat!(
+                "model = \"gpt-5\"\n\n",
+                "# >>> joysafeter mcp_servers >>>\n",
+                "[mcp_servers.\"stale\"]\n",
+                "url = \"https://stale.example/mcp\"\n",
+                "# <<< joysafeter mcp_servers <<<\n",
+            ),
+        )
+        .unwrap();
+
+        std::env::set_var("HOME", &tmp);
+        super::merge_codex_mcp_servers(&[]).await.unwrap();
+
+        let body = std::fs::read_to_string(&path).unwrap();
+        assert!(body.contains("model = \"gpt-5\""));
+        assert!(!body.contains("stale.example"));
+        assert!(!body.contains("joysafeter mcp_servers"));
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

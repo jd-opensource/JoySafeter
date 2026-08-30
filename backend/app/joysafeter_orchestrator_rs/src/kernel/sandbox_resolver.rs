@@ -3,19 +3,14 @@ use std::sync::Arc;
 use sqlx::PgPool;
 use tracing::{debug, info};
 
-#[cfg(test)]
-use crate::config::JoySafeterConfig;
 use crate::db::queries;
 use crate::ids::{AgentId, ProjectId, SessionId, TaskId};
 #[cfg(test)]
 use crate::ids::{CredentialId, EnvironmentId, SandboxId, UserId};
 #[cfg(test)]
 use crate::kernel::credentials::error::CredentialRuntimeError;
-use crate::kernel::credentials::runtime_projection::sandbox_runner_token;
 #[cfg(test)]
-use crate::kernel::credentials::runtime_projection::{
-    model_protocol_env_value, model_protocol_provider_switch, remove_agent_identity_routes,
-};
+use crate::kernel::credentials::runtime_projection::remove_agent_identity_routes;
 #[cfg(test)]
 use crate::kernel::mcp_url;
 #[cfg(test)]
@@ -34,16 +29,16 @@ use crate::kernel::network_policy::material::{
 use crate::kernel::network_policy::ports::{NetworkPolicyRequestQueue, NetworkPolicyRuntime};
 #[cfg(test)]
 use crate::kernel::network_policy::NetworkPolicyRequest;
+use crate::kernel::runtime_auth;
 use crate::kernel::runtime_freshness::RuntimeFreshnessError;
 #[cfg(test)]
 use crate::kernel::task_identity::material::{
     TaskIdentityMaterialAdapter, TaskIdentityMaterialError,
 };
 #[cfg(test)]
-use crate::sandbox::provider::SandboxProvider;
+use crate::kernel::task_identity::TaskIdentityService;
 
 mod context;
-mod identity;
 mod identity_policy;
 mod lifecycle;
 mod model;
@@ -55,9 +50,7 @@ mod runtime_plan;
 
 pub(crate) use self::context::ResolveContextBuilder;
 #[cfg(test)]
-use self::identity::identity_lease_metadata;
-#[cfg(test)]
-use self::identity::TaskIdentityService;
+use self::identity_policy::identity_lease_metadata;
 pub(crate) use self::identity_policy::{SandboxIdentityPolicy, SandboxIdentityPolicyService};
 pub(crate) use self::lifecycle::SandboxLifecycleService;
 pub use self::model::ResolvedSandbox;
@@ -79,53 +72,6 @@ use super::llm_providers::{CLAUDE_CODE_PLACEHOLDER_API_KEY, CODEX_PLACEHOLDER_OP
 /// networking-reconcile loop retries it. Prevents a single stuck setup from
 /// freezing task scheduling.
 
-#[cfg(test)]
-mod protocol_env_tests {
-    use super::{model_protocol_env_value, model_protocol_provider_switch};
-
-    #[test]
-    fn maps_known_protocols() {
-        assert_eq!(
-            model_protocol_env_value("openai_responses"),
-            Some("openai_responses".to_string())
-        );
-        assert_eq!(
-            model_protocol_env_value("chat_completions"),
-            Some("chat_completions".to_string())
-        );
-        assert_eq!(
-            model_protocol_env_value("anthropic_messages"),
-            Some("anthropic_messages".to_string())
-        );
-    }
-
-    #[test]
-    fn ignores_custom_and_blank() {
-        assert_eq!(model_protocol_env_value("custom"), None);
-        assert_eq!(model_protocol_env_value(""), None);
-        assert_eq!(model_protocol_env_value("   "), None);
-    }
-
-    #[test]
-    fn openai_family_protocols_get_ccb_provider_switch() {
-        assert_eq!(
-            model_protocol_provider_switch("openai_responses"),
-            Some("CLAUDE_CODE_USE_OPENAI")
-        );
-        assert_eq!(
-            model_protocol_provider_switch(" chat_completions "),
-            Some("CLAUDE_CODE_USE_OPENAI")
-        );
-    }
-
-    #[test]
-    fn anthropic_and_custom_protocols_get_no_switch() {
-        assert_eq!(model_protocol_provider_switch("anthropic_messages"), None);
-        assert_eq!(model_protocol_provider_switch("custom"), None);
-        assert_eq!(model_protocol_provider_switch(""), None);
-    }
-}
-
 /// Three-stage sandbox resolution:
 /// 1. Reuse existing active sandbox for the session (with fingerprint check)
 /// 1b. Restart stopped sandbox for the session
@@ -144,35 +90,6 @@ pub struct SandboxResolver {
 }
 
 impl SandboxResolver {
-    #[cfg(test)]
-    pub fn new(pool: PgPool, provider: Arc<dyn SandboxProvider>, config: JoySafeterConfig) -> Self {
-        let networking = SandboxNetworkingService::test_fixture(pool.clone());
-        let pool_service = SandboxPoolService::new(
-            pool.clone(),
-            provider.clone(),
-            config.clone(),
-            networking.clone(),
-        );
-        let lifecycle =
-            SandboxLifecycleService::new(pool.clone(), provider.clone(), networking.clone());
-        let provisioning = SandboxProvisioningService::new(
-            pool.clone(),
-            provider,
-            config.clone(),
-            networking.clone(),
-            lifecycle.clone(),
-        );
-        let context_builder = ResolveContextBuilder::new(pool.clone(), config, networking.clone());
-        Self::new_with_services(
-            pool,
-            networking,
-            lifecycle,
-            pool_service,
-            provisioning,
-            context_builder,
-        )
-    }
-
     pub fn new_with_services(
         pool: PgPool,
         networking: SandboxNetworkingService,
@@ -422,7 +339,9 @@ impl SandboxResolver {
                                                         .identity_refresh_after_seconds,
                                                 },
                                             ),
-                                            sandbox_runner_token(&sandbox),
+                                            runtime_auth::egress_proxy_token(
+                                                sandbox.config.as_ref(),
+                                            ),
                                         )
                                         .await?;
                                 }

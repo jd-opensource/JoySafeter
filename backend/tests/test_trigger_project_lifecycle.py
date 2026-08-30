@@ -1572,7 +1572,6 @@ async def test_manual_trigger_run_stores_full_execution_snapshot(db_session, mon
         }
     ]
     agent.tools = [{"name": "snapshot-tool"}]
-    agent.permission_mode = "bypassPermissions"
     trigger = await _create_due_trigger(db_session, project=project, agent=agent, name="manual-snapshot")
     trigger.environment_id = environment_id
     await db_session.commit()
