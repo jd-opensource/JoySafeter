@@ -35,8 +35,6 @@ use super::traits::{BridgeStore, DispatchCommand, TaskDispatcher};
 
 /// Bridge ownership: maps sandbox_db_id → instance_id. TTL-based liveness.
 const BRIDGE_KEY_PREFIX: &str = "joysafeter:bridge:";
-/// Connection generation paired with the owner key for compare-and-delete.
-const BRIDGE_GENERATION_KEY_PREFIX: &str = "joysafeter:bridge-generation:";
 /// Per-instance inbox stream for cross-instance command relay.
 const INBOX_KEY_PREFIX: &str = "joysafeter:inbox:";
 /// Network-policy request stream (shared across all instances).
@@ -76,6 +74,18 @@ fn bridge_registration_token(instance_id: &str, connection_id: Uuid) -> String {
     format!("{instance_id}\n{connection_id}")
 }
 
+/// Keep the ownership and connection-generation keys in the same Redis Cluster
+/// slot. Redis hashes only the substring enclosed in `{...}`, so both keys use
+/// the sandbox ID as their shared hash tag. This is required by the Lua scripts
+/// and the atomic registration pipeline, which operate on both keys together.
+fn bridge_owner_key(sandbox_id: Uuid) -> String {
+    format!("{BRIDGE_KEY_PREFIX}{{{sandbox_id}}}:owner")
+}
+
+fn bridge_generation_key(sandbox_id: Uuid) -> String {
+    format!("{BRIDGE_KEY_PREFIX}{{{sandbox_id}}}:generation")
+}
+
 fn schedule_bridge_owner_removal(
     client: redis::Client,
     instance_id: String,
@@ -84,8 +94,8 @@ fn schedule_bridge_owner_removal(
 ) {
     tokio::spawn(async move {
         if let Ok(mut conn) = client.get_multiplexed_async_connection().await {
-            let owner_key = format!("{BRIDGE_KEY_PREFIX}{sandbox_id}");
-            let generation_key = format!("{BRIDGE_GENERATION_KEY_PREFIX}{sandbox_id}");
+            let owner_key = bridge_owner_key(sandbox_id);
+            let generation_key = bridge_generation_key(sandbox_id);
             let token = bridge_registration_token(&instance_id, connection_id);
             let _ = redis::Script::new(REMOVE_BRIDGE_OWNERSHIP_SCRIPT)
                 .key(owner_key)
@@ -154,8 +164,8 @@ impl BridgeStore for RedisBridgeStore {
             }
             match client.get_multiplexed_async_connection().await {
                 Ok(mut conn) => {
-                    let owner_key = format!("{BRIDGE_KEY_PREFIX}{sandbox_db_id}");
-                    let generation_key = format!("{BRIDGE_GENERATION_KEY_PREFIX}{sandbox_db_id}");
+                    let owner_key = bridge_owner_key(sandbox_db_id);
+                    let generation_key = bridge_generation_key(sandbox_db_id);
                     let token = bridge_registration_token(&instance_id, connection_id);
                     let result: redis::RedisResult<()> = redis::pipe()
                         .atomic()
@@ -233,7 +243,7 @@ impl BridgeStore for RedisBridgeStore {
     }
 
     async fn get_owner_instance(&self, sandbox_id: SandboxId) -> Option<String> {
-        let key = format!("{BRIDGE_KEY_PREFIX}{}", sandbox_id.as_uuid());
+        let key = bridge_owner_key(sandbox_id.as_uuid());
         match self.get_conn().await {
             Ok(mut conn) => conn.get::<_, Option<String>>(&key).await.unwrap_or(None),
             Err(_) => None,
@@ -253,8 +263,8 @@ impl BridgeStore for RedisBridgeStore {
         let mut pipe = redis::pipe();
         for bridge in &bridges {
             let sandbox_id = bridge.sandbox_db_id.as_uuid();
-            let owner_key = format!("{BRIDGE_KEY_PREFIX}{sandbox_id}");
-            let generation_key = format!("{BRIDGE_GENERATION_KEY_PREFIX}{sandbox_id}");
+            let owner_key = bridge_owner_key(sandbox_id);
+            let generation_key = bridge_generation_key(sandbox_id);
             pipe.cmd("EVAL")
                 .arg(REFRESH_BRIDGE_OWNERSHIP_SCRIPT)
                 .arg(2)
@@ -334,7 +344,7 @@ impl TaskDispatcher for RedisTaskDispatcher {
 
         // Slow path: look up owner instance (cached locally, fallback to Redis)
         let mut conn = self.get_conn().await?;
-        let bridge_key = format!("{BRIDGE_KEY_PREFIX}{}", sandbox_id.as_uuid());
+        let bridge_key = bridge_owner_key(sandbox_id.as_uuid());
 
         // Check local owner cache first (avoids Redis GET on repeated dispatches)
         let target = if let Some(entry) = self.owner_cache.get(&sandbox_id) {
@@ -725,8 +735,8 @@ mod bridge_owner_tests {
     use tokio::sync::mpsc;
 
     use super::{
-        bridge_registration_token, BridgeStore, RedisBridgeStore, BRIDGE_GENERATION_KEY_PREFIX,
-        BRIDGE_KEY_PREFIX,
+        bridge_generation_key, bridge_owner_key, bridge_registration_token, BridgeStore,
+        RedisBridgeStore,
     };
     use crate::ids::SandboxId;
     use crate::kernel::sandbox_bridge::SandboxBridge;
@@ -749,8 +759,8 @@ mod bridge_owner_tests {
         expected_owner: Option<&str>,
         expected_generation: Option<&str>,
     ) {
-        let owner_key = format!("{BRIDGE_KEY_PREFIX}{}", sandbox_id.as_uuid());
-        let generation_key = format!("{BRIDGE_GENERATION_KEY_PREFIX}{}", sandbox_id.as_uuid());
+        let owner_key = bridge_owner_key(sandbox_id.as_uuid());
+        let generation_key = bridge_generation_key(sandbox_id.as_uuid());
         tokio::time::timeout(Duration::from_secs(3), async {
             loop {
                 let mut connection = client
@@ -779,8 +789,8 @@ mod bridge_owner_tests {
             .get_multiplexed_async_connection()
             .await
             .expect("connect to test Redis");
-        let owner_key = format!("{BRIDGE_KEY_PREFIX}{}", sandbox_id.as_uuid());
-        let generation_key = format!("{BRIDGE_GENERATION_KEY_PREFIX}{}", sandbox_id.as_uuid());
+        let owner_key = bridge_owner_key(sandbox_id.as_uuid());
+        let generation_key = bridge_generation_key(sandbox_id.as_uuid());
         connection
             .del::<_, ()>((owner_key, generation_key))
             .await
@@ -794,6 +804,25 @@ mod bridge_owner_tests {
 
         assert!(first.starts_with("orchestrator-a\n"));
         assert_ne!(first, second);
+    }
+
+    #[test]
+    fn bridge_ownership_keys_share_the_sandbox_redis_hash_tag() {
+        let sandbox_id = uuid::Uuid::now_v7();
+        let owner_key = bridge_owner_key(sandbox_id);
+        let generation_key = bridge_generation_key(sandbox_id);
+        let expected_hash_tag = format!("{{{sandbox_id}}}");
+
+        assert_eq!(
+            owner_key,
+            format!("joysafeter:bridge:{expected_hash_tag}:owner")
+        );
+        assert_eq!(
+            generation_key,
+            format!("joysafeter:bridge:{expected_hash_tag}:generation")
+        );
+        assert!(owner_key.contains(&expected_hash_tag));
+        assert!(generation_key.contains(&expected_hash_tag));
     }
 
     #[tokio::test]
