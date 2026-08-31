@@ -30,16 +30,6 @@ if config.config_file_name is not None:
 config.set_main_option("sqlalchemy.url", settings.database_url_sync.replace("%", "%%"))
 
 target_metadata = Base.metadata
-AUTOGENERATE_IGNORED_TABLES = {"joysafeter_cluster_members"}
-
-
-def include_object(object_, name: str | None, type_: str, reflected: bool, compare_to) -> bool:
-    if type_ == "table" and name in AUTOGENERATE_IGNORED_TABLES:
-        return False
-    table = getattr(object_, "table", None)
-    if table is not None and table.name in AUTOGENERATE_IGNORED_TABLES:
-        return False
-    return True
 
 
 def run_migrations_offline() -> None:
@@ -49,7 +39,6 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
-        include_object=include_object,
     )
 
     with context.begin_transaction():
@@ -61,7 +50,6 @@ def do_run_migrations(connection: Connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         compare_type=True,
-        include_object=include_object,
     )
 
     with context.begin_transaction():
