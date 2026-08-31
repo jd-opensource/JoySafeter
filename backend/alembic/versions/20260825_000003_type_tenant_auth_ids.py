@@ -7,6 +7,7 @@ Create Date: 2026-08-25 00:00:03.000000
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from typing import NamedTuple, Optional, Union
 
 import sqlalchemy as sa
@@ -486,6 +487,84 @@ def orphan_count_sql(foreign_key: ForeignKeySpec) -> str:
     )
 
 
+def matching_foreign_key_names(
+    foreign_key: ForeignKeySpec,
+    reflected_foreign_keys: Iterable[Mapping[str, object]],
+) -> tuple[str, ...]:
+    names: list[str] = []
+    for reflected_foreign_key in reflected_foreign_keys:
+        if tuple(reflected_foreign_key.get("constrained_columns") or ()) != foreign_key.local_columns:
+            continue
+        if reflected_foreign_key.get("referred_table") != foreign_key.target_table:
+            continue
+        if tuple(reflected_foreign_key.get("referred_columns") or ()) != foreign_key.remote_columns:
+            continue
+        name = reflected_foreign_key.get("name")
+        if not isinstance(name, str) or not name:
+            raise RuntimeError(
+                f"tenant/auth UUID migration found an unnamed matching foreign key on {foreign_key.source_table}"
+            )
+        names.append(name)
+    return tuple(names)
+
+
+def _sql_text_array(values: tuple[str, ...]) -> str:
+    return "ARRAY[" + ", ".join("'" + value.replace("'", "''") + "'" for value in values) + "]::text[]"
+
+
+def drop_matching_foreign_keys_sql(foreign_key: ForeignKeySpec) -> str:
+    source_table = foreign_key.source_table.replace("'", "''")
+    target_table = foreign_key.target_table.replace("'", "''")
+    local_columns = _sql_text_array(foreign_key.local_columns)
+    remote_columns = _sql_text_array(foreign_key.remote_columns)
+    return f"""
+DO $tenant_auth_fk$
+DECLARE
+    matching_constraint RECORD;
+BEGIN
+    FOR matching_constraint IN
+        SELECT
+            source_namespace.nspname AS source_schema,
+            candidate.conname AS constraint_name
+        FROM pg_constraint AS candidate
+        JOIN pg_class AS source_table ON source_table.oid = candidate.conrelid
+        JOIN pg_namespace AS source_namespace ON source_namespace.oid = source_table.relnamespace
+        JOIN pg_class AS target_table ON target_table.oid = candidate.confrelid
+        JOIN pg_namespace AS target_namespace ON target_namespace.oid = target_table.relnamespace
+        WHERE candidate.contype = 'f'
+          AND source_namespace.nspname = current_schema()
+          AND target_namespace.nspname = current_schema()
+          AND source_table.relname = '{source_table}'
+          AND target_table.relname = '{target_table}'
+          AND ARRAY(
+              SELECT attribute.attname::text
+              FROM unnest(candidate.conkey) WITH ORDINALITY AS key_column(attnum, position)
+              JOIN pg_attribute AS attribute
+                ON attribute.attrelid = candidate.conrelid
+               AND attribute.attnum = key_column.attnum
+              ORDER BY key_column.position
+          ) = {local_columns}
+          AND ARRAY(
+              SELECT attribute.attname::text
+              FROM unnest(candidate.confkey) WITH ORDINALITY AS key_column(attnum, position)
+              JOIN pg_attribute AS attribute
+                ON attribute.attrelid = candidate.confrelid
+               AND attribute.attnum = key_column.attnum
+              ORDER BY key_column.position
+          ) = {remote_columns}
+    LOOP
+        EXECUTE format(
+            'ALTER TABLE %I.%I DROP CONSTRAINT %I',
+            matching_constraint.source_schema,
+            '{source_table}',
+            matching_constraint.constraint_name
+        );
+    END LOOP;
+END
+$tenant_auth_fk$
+""".strip()
+
+
 def raise_for_preflight_failures(
     failures: list[tuple[str, str, int]],
 ) -> None:
@@ -533,12 +612,23 @@ def _preflight_references() -> None:
 
 
 def _drop_foreign_keys() -> None:
+    inspector = sa.inspect(op.get_bind(), raiseerr=False)
+    if inspector is None:
+        for foreign_key in FOREIGN_KEYS:
+            op.execute(drop_matching_foreign_keys_sql(foreign_key))
+        return
+
+    reflected_by_table: dict[str, list[dict[str, object]]] = {}
     for foreign_key in FOREIGN_KEYS:
-        op.drop_constraint(
-            foreign_key.name,
-            foreign_key.source_table,
-            type_="foreignkey",
-        )
+        if foreign_key.source_table not in reflected_by_table:
+            reflected_by_table[foreign_key.source_table] = inspector.get_foreign_keys(foreign_key.source_table)
+        reflected_foreign_keys = reflected_by_table[foreign_key.source_table]
+        for constraint_name in matching_foreign_key_names(foreign_key, reflected_foreign_keys):
+            op.drop_constraint(
+                constraint_name,
+                foreign_key.source_table,
+                type_="foreignkey",
+            )
 
 
 def _alter_columns(target_type: str) -> None:

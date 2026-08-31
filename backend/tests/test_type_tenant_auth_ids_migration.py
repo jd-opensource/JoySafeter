@@ -196,6 +196,19 @@ def _migration_module():
     return module
 
 
+def _reflected_foreign_keys(migration, table_name: str) -> list[dict[str, object]]:
+    return [
+        {
+            "name": foreign_key.name,
+            "constrained_columns": list(foreign_key.local_columns),
+            "referred_table": foreign_key.target_table,
+            "referred_columns": list(foreign_key.remote_columns),
+        }
+        for foreign_key in migration.FOREIGN_KEYS
+        if foreign_key.source_table == table_name
+    ]
+
+
 def _expected_uuid_columns() -> dict[str, tuple[str, ...]]:
     import app.joysafeter_domain.models  # noqa: F401
 
@@ -354,11 +367,95 @@ def test_referential_preflight_covers_api_key_composite_invariant():
     assert 'source."org_id" IS NOT NULL' in sql
 
 
+def test_matching_foreign_key_names_uses_semantic_identity_not_constraint_name():
+    migration = _migration_module()
+    foreign_key = migration.FOREIGN_KEYS[0]
+
+    names = migration.matching_foreign_key_names(
+        foreign_key,
+        [
+            {
+                "name": "legacy_agents_project_fk",
+                "constrained_columns": ["project_id"],
+                "referred_table": "joysafeter_organization_projects",
+                "referred_columns": ["id"],
+            }
+        ],
+    )
+
+    assert names == ("legacy_agents_project_fk",)
+
+
+def test_matching_foreign_key_names_returns_empty_when_logical_constraint_is_absent():
+    migration = _migration_module()
+    foreign_key = migration.FOREIGN_KEYS[0]
+
+    names = migration.matching_foreign_key_names(
+        foreign_key,
+        [
+            {
+                "name": "agents_owner_fk",
+                "constrained_columns": ["owner_id"],
+                "referred_table": "joysafeter_users",
+                "referred_columns": ["id"],
+            }
+        ],
+    )
+
+    assert names == ()
+
+
+def test_matching_foreign_key_names_returns_all_duplicate_semantic_constraints():
+    migration = _migration_module()
+    foreign_key = migration.FOREIGN_KEYS[0]
+
+    names = migration.matching_foreign_key_names(
+        foreign_key,
+        [
+            {
+                "name": foreign_key.name,
+                "constrained_columns": ["project_id"],
+                "referred_table": "joysafeter_organization_projects",
+                "referred_columns": ["id"],
+            },
+            {
+                "name": "duplicate_agents_project_fk",
+                "constrained_columns": ["project_id"],
+                "referred_table": "joysafeter_organization_projects",
+                "referred_columns": ["id"],
+            },
+        ],
+    )
+
+    assert names == (
+        foreign_key.name,
+        "duplicate_agents_project_fk",
+    )
+
+
+def test_offline_foreign_key_drop_sql_discovers_all_semantic_matches():
+    migration = _migration_module()
+    foreign_key = migration.FOREIGN_KEYS[1]
+
+    statement = migration.drop_matching_foreign_keys_sql(foreign_key)
+
+    assert "FROM pg_constraint AS candidate" in statement
+    assert "candidate.contype = 'f'" in statement
+    assert "source_namespace.nspname = current_schema()" in statement
+    assert "target_namespace.nspname = current_schema()" in statement
+    assert "source_table.relname = 'joysafeter_api_keys'" in statement
+    assert "target_table.relname = 'joysafeter_organization_projects'" in statement
+    assert "ARRAY['project_id', 'org_id']::text[]" in statement
+    assert "ARRAY['id', 'org_id']::text[]" in statement
+    assert "DROP CONSTRAINT %I" in statement
+
+
 def test_upgrade_orders_preflight_drop_cast_recreate_and_session_invalidation(
     monkeypatch: pytest.MonkeyPatch,
 ):
     migration = _migration_module()
     operations: list[tuple[object, ...]] = []
+    inspected_tables: list[str] = []
 
     class ScalarResult:
         def scalar_one(self) -> int:
@@ -369,7 +466,13 @@ def test_upgrade_orders_preflight_drop_cast_recreate_and_session_invalidation(
             operations.append(("preflight", str(statement)))
             return ScalarResult()
 
+    class Inspector:
+        def get_foreign_keys(self, table_name: str) -> list[dict[str, object]]:
+            inspected_tables.append(table_name)
+            return _reflected_foreign_keys(migration, table_name)
+
     monkeypatch.setattr(migration.op, "get_bind", lambda: Connection())
+    monkeypatch.setattr(migration.sa, "inspect", lambda _connection, **_kwargs: Inspector())
     monkeypatch.setattr(
         migration.op,
         "drop_constraint",
@@ -418,12 +521,19 @@ def test_upgrade_orders_preflight_drop_cast_recreate_and_session_invalidation(
     assert max(drop_indexes) < min(alter_indexes)
     assert max(alter_indexes) < min(create_indexes)
     assert delete_indexes[0] < min(drop_indexes)
+    assert inspected_tables == list(dict.fromkeys(foreign_key.source_table for foreign_key in migration.FOREIGN_KEYS))
 
 
 def test_downgrade_never_restores_deleted_auth_sessions(monkeypatch: pytest.MonkeyPatch):
     migration = _migration_module()
     statements: list[str] = []
 
+    class Inspector:
+        def get_foreign_keys(self, table_name: str) -> list[dict[str, object]]:
+            return _reflected_foreign_keys(migration, table_name)
+
+    monkeypatch.setattr(migration.op, "get_bind", lambda: object())
+    monkeypatch.setattr(migration.sa, "inspect", lambda _connection, **_kwargs: Inspector())
     monkeypatch.setattr(migration.op, "drop_constraint", lambda *args, **kwargs: None)
     monkeypatch.setattr(migration.op, "create_foreign_key", lambda *args, **kwargs: None)
     monkeypatch.setattr(migration.op, "execute", lambda statement: statements.append(str(statement)))
@@ -525,6 +635,78 @@ def test_postgres_migration_converts_columns_preserves_constraints_and_deletes_s
         )
         assert connection.execute("SELECT id FROM joysafeter_users").fetchone()[0] == str(ids["user"])
         assert connection.execute("SELECT count(*) FROM joysafeter_auth_sessions").fetchone()[0] == 0
+
+
+@pytest.mark.parametrize("legacy_constraint_state", ["renamed", "missing", "duplicated"])
+def test_postgres_migration_canonicalizes_legacy_foreign_key_drift(
+    tenant_auth_migration_database: MigrationDatabase,
+    legacy_constraint_state: str,
+):
+    canonical_name = "fk_joysafeter_agents_project_id_joysafeter_organizat_0323e88f26"
+    legacy_name = "legacy_agents_project_fk"
+    with psycopg.connect(tenant_auth_migration_database.dsn) as connection:
+        if legacy_constraint_state == "renamed":
+            connection.execute(
+                sql.SQL("ALTER TABLE joysafeter_agents RENAME CONSTRAINT {} TO {}").format(
+                    sql.Identifier(canonical_name),
+                    sql.Identifier(legacy_name),
+                )
+            )
+        elif legacy_constraint_state == "missing":
+            connection.execute(
+                sql.SQL("ALTER TABLE joysafeter_agents DROP CONSTRAINT {}").format(sql.Identifier(canonical_name))
+            )
+        else:
+            connection.execute(
+                sql.SQL(
+                    "ALTER TABLE joysafeter_agents ADD CONSTRAINT {} "
+                    "FOREIGN KEY (project_id) REFERENCES joysafeter_organization_projects (id)"
+                ).format(sql.Identifier(legacy_name))
+            )
+        connection.commit()
+
+    result = _upgrade_to(tenant_auth_migration_database.env, "head")
+
+    assert result.returncode == 0, result.stderr
+    with psycopg.connect(tenant_auth_migration_database.dsn) as connection:
+        constraint_names = {
+            row[0]
+            for row in connection.execute(
+                "SELECT conname FROM pg_constraint WHERE conrelid = 'joysafeter_agents'::regclass AND contype = 'f'"
+            ).fetchall()
+        }
+        assert canonical_name in constraint_names
+        assert legacy_name not in constraint_names
+
+
+def test_postgres_offline_drop_sql_removes_all_semantic_foreign_key_matches(
+    tenant_auth_migration_database: MigrationDatabase,
+):
+    migration = _migration_module()
+    foreign_key = migration.FOREIGN_KEYS[0]
+    duplicate_name = "duplicate_agents_project_fk"
+    with psycopg.connect(tenant_auth_migration_database.dsn) as connection:
+        connection.execute(
+            sql.SQL("ALTER TABLE joysafeter_agents RENAME CONSTRAINT {} TO legacy_agents_project_fk").format(
+                sql.Identifier(foreign_key.name)
+            )
+        )
+        connection.execute(
+            sql.SQL(
+                "ALTER TABLE joysafeter_agents ADD CONSTRAINT {} "
+                "FOREIGN KEY (project_id) REFERENCES joysafeter_organization_projects (id)"
+            ).format(sql.Identifier(duplicate_name))
+        )
+        connection.execute(migration.drop_matching_foreign_keys_sql(foreign_key))
+        remaining_names = {
+            row[0]
+            for row in connection.execute(
+                "SELECT conname FROM pg_constraint WHERE conrelid = 'joysafeter_agents'::regclass AND contype = 'f'"
+            ).fetchall()
+        }
+
+    assert "legacy_agents_project_fk" not in remaining_names
+    assert duplicate_name not in remaining_names
 
 
 def test_postgres_migration_accepts_matching_canonical_public_values(
