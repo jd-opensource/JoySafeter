@@ -1,4 +1,158 @@
 use super::*;
+use crate::kernel::runner::setup::validate_reconnect_setup_generation;
+
+#[test]
+fn setup_flow_error_keeps_runner_and_infrastructure_failures_distinct() {
+    let protocol =
+        crate::kernel::runner::setup::SetupFlowError::runner_protocol("forged skill receipt");
+    let infrastructure =
+        crate::kernel::runner::setup::SetupFlowError::setup("skill audit database unavailable");
+
+    assert!(protocol.is_runner_fault());
+    assert!(!infrastructure.is_runner_fault());
+}
+
+#[test]
+fn only_unexpected_disconnects_receive_runner_reconnect_grace() {
+    assert!(should_wait_for_runner_reconnect(
+        RunnerSessionExit::Disconnected
+    ));
+    assert!(!should_wait_for_runner_reconnect(
+        RunnerSessionExit::Rejected
+    ));
+    assert!(!should_wait_for_runner_reconnect(
+        RunnerSessionExit::FailureEjected
+    ));
+}
+
+#[test]
+fn runner_protocol_admission_requires_setup_ack_capability() {
+    assert!(
+        crate::kernel::runner::admission::validate_runner_protocol(&["setup_ack_v1".to_string(),])
+            .is_ok()
+    );
+    let error = crate::kernel::runner::admission::validate_runner_protocol(&[])
+        .expect_err("legacy Runner must be rejected");
+    assert_eq!(error.code(), "runner_protocol_incompatible");
+    assert_eq!(error.message(), "runner protocol is missing setup_ack_v1");
+}
+
+#[test]
+fn runner_execution_threshold_failure_has_stable_code() {
+    let failure = crate::kernel::runner::failure::RunnerFailure::execution_unhealthy(
+        "runner exceeded consecutive failure threshold",
+    );
+    assert_eq!(failure.code(), "runner_execution_unhealthy");
+}
+
+#[test]
+fn malformed_runner_reconnect_metadata_has_stable_failure_code() {
+    let failure =
+        crate::kernel::runner::failure::RunnerFailure::protocol_invalid("invalid active task id");
+    assert_eq!(failure.code(), "runner_protocol_invalid");
+}
+
+#[test]
+fn reconnect_setup_requires_ready_status_and_exact_reported_generation() {
+    assert_eq!(
+        validate_reconnect_setup_generation("ready", 7, Some(7)),
+        Ok(7)
+    );
+    assert!(validate_reconnect_setup_generation("ready", 7, None).is_err());
+    assert!(validate_reconnect_setup_generation("ready", 7, Some(6)).is_err());
+    assert!(validate_reconnect_setup_generation("restart_required", 7, Some(7)).is_err());
+}
+
+#[tokio::test]
+async fn setup_ack_applies_only_the_matching_setup_generation() {
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    let (tx, _rx) = mpsc::channel(4);
+    let bridge = SandboxBridge::new(sandbox_id, tx);
+
+    bridge.begin_setup("setup-current".to_string(), 7).await;
+
+    let stale = bridge.record_setup_result("setup-old", 6, true, None).await;
+    assert_eq!(
+        stale,
+        crate::kernel::sandbox_bridge::SetupResultDisposition::Stale
+    );
+    assert_eq!(
+        bridge.setup_state().await,
+        crate::kernel::sandbox_bridge::SandboxSetupState::Applying {
+            setup_id: "setup-current".to_string(),
+            runtime_config_generation: 7,
+        }
+    );
+    assert!(!bridge.setup_applied_for(7).await);
+
+    let applied = bridge
+        .record_setup_result("setup-current", 7, true, None)
+        .await;
+    assert_eq!(
+        applied,
+        crate::kernel::sandbox_bridge::SetupResultDisposition::Applied
+    );
+    assert!(bridge.setup_applied_for(7).await);
+}
+
+#[tokio::test]
+async fn older_setup_ack_cannot_unlock_a_newer_pending_setup() {
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    let (tx, _rx) = mpsc::channel(4);
+    let bridge = SandboxBridge::new(sandbox_id, tx);
+
+    bridge.begin_setup("setup-7".to_string(), 7).await;
+    bridge.begin_setup("setup-8".to_string(), 8).await;
+
+    let stale = bridge.record_setup_result("setup-7", 7, true, None).await;
+    assert_eq!(
+        stale,
+        crate::kernel::sandbox_bridge::SetupResultDisposition::Stale
+    );
+    assert_eq!(
+        bridge.setup_state().await,
+        crate::kernel::sandbox_bridge::SandboxSetupState::Applying {
+            setup_id: "setup-8".to_string(),
+            runtime_config_generation: 8,
+        }
+    );
+    assert!(!bridge.setup_applied_for(8).await);
+}
+
+#[tokio::test]
+async fn setup_success_outside_the_correlated_gate_fails_closed() {
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    let (tx, _rx) = mpsc::channel(4);
+    let bridge = Arc::new(SandboxBridge::new(sandbox_id, tx));
+    bridge.begin_setup("setup-current".to_string(), 7).await;
+
+    let result = proto::SandboxSetupResult {
+        setup_id: "setup-current".to_string(),
+        runtime_config_generation: 7,
+        status: proto::SandboxSetupStatus::Applied as i32,
+        loaded_skills: Vec::new(),
+        ..Default::default()
+    };
+
+    let handling = crate::kernel::runner::setup::handle_out_of_band_setup_result(
+        &bridge,
+        sandbox_id,
+        &result,
+        &RunnerMetrics::default(),
+    )
+    .await;
+
+    assert!(matches!(handling, SetupResultHandling::Failed(_)));
+    assert!(!bridge.setup_applied_for(7).await);
+    assert!(matches!(
+        bridge.setup_state().await,
+        crate::kernel::sandbox_bridge::SandboxSetupState::Failed {
+            runtime_config_generation: 7,
+            ..
+        }
+    ));
+}
+
 #[tokio::test]
 async fn send_setup_waits_for_late_session_link_before_marking_done() {
     let Some(pool) = test_pool().await else {
@@ -54,12 +208,28 @@ async fn send_setup_waits_for_late_session_link_before_marking_done() {
 
         let harness_input_builder =
             crate::kernel::harness_input_builder::HarnessInputBuilder::new(pool.clone(), false);
-        let sent = send_setup(&pool, &bridge, sandbox_id, &tx, &harness_input_builder)
-            .await
-            .expect("send setup after late session link");
+        let metrics = RunnerMetrics::default();
+        let sent = send_setup(
+            &pool,
+            &bridge,
+            sandbox_id,
+            &tx,
+            &harness_input_builder,
+            &metrics,
+        )
+        .await
+        .expect("send setup after late session link");
         link_task.await.expect("late link task joined");
-        assert!(sent);
-        assert!(!bridge.setup_done.load(Ordering::Relaxed));
+        let pending = sent.expect("linked sandbox should produce a pending setup");
+        assert_eq!(pending.runtime_config_generation, 0);
+        assert!(!pending.setup_id.is_empty());
+        assert_eq!(
+            bridge.setup_state().await,
+            crate::kernel::sandbox_bridge::SandboxSetupState::Applying {
+                setup_id: pending.setup_id.clone(),
+                runtime_config_generation: 0,
+            }
+        );
 
         let msg = tokio::time::timeout(Duration::from_secs(1), rx.recv())
             .await
@@ -68,6 +238,8 @@ async fn send_setup_waits_for_late_session_link_before_marking_done() {
         match msg.payload {
             Some(orchestrator_message::Payload::Setup(setup)) => {
                 assert!(!setup.provider.is_empty());
+                assert_eq!(setup.setup_id, pending.setup_id);
+                assert_eq!(setup.runtime_config_generation, 0);
             }
             other => panic!("unexpected setup message: {other:?}"),
         }
@@ -83,7 +255,122 @@ async fn send_setup_waits_for_late_session_link_before_marking_done() {
 }
 
 #[tokio::test]
-async fn idle_setup_failure_result_marks_sandbox_error_and_clears_setup_done() {
+async fn authenticated_runner_failure_quarantines_runtime_and_reschedules_bound_task() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (agent_id, session_id) = create_agent_and_session(&pool).await;
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    let task_id = TaskId::from_uuid(Uuid::now_v7());
+
+    let result = async {
+        queries::create_sandbox(
+            &pool,
+            sandbox_id,
+            &format!("runner-admission-failure-{sandbox_id}"),
+            "docker",
+            "test-image:latest",
+            Some(session_id),
+            None,
+            None,
+            Some(&json!({})),
+        )
+        .await
+        .expect("insert linked sandbox");
+        queries::transition_sandbox_cas(&pool, sandbox_id, "creating", "provisioning")
+            .await
+            .expect("sandbox provisioning");
+        sqlx::query(
+            r#"
+            UPDATE joysafeter_sandboxes
+            SET runner_auth_state = 'active', runner_token_digest = $2
+            WHERE id = $1
+            "#,
+        )
+        .bind(sandbox_id)
+        .bind(crate::kernel::runtime_auth::runner_token_digest(
+            "runner-token",
+        ))
+        .execute(&pool)
+        .await
+        .expect("activate runner credential");
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_tasks (
+                id, agent_id, chat_session_id, sandbox_id, status, prompt, output,
+                timeout_sec, retry_count, max_retries
+            )
+            VALUES ($1, $2, $3, $4, 'scheduling', 'test prompt', '', 7200, 0, 2)
+            "#,
+        )
+        .bind(task_id)
+        .bind(agent_id)
+        .bind(session_id)
+        .bind(sandbox_id)
+        .execute(&pool)
+        .await
+        .expect("insert scheduling task");
+
+        crate::kernel::runner::failure::RunnerFailureService::new()
+            .eject_sandbox(
+                &pool,
+                sandbox_id,
+                Some(session_id),
+                crate::kernel::runner::failure::RunnerFailure::protocol_incompatible(
+                    "runner protocol is missing setup_ack_v1",
+                ),
+                None,
+                None,
+                &JoySafeterConfig::from_env(),
+            )
+            .await
+            .expect("eject incompatible runner sandbox");
+
+        let sandbox: (String, String, Option<String>) = sqlx::query_as(
+            r#"
+            SELECT status, runner_auth_state, config #>> '{runtime_failure,code}'
+            FROM joysafeter_sandboxes WHERE id = $1
+            "#,
+        )
+        .bind(sandbox_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load ejected sandbox");
+        assert_eq!(sandbox.0, "error");
+        assert_eq!(sandbox.1, "revoked");
+        assert_eq!(sandbox.2.as_deref(), Some("runner_protocol_incompatible"));
+
+        let task: (String, Option<SandboxId>, i32) = sqlx::query_as(
+            "SELECT status, sandbox_id, retry_count FROM joysafeter_tasks WHERE id = $1",
+        )
+        .bind(task_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load rescheduled task");
+        assert_eq!(task.0, "pending");
+        assert_eq!(task.1, None);
+        assert_eq!(task.2, 1);
+
+        let session_status: String =
+            sqlx::query_scalar("SELECT status FROM joysafeter_sessions WHERE id = $1")
+                .bind(session_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load rescheduling session");
+        assert_eq!(session_status, "rescheduling");
+    }
+    .await;
+
+    let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+        .bind(sandbox_id)
+        .execute(&pool)
+        .await;
+    cleanup(&pool, agent_id, session_id).await;
+    result
+}
+
+#[tokio::test]
+async fn matching_setup_failure_updates_bridge_without_mutating_sandbox_lifecycle() {
     let Some(pool) = test_pool().await else {
         return;
     };
@@ -107,20 +394,35 @@ async fn idle_setup_failure_result_marks_sandbox_error_and_clears_setup_done() {
 
         let (tx, _rx) = mpsc::channel(4);
         let bridge = Arc::new(SandboxBridge::new(sandbox_id, tx));
-        bridge.setup_done.store(true, Ordering::Relaxed);
-        let setup_failure = proto::RunnerHarnessResult {
-            status: "failed".to_string(),
+        bridge.begin_setup("setup-failed".to_string(), 0).await;
+        let setup_failure = proto::SandboxSetupResult {
+            setup_id: "setup-failed".to_string(),
+            runtime_config_generation: 0,
+            status: proto::SandboxSetupStatus::Failed as i32,
             error: Some(
                 "SetupSandbox failed: clone setup repos to /workspace: clone repo missing"
                     .to_string(),
             ),
+            error_code: Some("SETUP_FAILED".to_string()),
             ..Default::default()
         };
 
-        assert!(is_setup_failure_result(&setup_failure));
-        mark_idle_setup_failure(&pool, &bridge, sandbox_id, &setup_failure).await;
+        let handling = crate::kernel::runner::setup::record_correlated_setup_result(
+            &bridge,
+            sandbox_id,
+            &setup_failure,
+            &RunnerMetrics::default(),
+        )
+        .await;
 
-        assert!(!bridge.setup_done.load(Ordering::Relaxed));
+        assert!(matches!(handling, SetupResultHandling::Failed(_)));
+        assert!(matches!(
+            bridge.setup_state().await,
+            crate::kernel::sandbox_bridge::SandboxSetupState::Failed {
+                runtime_config_generation: 0,
+                ..
+            }
+        ));
         let (status, setup_error): (String, Option<String>) = sqlx::query_as(
             "SELECT status, config->>'setup_error' FROM joysafeter_sandboxes WHERE id = $1",
         )
@@ -128,8 +430,8 @@ async fn idle_setup_failure_result_marks_sandbox_error_and_clears_setup_done() {
         .fetch_one(&pool)
         .await
         .expect("load sandbox after setup failure");
-        assert_eq!(status, "error");
-        assert_eq!(setup_error, setup_failure.error);
+        assert_eq!(status, "creating");
+        assert_eq!(setup_error, None);
     }
     .await;
 

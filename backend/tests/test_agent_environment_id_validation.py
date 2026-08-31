@@ -573,3 +573,62 @@ async def test_create_agent_rejects_undeclared_mcp_tool_server_with_structured_e
         "retryable": False,
         "user_action": "fix_input",
     }
+
+
+@pytest.mark.no_db
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tools", "code", "message", "data"),
+    [
+        (
+            [
+                {"type": "agent_toolset_20260401"},
+                {"type": "agent_toolset_20260401"},
+            ],
+            "AGENT_TOOLSET_DUPLICATE",
+            "Duplicate built-in toolset",
+            {"toolset": "agent_toolset_20260401"},
+        ),
+        (
+            [
+                {"type": "mcp_toolset", "mcp_server_name": "docs"},
+                {"type": "mcp_toolset", "mcp_server_name": "docs"},
+            ],
+            "AGENT_TOOLSET_DUPLICATE",
+            "Duplicate MCP toolset for server: docs",
+            {"toolset": "mcp_toolset", "mcp_server_name": "docs"},
+        ),
+        (
+            [
+                {
+                    "type": "agent_toolset_20260401",
+                    "configs": [{"name": "Bash"}, {"name": "Bash"}],
+                }
+            ],
+            "AGENT_TOOL_CONFIG_DUPLICATE",
+            "Duplicate tool config: Bash",
+            {"toolset": "agent_toolset_20260401", "tool_name": "Bash"},
+        ),
+        (
+            [
+                {"type": "custom", "name": "deploy", "description": "one", "input_schema": {}},
+                {"type": "custom", "name": "deploy", "description": "two", "input_schema": {}},
+            ],
+            "AGENT_CUSTOM_TOOL_DUPLICATE",
+            "Duplicate custom tool: deploy",
+            {"tool_name": "deploy"},
+        ),
+    ],
+)
+async def test_tool_configuration_rejects_ambiguous_duplicates(tools, code, message, data):
+    with pytest.raises(AppError) as exc_info:
+        AgentConfigurationPolicy.validate_tool_mcp_references(tools, [])
+
+    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
+        "code": code,
+        "message": message,
+        "data": data,
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }

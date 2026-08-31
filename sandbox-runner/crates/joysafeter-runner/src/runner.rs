@@ -16,6 +16,7 @@ use tracing::{debug, error, info, warn};
 
 #[derive(Clone, Default)]
 pub struct SessionConfig {
+    pub runtime_config_generation: Option<i64>,
     pub env: HashMap<String, String>,
     pub tool_policy: ToolPolicy,
     pub provider: String,
@@ -31,6 +32,11 @@ pub struct SessionConfig {
 pub struct TaskMetadata {
     pub work_dir: String,
     pub harness_session_id: Option<String>,
+}
+
+pub struct SetupOutcome {
+    pub config: SessionConfig,
+    pub loaded_skills: Vec<proto::LoadedSkill>,
 }
 
 pub enum RunnerControl {
@@ -77,6 +83,16 @@ pub async fn handle_task(
     mut cancel_rx: oneshot::Receiver<()>,
     mut control_rx: mpsc::Receiver<RunnerControl>,
 ) -> Result<TaskMetadata, Box<dyn std::error::Error + Send + Sync>> {
+    let expected_generation = session_config
+        .runtime_config_generation
+        .ok_or("StartTask received before a successful SetupSandbox")?;
+    if task.runtime_config_generation != expected_generation {
+        return Err(format!(
+            "StartTask runtime configuration generation mismatch: expected {expected_generation}, received {}",
+            task.runtime_config_generation
+        )
+        .into());
+    }
     let task_tool_policy = crate::tool_policy::decode(task.tool_policy.clone())?;
     if task_tool_policy != session_config.tool_policy {
         return Err("StartTask.tool_policy differs from the staged sandbox policy".into());
@@ -102,11 +118,6 @@ pub async fn handle_task(
         tokio::fs::create_dir_all(&work_dir).await?;
     }
 
-    // Task-scoped resources are materialized immediately before execution so
-    // pooled and reconnected sandboxes always receive the current snapshot.
-    unpack_skills(&work_dir, &task.skills, provider)
-        .await
-        .map_err(|e| format!("unpack task skills to {}: {e}", work_dir.display()))?;
     write_files(&work_dir, &task.files)
         .await
         .map_err(|e| format!("write task files to {}: {e}", work_dir.display()))?;
@@ -365,7 +376,7 @@ fn merge_process_proxy_env(env: &mut std::collections::HashMap<String, String>) 
 pub async fn handle_setup(
     setup: proto::SetupSandbox,
     #[allow(unused_variables)] runner_tx: mpsc::Sender<RunnerMessage>,
-) -> Result<SessionConfig, Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<SetupOutcome, Box<dyn std::error::Error + Send + Sync>> {
     let tool_policy = crate::tool_policy::decode(setup.tool_policy.clone())?;
     project_mcp_configs(&setup.mcp_servers)
         .map_err(|error| format!("project MCP configs: {error}"))?;
@@ -400,7 +411,7 @@ pub async fn handle_setup(
 
     run_setup_commands(&work_dir, &setup.setup_commands, "SetupSandbox").await?;
 
-    unpack_skills(&work_dir, &setup.skills, &setup.provider)
+    let loaded_skills = unpack_skills(&work_dir, &setup.skills, &setup.provider)
         .await
         .map_err(|e| format!("unpack_skills to {}: {e}", work_dir.display()))?;
     crate::repos::clone_repos(&work_dir, &setup.repos)
@@ -448,6 +459,7 @@ pub async fn handle_setup(
     }
 
     let config = SessionConfig {
+        runtime_config_generation: Some(setup.runtime_config_generation),
         env: setup.env,
         tool_policy,
         provider: setup.provider,
@@ -460,7 +472,10 @@ pub async fn handle_setup(
     };
 
     info!(work_dir = %work_dir.display(), "Sandbox setup complete");
-    Ok(config)
+    Ok(SetupOutcome {
+        config,
+        loaded_skills,
+    })
 }
 
 async fn run_setup_commands(
@@ -538,15 +553,17 @@ async fn unpack_skills(
     work_dir: &Path,
     skills: &[proto::SkillArchive],
     provider: &str,
-) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+) -> Result<Vec<proto::LoadedSkill>, Box<dyn std::error::Error + Send + Sync>> {
     use sha2::{Digest, Sha256};
 
+    let mut loaded = Vec::new();
     for skill in skills {
         let target_dir = skill_base_dir(work_dir, provider, &skill.target);
         let marker_path = target_dir.join(&skill.name).join(".skill_hash");
 
         // Fast path: if the skill is already unpacked with the same content, skip.
         let content_hash = format!("{:x}", Sha256::digest(&skill.tar_gz));
+        let loaded_skill = loaded_skill_from_archive(skill, &content_hash)?;
         if let Ok(existing_hash) = tokio::fs::read_to_string(&marker_path).await {
             if existing_hash.trim() == content_hash {
                 debug!(
@@ -554,6 +571,9 @@ async fn unpack_skills(
                     target = %skill.target,
                     "Skill already unpacked (hash match), skipping"
                 );
+                if let Some(loaded_skill) = loaded_skill {
+                    loaded.push(loaded_skill);
+                }
                 continue;
             }
         }
@@ -578,8 +598,56 @@ async fn unpack_skills(
             "Unpacked to {}",
             target_dir.display()
         );
+        if let Some(loaded_skill) = loaded_skill {
+            loaded.push(loaded_skill);
+        }
     }
-    Ok(())
+    Ok(loaded)
+}
+
+fn loaded_skill_from_archive(
+    skill: &proto::SkillArchive,
+    content_hash: &str,
+) -> Result<Option<proto::LoadedSkill>, Box<dyn std::error::Error + Send + Sync>> {
+    let Some(skill_id) = skill.skill_id.as_deref() else {
+        return Ok(None);
+    };
+    let artifact_hash = required_skill_metadata(skill_id, "artifact_hash", &skill.artifact_hash)?;
+    if artifact_hash != content_hash {
+        return Err(format!(
+            "managed skill {skill_id} artifact hash mismatch: expected {artifact_hash}, got {content_hash}"
+        )
+        .into());
+    }
+
+    Ok(Some(proto::LoadedSkill {
+        skill_id: skill_id.to_string(),
+        skill_version: required_skill_metadata(skill_id, "skill_version", &skill.skill_version)?
+            .to_string(),
+        skill_version_id: required_skill_metadata(
+            skill_id,
+            "skill_version_id",
+            &skill.skill_version_id,
+        )?
+        .to_string(),
+        skill_name: required_skill_metadata(skill_id, "skill_name", &skill.skill_name)?.to_string(),
+        skill_source_type: skill.skill_source_type.clone(),
+        target: skill.target.clone(),
+        security_scan_id: skill.security_scan_id.clone(),
+        target_hash: skill.target_hash.clone(),
+        artifact_hash: artifact_hash.to_string(),
+    }))
+}
+
+fn required_skill_metadata<'a>(
+    skill_id: &str,
+    field: &str,
+    value: &'a Option<String>,
+) -> Result<&'a str, String> {
+    value
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| format!("managed skill {skill_id} is missing {field}"))
 }
 
 async fn write_files(
@@ -861,7 +929,41 @@ pub async fn handle_memory_update(update: proto::MemoryFileUpdate, config: &Sess
 mod tests {
     use std::collections::HashMap;
 
+    use flate2::write::GzEncoder;
+    use flate2::Compression;
+    use sha2::Digest as _;
+    use tar::{Builder, Header};
+
     use super::*;
+
+    fn test_skill_archive() -> proto::SkillArchive {
+        let encoder = GzEncoder::new(Vec::new(), Compression::default());
+        let mut archive = Builder::new(encoder);
+        let content = b"---\nname: audit-skill\n---\n";
+        let mut header = Header::new_gnu();
+        header.set_size(content.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        archive
+            .append_data(&mut header, "audit-skill/SKILL.md", content.as_slice())
+            .unwrap();
+        let bytes = archive.into_inner().unwrap().finish().unwrap();
+
+        let artifact_hash = format!("{:x}", sha2::Sha256::digest(&bytes));
+        proto::SkillArchive {
+            name: "audit-skill".to_string(),
+            tar_gz: bytes,
+            target: "skills".to_string(),
+            skill_id: Some("skill_00000000-0000-0000-0000-000000000001".to_string()),
+            skill_version: Some("1.2.3".to_string()),
+            skill_version_id: Some("sklver_00000000-0000-0000-0000-000000000002".to_string()),
+            skill_name: Some("audit-skill".to_string()),
+            skill_source_type: Some("manual".to_string()),
+            security_scan_id: Some("sklscan_00000000-0000-0000-0000-000000000003".to_string()),
+            target_hash: Some("a".repeat(64)),
+            artifact_hash: Some(artifact_hash),
+        }
+    }
 
     fn test_wire_policy() -> Option<proto::ToolPolicy> {
         Some(proto::ToolPolicy {
@@ -947,6 +1049,36 @@ mod tests {
     fn skill_base_dir_pi_uses_dot_pi() {
         let base = skill_base_dir(std::path::Path::new("/w"), "pi", "skills");
         assert_eq!(base, std::path::Path::new("/w/.pi/skills"));
+    }
+
+    #[tokio::test]
+    async fn unpack_skills_reports_first_load_and_hash_match() {
+        let dir = tempfile::tempdir().unwrap();
+        let skill = test_skill_archive();
+
+        let first = unpack_skills(dir.path(), std::slice::from_ref(&skill), "claude")
+            .await
+            .unwrap();
+        let second = unpack_skills(dir.path(), std::slice::from_ref(&skill), "claude")
+            .await
+            .unwrap();
+
+        assert_eq!(first.len(), 1);
+        assert_eq!(second, first);
+        assert_eq!(first[0].skill_id, skill.skill_id.clone().unwrap());
+        assert_eq!(first[0].skill_version, "1.2.3");
+        assert_eq!(first[0].artifact_hash, skill.artifact_hash.clone().unwrap());
+    }
+
+    #[tokio::test]
+    async fn unpack_skills_returns_no_success_report_when_extraction_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut skill = test_skill_archive();
+        skill.tar_gz = b"not a tar archive".to_vec();
+
+        let result = unpack_skills(dir.path(), &[skill], "claude").await;
+
+        assert!(result.is_err());
     }
 
     #[test]
@@ -1067,7 +1199,10 @@ mod tests {
     async fn run_task_for_error(task: proto::StartTask) -> String {
         std::env::set_var("JOYSAFETER_MOCK_ADAPTER", "1");
         let adapters = Arc::new(AdapterRegistry::discover().await);
-        let session_config = SessionConfig::default();
+        let session_config = SessionConfig {
+            runtime_config_generation: Some(task.runtime_config_generation),
+            ..Default::default()
+        };
         let (runner_tx, _runner_rx) = mpsc::channel(1);
         let (_cancel_tx, cancel_rx) = oneshot::channel();
         let (_control_tx, control_rx) = mpsc::channel(1);
@@ -1085,6 +1220,44 @@ mod tests {
             Ok(_) => panic!("task unexpectedly reached the adapter"),
             Err(error) => error.to_string(),
         }
+    }
+
+    #[tokio::test]
+    async fn handle_task_rejects_a_generation_not_applied_by_setup() {
+        std::env::set_var("JOYSAFETER_MOCK_ADAPTER", "1");
+        let adapters = Arc::new(AdapterRegistry::discover().await);
+        let session_config = SessionConfig {
+            runtime_config_generation: Some(7),
+            ..Default::default()
+        };
+        let task = proto::StartTask {
+            task_id: "task_01a05159-175f-78a0-b239-52122c97af1e".to_string(),
+            provider: "mock".to_string(),
+            runtime_config_generation: 8,
+            tool_policy: test_wire_policy(),
+            ..Default::default()
+        };
+        let (runner_tx, _runner_rx) = mpsc::channel(1);
+        let (_cancel_tx, cancel_rx) = oneshot::channel();
+        let (_control_tx, control_rx) = mpsc::channel(1);
+
+        let error = match handle_task(
+            task,
+            &session_config,
+            adapters,
+            runner_tx,
+            cancel_rx,
+            control_rx,
+        )
+        .await
+        {
+            Ok(_) => panic!("stale task generation must be rejected before adapter execution"),
+            Err(error) => error.to_string(),
+        };
+
+        assert!(error.contains("runtime configuration generation"));
+        assert!(error.contains("expected 7"));
+        assert!(error.contains("received 8"));
     }
 
     #[tokio::test]
@@ -1183,7 +1356,10 @@ mod tests {
             setup_commands: vec!["exit 24".to_string(), "touch should_not_run".to_string()],
             ..Default::default()
         };
-        let session_config = SessionConfig::default();
+        let session_config = SessionConfig {
+            runtime_config_generation: Some(task.runtime_config_generation),
+            ..Default::default()
+        };
         let (runner_tx, mut runner_rx) = mpsc::channel(1);
         let (_cancel_tx, cancel_rx) = oneshot::channel();
         let (_control_tx, control_rx) = mpsc::channel(1);
@@ -1229,7 +1405,10 @@ mod tests {
             )],
             ..Default::default()
         };
-        let session_config = SessionConfig::default();
+        let session_config = SessionConfig {
+            runtime_config_generation: Some(task.runtime_config_generation),
+            ..Default::default()
+        };
         let (runner_tx, _runner_rx) = mpsc::channel(1);
         let (_cancel_tx, cancel_rx) = oneshot::channel();
         let (_control_tx, control_rx) = mpsc::channel(1);

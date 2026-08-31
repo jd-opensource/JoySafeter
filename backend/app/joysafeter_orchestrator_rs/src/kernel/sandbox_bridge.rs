@@ -20,6 +20,31 @@ pub struct RunnerRuntimeActivity {
     pub observed_at: DateTime<Utc>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SandboxSetupState {
+    Unconfigured,
+    Applying {
+        setup_id: String,
+        runtime_config_generation: i64,
+    },
+    Applied {
+        setup_id: String,
+        runtime_config_generation: i64,
+    },
+    Failed {
+        setup_id: String,
+        runtime_config_generation: i64,
+        error: String,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SetupResultDisposition {
+    Applied,
+    Failed,
+    Stale,
+}
+
 /// Per-sandbox in-process state.
 ///
 /// Mirrors the Python `SandboxBridge` class with full parity:
@@ -27,6 +52,7 @@ pub struct RunnerRuntimeActivity {
 #[derive(Debug)]
 pub struct SandboxBridge {
     pub sandbox_db_id: SandboxId,
+    connection_id: Uuid,
     /// Channel to send messages to the connected runner.
     pub runner_tx: mpsc::Sender<OrchestratorMessage>,
     /// Current task being executed (if any).
@@ -46,8 +72,7 @@ pub struct SandboxBridge {
     pub control_rx: Mutex<mpsc::Receiver<String>>,
     /// Whether the task is waiting for human input.
     pub requires_action_pending: AtomicBool,
-    /// Whether SetupSandbox has been sent.
-    pub setup_done: AtomicBool,
+    setup_state: Mutex<SandboxSetupState>,
     /// Set to true when this bridge has been replaced by a reconnecting runner.
     /// The old connection's multi_task_loop should check this and exit.
     pub displaced: AtomicBool,
@@ -74,6 +99,7 @@ impl SandboxBridge {
         let (control_tx, control_rx) = mpsc::channel(64);
         Self {
             sandbox_db_id,
+            connection_id: Uuid::now_v7(),
             runner_tx,
             current_task_id: Mutex::new(None),
             current_task_owner_epoch: Mutex::new(None),
@@ -84,7 +110,7 @@ impl SandboxBridge {
             control_tx,
             control_rx: Mutex::new(control_rx),
             requires_action_pending: AtomicBool::new(false),
-            setup_done: AtomicBool::new(false),
+            setup_state: Mutex::new(SandboxSetupState::Unconfigured),
             displaced: AtomicBool::new(false),
             runner_capabilities: Mutex::new(Vec::new()),
             last_error: Mutex::new(None),
@@ -95,6 +121,77 @@ impl SandboxBridge {
             task_subscribers: Mutex::new(HashMap::new()),
             pending_sandbox_file_requests: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub(crate) fn connection_id(&self) -> Uuid {
+        self.connection_id
+    }
+
+    pub async fn begin_setup(&self, setup_id: String, runtime_config_generation: i64) {
+        *self.setup_state.lock().await = SandboxSetupState::Applying {
+            setup_id,
+            runtime_config_generation,
+        };
+    }
+
+    pub async fn restore_applied_setup(&self, runtime_config_generation: i64) {
+        *self.setup_state.lock().await = SandboxSetupState::Applied {
+            setup_id: "runner-reconnect".to_string(),
+            runtime_config_generation,
+        };
+    }
+
+    pub async fn clear_setup(&self) {
+        *self.setup_state.lock().await = SandboxSetupState::Unconfigured;
+    }
+
+    pub async fn record_setup_result(
+        &self,
+        setup_id: &str,
+        runtime_config_generation: i64,
+        success: bool,
+        error: Option<String>,
+    ) -> SetupResultDisposition {
+        let mut state = self.setup_state.lock().await;
+        let matches_current = matches!(
+            &*state,
+            SandboxSetupState::Applying {
+                setup_id: current_setup_id,
+                runtime_config_generation: current_generation,
+            } if current_setup_id == setup_id && *current_generation == runtime_config_generation
+        );
+        if !matches_current {
+            return SetupResultDisposition::Stale;
+        }
+
+        if success {
+            *state = SandboxSetupState::Applied {
+                setup_id: setup_id.to_string(),
+                runtime_config_generation,
+            };
+            SetupResultDisposition::Applied
+        } else {
+            *state = SandboxSetupState::Failed {
+                setup_id: setup_id.to_string(),
+                runtime_config_generation,
+                error: error.unwrap_or_else(|| "SetupSandbox failed".to_string()),
+            };
+            SetupResultDisposition::Failed
+        }
+    }
+
+    pub async fn setup_state(&self) -> SandboxSetupState {
+        self.setup_state.lock().await.clone()
+    }
+
+    pub async fn setup_applied_for(&self, runtime_config_generation: i64) -> bool {
+        matches!(
+            &*self.setup_state.lock().await,
+            SandboxSetupState::Applied {
+                runtime_config_generation: applied_generation,
+                ..
+            } if *applied_generation == runtime_config_generation
+        )
     }
 
     pub async fn record_runner_heartbeat(
@@ -313,6 +410,21 @@ impl BridgeRegistry {
         }
     }
 
+    /// Remove a bridge only if the external ID still maps to the same Arc.
+    pub fn remove_if_current(&self, external_id: &str, expected: &Arc<SandboxBridge>) -> bool {
+        let Some((_, removed)) = self
+            .bridges
+            .remove_if(external_id, |_, current| Arc::ptr_eq(current, expected))
+        else {
+            return false;
+        };
+        self.db_id_map
+            .remove_if(&removed.sandbox_db_id, |_, mapped_external_id| {
+                mapped_external_id == external_id
+            });
+        true
+    }
+
     /// Get all bridges as a Vec.
     pub fn all_bridges(&self) -> Vec<Arc<SandboxBridge>> {
         self.bridges.iter().map(|r| r.value().clone()).collect()
@@ -352,6 +464,10 @@ impl BridgeStore for BridgeRegistry {
         BridgeRegistry::remove(self, external_id)
     }
 
+    fn remove_if_current(&self, external_id: &str, bridge: &Arc<SandboxBridge>) -> bool {
+        BridgeRegistry::remove_if_current(self, external_id, bridge)
+    }
+
     fn all_bridges(&self) -> Vec<Arc<SandboxBridge>> {
         BridgeRegistry::all_bridges(self)
     }
@@ -360,8 +476,8 @@ impl BridgeStore for BridgeRegistry {
         BridgeRegistry::shutdown_all(self).await;
     }
 
-    async fn get_owner_instance(&self, _sandbox_id: SandboxId) -> Option<String> {
-        Some("self".to_string())
+    async fn get_owner_instance(&self, sandbox_id: SandboxId) -> Option<String> {
+        self.get_by_db_id(sandbox_id).map(|_| "self".to_string())
     }
 
     async fn heartbeat(&self) -> anyhow::Result<()> {
@@ -371,11 +487,54 @@ impl BridgeStore for BridgeRegistry {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use tokio::sync::mpsc;
 
     use crate::ids::SandboxId;
+    use crate::kernel::ha::BridgeStore;
 
-    use super::SandboxBridge;
+    use super::{BridgeRegistry, SandboxBridge};
+
+    #[test]
+    fn displaced_connection_cannot_remove_replacement_bridge() {
+        let registry = BridgeRegistry::new();
+        let sandbox_id = SandboxId::from_uuid(uuid::Uuid::now_v7());
+        let (old_tx, _old_rx) = mpsc::channel(1);
+        let old_bridge = Arc::new(SandboxBridge::new(sandbox_id, old_tx));
+        let (new_tx, _new_rx) = mpsc::channel(1);
+        let new_bridge = Arc::new(SandboxBridge::new(sandbox_id, new_tx));
+
+        registry.register("sandbox-external-id".to_string(), old_bridge.clone());
+        registry.register("sandbox-external-id".to_string(), new_bridge.clone());
+
+        assert!(!registry.remove_if_current("sandbox-external-id", &old_bridge));
+        assert!(Arc::ptr_eq(
+            &registry
+                .get("sandbox-external-id")
+                .expect("replacement bridge must remain registered"),
+            &new_bridge,
+        ));
+        assert!(registry.remove_if_current("sandbox-external-id", &new_bridge));
+        assert!(registry.get("sandbox-external-id").is_none());
+    }
+
+    #[tokio::test]
+    async fn bridge_registry_reports_ownership_only_for_registered_bridge() {
+        let registry = BridgeRegistry::new();
+        let sandbox_id = SandboxId::new();
+        let (runner_tx, _runner_rx) = mpsc::channel(1);
+        let bridge = Arc::new(SandboxBridge::new(sandbox_id, runner_tx));
+
+        assert_eq!(registry.get_owner_instance(sandbox_id).await, None);
+        registry.register("sandbox-external-id".to_string(), bridge.clone());
+        assert_eq!(
+            registry.get_owner_instance(sandbox_id).await.as_deref(),
+            Some("self")
+        );
+        assert!(registry.remove_if_current("sandbox-external-id", &bridge));
+        assert_eq!(registry.get_owner_instance(sandbox_id).await, None);
+    }
 
     #[tokio::test]
     async fn send_control_input_reports_closed_queue() {

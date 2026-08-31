@@ -7,6 +7,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::config::JoySafeterConfig;
+use crate::db::models::JoySafeterSandbox;
 use crate::db::queries;
 use crate::ids::{SandboxId, TaskId};
 use crate::kernel::runtime_auth::runner_token_digest;
@@ -314,18 +315,43 @@ impl SandboxProvisioningService {
         let transitioned =
             queries::transition_sandbox_cas(&self.pool, sandbox_id, "creating", "provisioning")
                 .await?;
-        if !transitioned
-            && self
-                .lifecycle
-                .active_status(sandbox_id, &external_id)
-                .await?
-                .is_none()
-        {
-            warn!(sandbox_id = %sandbox_id, "Skipped provider destroy because DB row changed before provisioning transition");
-            anyhow::bail!("sandbox {sandbox_id} changed state before provisioning transition");
+        if !transitioned {
+            let current = queries::get_sandbox(&self.pool, sandbox_id).await?;
+            let is_active = current.as_ref().is_some_and(|sandbox| {
+                sandbox.external_id.as_deref() == Some(external_id.as_str())
+                    && matches!(sandbox.status.as_str(), "idle" | "running" | "provisioning")
+            });
+            if !is_active {
+                warn!(sandbox_id = %sandbox_id, "Skipped provider destroy because DB row changed before provisioning transition");
+                if let Some(message) = current.as_ref().and_then(|sandbox| {
+                    (sandbox.external_id.as_deref() == Some(external_id.as_str())
+                        && sandbox.status == "error")
+                        .then(|| sandbox_failure_message(sandbox))
+                        .flatten()
+                }) {
+                    anyhow::bail!(
+                        "sandbox {sandbox_id} failed before provisioning transition: {message}"
+                    );
+                }
+                anyhow::bail!("sandbox {sandbox_id} changed state before provisioning transition");
+            }
         }
 
         info!(sandbox_id = %sandbox_id, external_id = %external_id, task_id = %task_id, "Created new sandbox");
         Ok(context.resolved(sandbox_id, external_id))
     }
+}
+
+fn sandbox_failure_message(sandbox: &JoySafeterSandbox) -> Option<&str> {
+    let config = sandbox.config.as_ref()?;
+    config
+        .pointer("/runtime_failure/message")
+        .and_then(serde_json::Value::as_str)
+        .filter(|message| !message.trim().is_empty())
+        .or_else(|| {
+            config
+                .get("setup_error")
+                .and_then(serde_json::Value::as_str)
+                .filter(|message| !message.trim().is_empty())
+        })
 }

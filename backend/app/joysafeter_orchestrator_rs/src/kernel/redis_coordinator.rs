@@ -9,7 +9,6 @@ use tracing::{info, warn};
 ///
 /// Mirrors the Python `RedisCoordinator`. Provides:
 /// - Instance registry + heartbeat
-/// - Sandbox ownership (which instance owns which sandbox)
 /// - Task-sandbox mapping
 /// - Distributed locks (NX set + Lua CAS release)
 /// - Pub/sub event publishing
@@ -100,67 +99,6 @@ impl RedisCoordinator {
         conn.del::<_, ()>(&key).await?;
         info!(instance_id = %self.instance_id, "Deregistered instance from Redis");
         Ok(())
-    }
-
-    // -----------------------------------------------------------------------
-    // Sandbox ownership
-    // -----------------------------------------------------------------------
-
-    /// Register ownership of a sandbox (always sets, for initial registration).
-    pub async fn register_sandbox(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
-        let mut conn = self.get_conn().await?;
-        let key = format!("joysafeter:sandbox_owner:{}", sandbox_id.as_uuid());
-        conn.set_ex::<_, _, ()>(&key, &self.instance_id, 300)
-            .await?;
-        Ok(())
-    }
-
-    /// Refresh sandbox ownership TTL (CAS — only if we own it).
-    pub async fn refresh_sandbox(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
-        let mut conn = self.get_conn().await?;
-        let key = format!("joysafeter:sandbox_owner:{}", sandbox_id.as_uuid());
-        // Lua CAS: only refresh if value matches our instance_id
-        let script = r#"
-            if redis.call("get", KEYS[1]) == ARGV[1] then
-                return redis.call("expire", KEYS[1], ARGV[2])
-            else
-                return 0
-            end
-        "#;
-        let _: i32 = redis::Script::new(script)
-            .key(&key)
-            .arg(&self.instance_id)
-            .arg(300)
-            .invoke_async(&mut conn)
-            .await?;
-        Ok(())
-    }
-
-    /// Remove sandbox ownership (CAS — only if we own it, matching Python L90-94).
-    pub async fn remove_sandbox(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
-        let mut conn = self.get_conn().await?;
-        let key = format!("joysafeter:sandbox_owner:{}", sandbox_id.as_uuid());
-        let script = r#"
-            if redis.call("get", KEYS[1]) == ARGV[1] then
-                return redis.call("del", KEYS[1])
-            else
-                return 0
-            end
-        "#;
-        let _: i32 = redis::Script::new(script)
-            .key(&key)
-            .arg(&self.instance_id)
-            .invoke_async(&mut conn)
-            .await?;
-        Ok(())
-    }
-
-    /// Check which instance owns a sandbox.
-    pub async fn get_sandbox_owner(&self, sandbox_id: SandboxId) -> anyhow::Result<Option<String>> {
-        let mut conn = self.get_conn().await?;
-        let key = format!("joysafeter:sandbox_owner:{}", sandbox_id.as_uuid());
-        let owner: Option<String> = conn.get(&key).await?;
-        Ok(owner)
     }
 
     // -----------------------------------------------------------------------

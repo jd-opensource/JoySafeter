@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
+use anyhow::Context;
 use sqlx::PgPool;
 use tracing::{debug, info};
 
+use crate::db::models::JoySafeterSandbox;
 use crate::db::queries;
 use crate::ids::{AgentId, ProjectId, SessionId, TaskId};
 #[cfg(test)]
-use crate::ids::{CredentialId, EnvironmentId, SandboxId, UserId};
+use crate::ids::{CredentialId, SandboxId, UserId};
 #[cfg(test)]
 use crate::kernel::credentials::error::CredentialRuntimeError;
 #[cfg(test)]
@@ -107,6 +109,96 @@ impl SandboxResolver {
             context_builder,
             session_locks: dashmap::DashMap::new(),
         }
+    }
+
+    async fn activate_stopped_sandbox(
+        &self,
+        task_id: TaskId,
+        sandbox: &JoySafeterSandbox,
+        context: &model::ResolveContext,
+    ) -> anyhow::Result<Option<ResolvedSandbox>> {
+        let Some(external_id) = sandbox.external_id.as_deref() else {
+            return Ok(None);
+        };
+        if !self
+            .lifecycle
+            .restart_stopped(sandbox.id, external_id, context)
+            .await?
+        {
+            if !self
+                .lifecycle
+                .destroy_observed(sandbox, "stopped restart failed")
+                .await?
+            {
+                anyhow::bail!(
+                    "stopped sandbox {} changed state before cleanup after failed restart",
+                    sandbox.id
+                );
+            }
+            return Ok(None);
+        }
+        if context.is_limited_networking() {
+            if let Err(network_error) = self
+                .networking
+                .refresh_reused(
+                    sandbox,
+                    &context.expected,
+                    &context.credentials,
+                    context
+                        .has_task_identity()
+                        .then_some(TaskIdentityNetworkLease {
+                            task_id,
+                            refresh_after_seconds: context.identity_refresh_after_seconds,
+                        }),
+                    runtime_auth::egress_proxy_token(sandbox.config.as_ref()),
+                )
+                .await
+            {
+                let current = queries::get_sandbox(&self.pool, sandbox.id)
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "failed to reload restarted sandbox {} after network restore failure",
+                            sandbox.id
+                        )
+                    })?
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "restarted sandbox {} disappeared after network restore failure",
+                            sandbox.id
+                        )
+                    })?;
+                if current.external_id.as_deref() != Some(external_id) {
+                    return Err(RuntimeFreshnessError::Conflict(format!(
+                        "restarted sandbox {} changed runtime before network failure cleanup",
+                        sandbox.id
+                    ))
+                    .into());
+                }
+                let cleaned = self
+                    .lifecycle
+                    .destroy_observed(&current, "stopped restart networking failed")
+                    .await
+                    .map_err(|cleanup_error| {
+                        RuntimeFreshnessError::CleanupFailed(format!(
+                            "failed to restore networking for restarted sandbox {}: {network_error:#}; cleanup failed: {cleanup_error:#}",
+                            sandbox.id
+                        ))
+                    })?;
+                if !cleaned {
+                    return Err(RuntimeFreshnessError::Conflict(format!(
+                        "restarted sandbox {} changed state before network failure cleanup",
+                        sandbox.id
+                    ))
+                    .into());
+                }
+                return Err(network_error.context(format!(
+                    "failed to restore networking for restarted sandbox {}",
+                    sandbox.id
+                )));
+            }
+        }
+        Ok(Some(context.resolved(sandbox.id, external_id.to_string())))
     }
 
     #[cfg(test)]
@@ -391,28 +483,12 @@ impl SandboxResolver {
                             );
                         }
                         "stopped" => {
-                            if let Some(ref ext_id) = sandbox.external_id {
-                                if self
-                                    .lifecycle
-                                    .restart_stopped(sandbox.id, ext_id, &context)
-                                    .await?
-                                {
-                                    info!(sandbox_id = %sandbox.id, "Restarted stopped sandbox");
-                                    return Ok(context.resolved(sandbox.id, ext_id.clone()));
-                                }
-                                // Restart failed (e.g. pod deleted in K8s). Destroy the
-                                // stale DB record so the unique-session constraint is freed
-                                // and a fresh sandbox can be created below.
-                                if !self
-                                    .lifecycle
-                                    .destroy_observed(&sandbox, "stopped restart failed")
-                                    .await?
-                                {
-                                    anyhow::bail!(
-                                        "stopped sandbox {} changed state before cleanup after failed restart",
-                                        sandbox.id
-                                    );
-                                }
+                            if let Some(resolved) = self
+                                .activate_stopped_sandbox(task_id, &sandbox, &context)
+                                .await?
+                            {
+                                info!(sandbox_id = %sandbox.id, "Restarted stopped sandbox");
+                                return Ok(resolved);
                             }
                         }
                         "error" => {
@@ -465,27 +541,12 @@ impl SandboxResolver {
                     }
                     return self.provisioning.create(task_id, &context).await;
                 }
-                if let Some(ref ext_id) = sandbox.external_id {
-                    if self
-                        .lifecycle
-                        .restart_stopped(sandbox.id, ext_id, &context)
-                        .await?
-                    {
-                        info!(sandbox_id = %sandbox.id, "Restarted stopped sandbox for session");
-                        return Ok(context.resolved(sandbox.id, ext_id.clone()));
-                    }
-                    // Restart failed — destroy stale record to free the unique-session
-                    // constraint so a fresh sandbox can be created below.
-                    if !self
-                        .lifecycle
-                        .destroy_observed(&sandbox, "stopped restart failed (session)")
-                        .await?
-                    {
-                        anyhow::bail!(
-                            "stopped sandbox {} changed state before cleanup after failed restart",
-                            sandbox.id
-                        );
-                    }
+                if let Some(resolved) = self
+                    .activate_stopped_sandbox(task_id, &sandbox, &context)
+                    .await?
+                {
+                    info!(sandbox_id = %sandbox.id, "Restarted stopped sandbox for session");
+                    return Ok(resolved);
                 }
             }
         }

@@ -1,5 +1,6 @@
 use tracing::info;
 
+use crate::kernel::runner::metrics::RunnerMetrics;
 use crate::xds;
 
 pub(crate) use super::managed_service::{ReadinessGate, ServiceCriticality, TaskSupervisor};
@@ -28,6 +29,7 @@ pub(crate) async fn spawn_health_server(
     ready: ReadinessGate,
     xds_authority: xds::authority::XdsAuthority,
     xds_control_plane: Option<xds::control_plane::XdsControlPlane>,
+    runner_metrics: RunnerMetrics,
 ) -> anyhow::Result<tokio::task::JoinHandle<()>> {
     let listener = tokio::net::TcpListener::bind(("0.0.0.0", port)).await?;
 
@@ -42,6 +44,7 @@ pub(crate) async fn spawn_health_server(
             let ready = ready.clone();
             let authority = xds_authority.clone();
             let control_plane = xds_control_plane.clone();
+            let runner_metrics = runner_metrics.clone();
             tokio::spawn(async move {
                 let mut buffer = [0u8; 512];
                 let _ = tokio::io::AsyncReadExt::read(&mut stream, &mut buffer).await;
@@ -77,7 +80,7 @@ pub(crate) async fn spawn_health_server(
                         (status, "text/plain; charset=utf-8", health.body.to_string())
                     }
                     "/metrics" => {
-                        let body = match control_plane {
+                        let mut body = match control_plane {
                             Some(control_plane) => {
                                 control_plane.metrics_snapshot().await.render_prometheus()
                             }
@@ -88,6 +91,7 @@ pub(crate) async fn spawn_health_server(
                             )
                             .to_string(),
                         };
+                        body.push_str(&runner_metrics.snapshot().render_prometheus());
                         ("200 OK", "text/plain; version=0.0.4", body)
                     }
                     _ => (
@@ -111,6 +115,7 @@ mod tests {
     use std::time::Duration;
 
     use super::{ReadinessGate, ServiceCriticality, TaskSupervisor};
+    use crate::kernel::runner::metrics::RunnerMetrics;
 
     #[tokio::test]
     async fn readiness_stays_false_until_bootstrap_marks_it_ready() {
@@ -181,6 +186,7 @@ mod tests {
             ReadinessGate::new(),
             crate::xds::authority::XdsAuthority::standalone(),
             None,
+            RunnerMetrics::default(),
         )
         .await;
 

@@ -16,6 +16,8 @@ use crate::kernel::redis_coordinator::RedisCoordinator;
 use crate::kernel::repository_access::material::{
     RepositoryAccessMaterial, RepositoryAccessMaterialAdapter,
 };
+use crate::kernel::runner::admission::RunnerAdmissionService;
+use crate::kernel::runner::failure::RunnerFailureService;
 use crate::kernel::runner::{
     RunnerCleanupService, RunnerExecutionService, RunnerFlowSet, RunnerRecoveryService,
 };
@@ -91,9 +93,11 @@ pub(super) fn build_runner_flows(
 ) -> RunnerFlowSet {
     let credential_access = build_credential_access(pool.clone());
     RunnerFlowSet::new(
+        RunnerAdmissionService::new(build_runner_authenticator(pool.clone())),
         RunnerExecutionService::new(max_executions),
         RunnerRecoveryService::new(),
         RunnerCleanupService::new(),
+        RunnerFailureService::new(),
         HarnessInputBuilder::with_services(
             pool,
             credential_access,

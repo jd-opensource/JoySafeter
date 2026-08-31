@@ -6,7 +6,7 @@ use crate::kernel::harness_contract::{
     HarnessSkillArchive,
 };
 
-pub(crate) fn setup_sandbox(input: &HarnessInput) -> proto::SetupSandbox {
+pub(crate) fn setup_sandbox(input: &HarnessInput, setup_id: String) -> proto::SetupSandbox {
     proto::SetupSandbox {
         skills: input.skills.iter().map(encode_skill_archive).collect(),
         mcp_servers: input.mcp_servers.iter().map(encode_mcp_server).collect(),
@@ -24,6 +24,8 @@ pub(crate) fn setup_sandbox(input: &HarnessInput) -> proto::SetupSandbox {
             .collect(),
         repos: input.repos.iter().map(encode_repository).collect(),
         tool_policy: Some(tool_policy::encode(&input.tool_policy)),
+        setup_id,
+        runtime_config_generation: input.runtime_config_generation,
     }
 }
 
@@ -45,7 +47,6 @@ pub(crate) fn start_task(
         mcp_servers: input.mcp_servers.iter().map(encode_mcp_server).collect(),
         repos: input.repos.iter().map(encode_repository).collect(),
         work_dir: input.work_dir.clone(),
-        skills: input.skills.iter().map(encode_skill_archive).collect(),
         setup_commands: input.setup_commands.clone(),
         custom_tools: input.custom_tools.iter().map(encode_custom_tool).collect(),
         system_prompt_mode: if input.system_prompt_mode.is_empty() {
@@ -56,6 +57,7 @@ pub(crate) fn start_task(
         files: input.files.iter().map(encode_file_mount).collect(),
         file_refs: input.file_refs.iter().map(encode_file_ref).collect(),
         tool_policy: Some(tool_policy::encode(&input.tool_policy)),
+        runtime_config_generation: input.runtime_config_generation,
     }
 }
 
@@ -88,6 +90,14 @@ fn encode_skill_archive(archive: &HarnessSkillArchive) -> proto::SkillArchive {
         name: archive.name.clone(),
         tar_gz: archive.tar_gz.clone(),
         target: archive.target.clone(),
+        skill_id: archive.skill_id.clone(),
+        skill_version: archive.skill_version.clone(),
+        skill_version_id: archive.skill_version_id.clone(),
+        skill_name: archive.skill_name.clone(),
+        skill_source_type: archive.skill_source_type.clone(),
+        security_scan_id: archive.security_scan_id.clone(),
+        target_hash: archive.target_hash.clone(),
+        artifact_hash: archive.artifact_hash.clone(),
     }
 }
 
@@ -137,7 +147,9 @@ fn encode_repository(repository: &HarnessRepository) -> proto::RepoConfig {
 #[cfg(test)]
 mod tests {
     use crate::ids::TaskId;
-    use crate::kernel::harness_contract::{HarnessFileMount, HarnessFileRef, HarnessInput};
+    use crate::kernel::harness_contract::{
+        HarnessFileMount, HarnessFileRef, HarnessInput, HarnessSkillArchive,
+    };
 
     #[test]
     fn start_task_preserves_session_file_resources() {
@@ -162,5 +174,37 @@ mod tests {
         assert_eq!(start.files[0].content, input.files[0].content);
         assert_eq!(start.file_refs[0].url, input.file_refs[0].url);
         assert_eq!(start.file_refs[0].size_bytes, input.file_refs[0].size_bytes);
+    }
+
+    #[test]
+    fn skill_projection_is_owned_by_setup_only() {
+        let input = HarnessInput {
+            skills: vec![HarnessSkillArchive {
+                name: "audit-skill".to_string(),
+                tar_gz: b"archive".to_vec(),
+                target: "skills".to_string(),
+                skill_id: Some("skill_00000000-0000-0000-0000-000000000001".to_string()),
+                skill_version: Some("1.2.3".to_string()),
+                skill_version_id: Some("sklver_00000000-0000-0000-0000-000000000002".to_string()),
+                skill_name: Some("audit-skill".to_string()),
+                skill_source_type: Some("manual".to_string()),
+                security_scan_id: Some("sklscan_00000000-0000-0000-0000-000000000003".to_string()),
+                target_hash: Some("a".repeat(64)),
+                artifact_hash: Some("b".repeat(64)),
+            }],
+            ..Default::default()
+        };
+
+        let setup = super::setup_sandbox(&input, "setup-1".to_string());
+        let start = super::start_task(&input, TaskId::new(), 60);
+
+        assert_eq!(setup.skills.len(), 1);
+        assert_eq!(setup.skills[0].skill_id, input.skills[0].skill_id);
+        assert_eq!(setup.skills[0].skill_version, input.skills[0].skill_version);
+        assert_eq!(setup.skills[0].artifact_hash, input.skills[0].artifact_hash);
+        assert_eq!(
+            start.runtime_config_generation,
+            input.runtime_config_generation
+        );
     }
 }

@@ -7,6 +7,12 @@ from typing import ClassVar as _ClassVar, Optional as _Optional, Union as _Union
 
 DESCRIPTOR: _descriptor.FileDescriptor
 
+class SandboxSetupStatus(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
+    __slots__ = ()
+    SANDBOX_SETUP_STATUS_UNSPECIFIED: _ClassVar[SandboxSetupStatus]
+    SANDBOX_SETUP_STATUS_APPLIED: _ClassVar[SandboxSetupStatus]
+    SANDBOX_SETUP_STATUS_FAILED: _ClassVar[SandboxSetupStatus]
+
 class ToolDecision(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     __slots__ = ()
     TOOL_DECISION_UNSPECIFIED: _ClassVar[ToolDecision]
@@ -20,6 +26,9 @@ class McpTransport(int, metaclass=_enum_type_wrapper.EnumTypeWrapper):
     MCP_TRANSPORT_STREAMABLE_HTTP: _ClassVar[McpTransport]
     MCP_TRANSPORT_SSE: _ClassVar[McpTransport]
     MCP_TRANSPORT_LOCAL_STDIO: _ClassVar[McpTransport]
+SANDBOX_SETUP_STATUS_UNSPECIFIED: SandboxSetupStatus
+SANDBOX_SETUP_STATUS_APPLIED: SandboxSetupStatus
+SANDBOX_SETUP_STATUS_FAILED: SandboxSetupStatus
 TOOL_DECISION_UNSPECIFIED: ToolDecision
 TOOL_DECISION_ALLOW: ToolDecision
 TOOL_DECISION_ASK: ToolDecision
@@ -30,7 +39,7 @@ MCP_TRANSPORT_SSE: McpTransport
 MCP_TRANSPORT_LOCAL_STDIO: McpTransport
 
 class RunnerMessage(_message.Message):
-    __slots__ = ("ready", "event", "result", "heartbeat", "idle", "memory_sync", "sandbox_file_response")
+    __slots__ = ("ready", "event", "result", "heartbeat", "idle", "memory_sync", "sandbox_file_response", "setup_result")
     READY_FIELD_NUMBER: _ClassVar[int]
     EVENT_FIELD_NUMBER: _ClassVar[int]
     RESULT_FIELD_NUMBER: _ClassVar[int]
@@ -38,6 +47,7 @@ class RunnerMessage(_message.Message):
     IDLE_FIELD_NUMBER: _ClassVar[int]
     MEMORY_SYNC_FIELD_NUMBER: _ClassVar[int]
     SANDBOX_FILE_RESPONSE_FIELD_NUMBER: _ClassVar[int]
+    SETUP_RESULT_FIELD_NUMBER: _ClassVar[int]
     ready: RunnerReady
     event: RunnerHarnessEvent
     result: RunnerHarnessResult
@@ -45,10 +55,11 @@ class RunnerMessage(_message.Message):
     idle: RunnerIdle
     memory_sync: MemoryFileSync
     sandbox_file_response: SandboxFileResponse
-    def __init__(self, ready: _Optional[_Union[RunnerReady, _Mapping]] = ..., event: _Optional[_Union[RunnerHarnessEvent, _Mapping]] = ..., result: _Optional[_Union[RunnerHarnessResult, _Mapping]] = ..., heartbeat: _Optional[_Union[RunnerHeartbeat, _Mapping]] = ..., idle: _Optional[_Union[RunnerIdle, _Mapping]] = ..., memory_sync: _Optional[_Union[MemoryFileSync, _Mapping]] = ..., sandbox_file_response: _Optional[_Union[SandboxFileResponse, _Mapping]] = ...) -> None: ...
+    setup_result: SandboxSetupResult
+    def __init__(self, ready: _Optional[_Union[RunnerReady, _Mapping]] = ..., event: _Optional[_Union[RunnerHarnessEvent, _Mapping]] = ..., result: _Optional[_Union[RunnerHarnessResult, _Mapping]] = ..., heartbeat: _Optional[_Union[RunnerHeartbeat, _Mapping]] = ..., idle: _Optional[_Union[RunnerIdle, _Mapping]] = ..., memory_sync: _Optional[_Union[MemoryFileSync, _Mapping]] = ..., sandbox_file_response: _Optional[_Union[SandboxFileResponse, _Mapping]] = ..., setup_result: _Optional[_Union[SandboxSetupResult, _Mapping]] = ...) -> None: ...
 
 class RunnerReady(_message.Message):
-    __slots__ = ("runner_version", "available_providers", "sandbox_id", "is_reconnect", "active_task_id", "capabilities", "runner_token")
+    __slots__ = ("runner_version", "available_providers", "sandbox_id", "is_reconnect", "active_task_id", "capabilities", "runner_token", "applied_runtime_config_generation")
     RUNNER_VERSION_FIELD_NUMBER: _ClassVar[int]
     AVAILABLE_PROVIDERS_FIELD_NUMBER: _ClassVar[int]
     SANDBOX_ID_FIELD_NUMBER: _ClassVar[int]
@@ -56,6 +67,7 @@ class RunnerReady(_message.Message):
     ACTIVE_TASK_ID_FIELD_NUMBER: _ClassVar[int]
     CAPABILITIES_FIELD_NUMBER: _ClassVar[int]
     RUNNER_TOKEN_FIELD_NUMBER: _ClassVar[int]
+    APPLIED_RUNTIME_CONFIG_GENERATION_FIELD_NUMBER: _ClassVar[int]
     runner_version: str
     available_providers: _containers.RepeatedScalarFieldContainer[str]
     sandbox_id: str
@@ -63,7 +75,46 @@ class RunnerReady(_message.Message):
     active_task_id: str
     capabilities: _containers.RepeatedScalarFieldContainer[str]
     runner_token: str
-    def __init__(self, runner_version: _Optional[str] = ..., available_providers: _Optional[_Iterable[str]] = ..., sandbox_id: _Optional[str] = ..., is_reconnect: bool = ..., active_task_id: _Optional[str] = ..., capabilities: _Optional[_Iterable[str]] = ..., runner_token: _Optional[str] = ...) -> None: ...
+    applied_runtime_config_generation: int
+    def __init__(self, runner_version: _Optional[str] = ..., available_providers: _Optional[_Iterable[str]] = ..., sandbox_id: _Optional[str] = ..., is_reconnect: bool = ..., active_task_id: _Optional[str] = ..., capabilities: _Optional[_Iterable[str]] = ..., runner_token: _Optional[str] = ..., applied_runtime_config_generation: _Optional[int] = ...) -> None: ...
+
+class SandboxSetupResult(_message.Message):
+    __slots__ = ("setup_id", "runtime_config_generation", "status", "error", "error_code", "loaded_skills")
+    SETUP_ID_FIELD_NUMBER: _ClassVar[int]
+    RUNTIME_CONFIG_GENERATION_FIELD_NUMBER: _ClassVar[int]
+    STATUS_FIELD_NUMBER: _ClassVar[int]
+    ERROR_FIELD_NUMBER: _ClassVar[int]
+    ERROR_CODE_FIELD_NUMBER: _ClassVar[int]
+    LOADED_SKILLS_FIELD_NUMBER: _ClassVar[int]
+    setup_id: str
+    runtime_config_generation: int
+    status: SandboxSetupStatus
+    error: str
+    error_code: str
+    loaded_skills: _containers.RepeatedCompositeFieldContainer[LoadedSkill]
+    def __init__(self, setup_id: _Optional[str] = ..., runtime_config_generation: _Optional[int] = ..., status: _Optional[_Union[SandboxSetupStatus, str]] = ..., error: _Optional[str] = ..., error_code: _Optional[str] = ..., loaded_skills: _Optional[_Iterable[_Union[LoadedSkill, _Mapping]]] = ...) -> None: ...
+
+class LoadedSkill(_message.Message):
+    __slots__ = ("skill_id", "skill_version", "skill_version_id", "skill_name", "skill_source_type", "target", "security_scan_id", "target_hash", "artifact_hash")
+    SKILL_ID_FIELD_NUMBER: _ClassVar[int]
+    SKILL_VERSION_FIELD_NUMBER: _ClassVar[int]
+    SKILL_VERSION_ID_FIELD_NUMBER: _ClassVar[int]
+    SKILL_NAME_FIELD_NUMBER: _ClassVar[int]
+    SKILL_SOURCE_TYPE_FIELD_NUMBER: _ClassVar[int]
+    TARGET_FIELD_NUMBER: _ClassVar[int]
+    SECURITY_SCAN_ID_FIELD_NUMBER: _ClassVar[int]
+    TARGET_HASH_FIELD_NUMBER: _ClassVar[int]
+    ARTIFACT_HASH_FIELD_NUMBER: _ClassVar[int]
+    skill_id: str
+    skill_version: str
+    skill_version_id: str
+    skill_name: str
+    skill_source_type: str
+    target: str
+    security_scan_id: str
+    target_hash: str
+    artifact_hash: str
+    def __init__(self, skill_id: _Optional[str] = ..., skill_version: _Optional[str] = ..., skill_version_id: _Optional[str] = ..., skill_name: _Optional[str] = ..., skill_source_type: _Optional[str] = ..., target: _Optional[str] = ..., security_scan_id: _Optional[str] = ..., target_hash: _Optional[str] = ..., artifact_hash: _Optional[str] = ...) -> None: ...
 
 class RunnerIdle(_message.Message):
     __slots__ = ("sandbox_id", "work_dir", "harness_session_id")
@@ -374,7 +425,7 @@ class MemoryFileUpdate(_message.Message):
     def __init__(self, store_mount_name: _Optional[str] = ..., relative_path: _Optional[str] = ..., content: _Optional[bytes] = ..., operation: _Optional[str] = ...) -> None: ...
 
 class SetupSandbox(_message.Message):
-    __slots__ = ("skills", "mcp_servers", "custom_tools", "setup_commands", "work_dir", "env", "provider", "model", "memory_system_prompt", "memory_mounts", "repos", "tool_policy")
+    __slots__ = ("skills", "mcp_servers", "custom_tools", "setup_commands", "work_dir", "env", "provider", "model", "memory_system_prompt", "memory_mounts", "repos", "tool_policy", "setup_id", "runtime_config_generation")
     class EnvEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -394,6 +445,8 @@ class SetupSandbox(_message.Message):
     MEMORY_MOUNTS_FIELD_NUMBER: _ClassVar[int]
     REPOS_FIELD_NUMBER: _ClassVar[int]
     TOOL_POLICY_FIELD_NUMBER: _ClassVar[int]
+    SETUP_ID_FIELD_NUMBER: _ClassVar[int]
+    RUNTIME_CONFIG_GENERATION_FIELD_NUMBER: _ClassVar[int]
     skills: _containers.RepeatedCompositeFieldContainer[SkillArchive]
     mcp_servers: _containers.RepeatedCompositeFieldContainer[McpConfig]
     custom_tools: _containers.RepeatedCompositeFieldContainer[CustomTool]
@@ -406,7 +459,9 @@ class SetupSandbox(_message.Message):
     memory_mounts: _containers.RepeatedCompositeFieldContainer[MemoryStoreMount]
     repos: _containers.RepeatedCompositeFieldContainer[RepoConfig]
     tool_policy: ToolPolicy
-    def __init__(self, skills: _Optional[_Iterable[_Union[SkillArchive, _Mapping]]] = ..., mcp_servers: _Optional[_Iterable[_Union[McpConfig, _Mapping]]] = ..., custom_tools: _Optional[_Iterable[_Union[CustomTool, _Mapping]]] = ..., setup_commands: _Optional[_Iterable[str]] = ..., work_dir: _Optional[str] = ..., env: _Optional[_Mapping[str, str]] = ..., provider: _Optional[str] = ..., model: _Optional[str] = ..., memory_system_prompt: _Optional[str] = ..., memory_mounts: _Optional[_Iterable[_Union[MemoryStoreMount, _Mapping]]] = ..., repos: _Optional[_Iterable[_Union[RepoConfig, _Mapping]]] = ..., tool_policy: _Optional[_Union[ToolPolicy, _Mapping]] = ...) -> None: ...
+    setup_id: str
+    runtime_config_generation: int
+    def __init__(self, skills: _Optional[_Iterable[_Union[SkillArchive, _Mapping]]] = ..., mcp_servers: _Optional[_Iterable[_Union[McpConfig, _Mapping]]] = ..., custom_tools: _Optional[_Iterable[_Union[CustomTool, _Mapping]]] = ..., setup_commands: _Optional[_Iterable[str]] = ..., work_dir: _Optional[str] = ..., env: _Optional[_Mapping[str, str]] = ..., provider: _Optional[str] = ..., model: _Optional[str] = ..., memory_system_prompt: _Optional[str] = ..., memory_mounts: _Optional[_Iterable[_Union[MemoryStoreMount, _Mapping]]] = ..., repos: _Optional[_Iterable[_Union[RepoConfig, _Mapping]]] = ..., tool_policy: _Optional[_Union[ToolPolicy, _Mapping]] = ..., setup_id: _Optional[str] = ..., runtime_config_generation: _Optional[int] = ...) -> None: ...
 
 class MemoryStoreMount(_message.Message):
     __slots__ = ("mount_name", "mount_path", "access", "files")
@@ -441,7 +496,7 @@ class MemoryFileSync(_message.Message):
     def __init__(self, store_mount_name: _Optional[str] = ..., relative_path: _Optional[str] = ..., content: _Optional[str] = ..., operation: _Optional[str] = ...) -> None: ...
 
 class StartTask(_message.Message):
-    __slots__ = ("task_id", "provider", "prompt", "system_prompt", "harness_session_id", "model", "max_turns", "timeout_seconds", "env", "mcp_servers", "repos", "work_dir", "skills", "setup_commands", "custom_tools", "system_prompt_mode", "files", "file_refs", "tool_policy")
+    __slots__ = ("task_id", "provider", "prompt", "system_prompt", "harness_session_id", "model", "max_turns", "timeout_seconds", "env", "mcp_servers", "repos", "work_dir", "setup_commands", "custom_tools", "system_prompt_mode", "files", "file_refs", "tool_policy", "runtime_config_generation")
     class EnvEntry(_message.Message):
         __slots__ = ("key", "value")
         KEY_FIELD_NUMBER: _ClassVar[int]
@@ -461,13 +516,13 @@ class StartTask(_message.Message):
     MCP_SERVERS_FIELD_NUMBER: _ClassVar[int]
     REPOS_FIELD_NUMBER: _ClassVar[int]
     WORK_DIR_FIELD_NUMBER: _ClassVar[int]
-    SKILLS_FIELD_NUMBER: _ClassVar[int]
     SETUP_COMMANDS_FIELD_NUMBER: _ClassVar[int]
     CUSTOM_TOOLS_FIELD_NUMBER: _ClassVar[int]
     SYSTEM_PROMPT_MODE_FIELD_NUMBER: _ClassVar[int]
     FILES_FIELD_NUMBER: _ClassVar[int]
     FILE_REFS_FIELD_NUMBER: _ClassVar[int]
     TOOL_POLICY_FIELD_NUMBER: _ClassVar[int]
+    RUNTIME_CONFIG_GENERATION_FIELD_NUMBER: _ClassVar[int]
     task_id: str
     provider: str
     prompt: str
@@ -480,14 +535,14 @@ class StartTask(_message.Message):
     mcp_servers: _containers.RepeatedCompositeFieldContainer[McpConfig]
     repos: _containers.RepeatedCompositeFieldContainer[RepoConfig]
     work_dir: str
-    skills: _containers.RepeatedCompositeFieldContainer[SkillArchive]
     setup_commands: _containers.RepeatedScalarFieldContainer[str]
     custom_tools: _containers.RepeatedCompositeFieldContainer[CustomTool]
     system_prompt_mode: str
     files: _containers.RepeatedCompositeFieldContainer[FileMount]
     file_refs: _containers.RepeatedCompositeFieldContainer[FileRef]
     tool_policy: ToolPolicy
-    def __init__(self, task_id: _Optional[str] = ..., provider: _Optional[str] = ..., prompt: _Optional[str] = ..., system_prompt: _Optional[str] = ..., harness_session_id: _Optional[str] = ..., model: _Optional[str] = ..., max_turns: _Optional[int] = ..., timeout_seconds: _Optional[int] = ..., env: _Optional[_Mapping[str, str]] = ..., mcp_servers: _Optional[_Iterable[_Union[McpConfig, _Mapping]]] = ..., repos: _Optional[_Iterable[_Union[RepoConfig, _Mapping]]] = ..., work_dir: _Optional[str] = ..., skills: _Optional[_Iterable[_Union[SkillArchive, _Mapping]]] = ..., setup_commands: _Optional[_Iterable[str]] = ..., custom_tools: _Optional[_Iterable[_Union[CustomTool, _Mapping]]] = ..., system_prompt_mode: _Optional[str] = ..., files: _Optional[_Iterable[_Union[FileMount, _Mapping]]] = ..., file_refs: _Optional[_Iterable[_Union[FileRef, _Mapping]]] = ..., tool_policy: _Optional[_Union[ToolPolicy, _Mapping]] = ...) -> None: ...
+    runtime_config_generation: int
+    def __init__(self, task_id: _Optional[str] = ..., provider: _Optional[str] = ..., prompt: _Optional[str] = ..., system_prompt: _Optional[str] = ..., harness_session_id: _Optional[str] = ..., model: _Optional[str] = ..., max_turns: _Optional[int] = ..., timeout_seconds: _Optional[int] = ..., env: _Optional[_Mapping[str, str]] = ..., mcp_servers: _Optional[_Iterable[_Union[McpConfig, _Mapping]]] = ..., repos: _Optional[_Iterable[_Union[RepoConfig, _Mapping]]] = ..., work_dir: _Optional[str] = ..., setup_commands: _Optional[_Iterable[str]] = ..., custom_tools: _Optional[_Iterable[_Union[CustomTool, _Mapping]]] = ..., system_prompt_mode: _Optional[str] = ..., files: _Optional[_Iterable[_Union[FileMount, _Mapping]]] = ..., file_refs: _Optional[_Iterable[_Union[FileRef, _Mapping]]] = ..., tool_policy: _Optional[_Union[ToolPolicy, _Mapping]] = ..., runtime_config_generation: _Optional[int] = ...) -> None: ...
 
 class CustomTool(_message.Message):
     __slots__ = ("name", "description", "input_schema_json")
@@ -500,14 +555,30 @@ class CustomTool(_message.Message):
     def __init__(self, name: _Optional[str] = ..., description: _Optional[str] = ..., input_schema_json: _Optional[str] = ...) -> None: ...
 
 class SkillArchive(_message.Message):
-    __slots__ = ("name", "tar_gz", "target")
+    __slots__ = ("name", "tar_gz", "target", "skill_id", "skill_version", "skill_version_id", "skill_name", "skill_source_type", "security_scan_id", "target_hash", "artifact_hash")
     NAME_FIELD_NUMBER: _ClassVar[int]
     TAR_GZ_FIELD_NUMBER: _ClassVar[int]
     TARGET_FIELD_NUMBER: _ClassVar[int]
+    SKILL_ID_FIELD_NUMBER: _ClassVar[int]
+    SKILL_VERSION_FIELD_NUMBER: _ClassVar[int]
+    SKILL_VERSION_ID_FIELD_NUMBER: _ClassVar[int]
+    SKILL_NAME_FIELD_NUMBER: _ClassVar[int]
+    SKILL_SOURCE_TYPE_FIELD_NUMBER: _ClassVar[int]
+    SECURITY_SCAN_ID_FIELD_NUMBER: _ClassVar[int]
+    TARGET_HASH_FIELD_NUMBER: _ClassVar[int]
+    ARTIFACT_HASH_FIELD_NUMBER: _ClassVar[int]
     name: str
     tar_gz: bytes
     target: str
-    def __init__(self, name: _Optional[str] = ..., tar_gz: _Optional[bytes] = ..., target: _Optional[str] = ...) -> None: ...
+    skill_id: str
+    skill_version: str
+    skill_version_id: str
+    skill_name: str
+    skill_source_type: str
+    security_scan_id: str
+    target_hash: str
+    artifact_hash: str
+    def __init__(self, name: _Optional[str] = ..., tar_gz: _Optional[bytes] = ..., target: _Optional[str] = ..., skill_id: _Optional[str] = ..., skill_version: _Optional[str] = ..., skill_version_id: _Optional[str] = ..., skill_name: _Optional[str] = ..., skill_source_type: _Optional[str] = ..., security_scan_id: _Optional[str] = ..., target_hash: _Optional[str] = ..., artifact_hash: _Optional[str] = ...) -> None: ...
 
 class FileMount(_message.Message):
     __slots__ = ("path", "content", "filename")

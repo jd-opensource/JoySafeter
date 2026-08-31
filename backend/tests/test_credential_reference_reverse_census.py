@@ -865,8 +865,7 @@ def _rust_module_edges(
                         "path attribute target",
                     )
                 continue
-            base = path.parent if crate_root or path.name == "mod.rs" else path.parent / path.stem
-            target = base.joinpath(*declaration.namespace, path_values[0]).resolve()
+            target = path.parent.joinpath(*declaration.namespace, path_values[0]).resolve()
             edges.append(RustCompileInputEdge(declaration.start, target))
             continue
         edges.extend(
@@ -2159,6 +2158,7 @@ def test_real_rust_tree_retains_include_input_and_excludes_test_only_module() ->
 
     assert (source_root / "grpc" / "joysafeter.rs") in production_paths
     assert (source_root / "db" / "queries" / "tests.rs") not in production_paths
+    assert (source_root / "kernel" / "sandbox_resolver_tests.rs") not in production_paths
 
 
 @pytest.mark.no_db

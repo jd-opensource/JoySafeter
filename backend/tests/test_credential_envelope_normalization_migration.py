@@ -46,7 +46,7 @@ def test_alembic_heads_does_not_require_runtime_secrets():
     )
 
     assert result.returncode == 0, result.stderr
-    assert "20260825_000005 (head)" in result.stdout
+    assert "20260830_000004 (head)" in result.stdout
 
 
 def test_normalize_value_handles_empty_plaintext_legacy_and_current():

@@ -8,6 +8,8 @@ service AgentBridge {
 // ============ runner → orchestrator (upstream) ============
 
 message RunnerMessage {
+  reserved 9;
+  reserved "skill_load_report";
   oneof payload {
     RunnerReady ready = 1;
     RunnerHarnessEvent event = 2;
@@ -16,6 +18,7 @@ message RunnerMessage {
     RunnerIdle idle = 5;
     MemoryFileSync memory_sync = 6;
     SandboxFileResponse sandbox_file_response = 7;
+    SandboxSetupResult setup_result = 8;
   }
 }
 
@@ -27,6 +30,34 @@ message RunnerReady {
   optional string active_task_id = 5;
   repeated string capabilities = 6;
   optional string runner_token = 7;
+  optional int64 applied_runtime_config_generation = 8;
+}
+
+enum SandboxSetupStatus {
+  SANDBOX_SETUP_STATUS_UNSPECIFIED = 0;
+  SANDBOX_SETUP_STATUS_APPLIED = 1;
+  SANDBOX_SETUP_STATUS_FAILED = 2;
+}
+
+message SandboxSetupResult {
+  string setup_id = 1;
+  int64 runtime_config_generation = 2;
+  SandboxSetupStatus status = 3;
+  optional string error = 4;
+  optional string error_code = 5;
+  repeated LoadedSkill loaded_skills = 6;
+}
+
+message LoadedSkill {
+  string skill_id = 1;
+  string skill_version = 2;
+  string skill_version_id = 3;
+  string skill_name = 4;
+  optional string skill_source_type = 5;
+  string target = 6;
+  optional string security_scan_id = 7;
+  optional string target_hash = 8;
+  string artifact_hash = 9;
 }
 
 message RunnerIdle {
@@ -211,6 +242,8 @@ message SetupSandbox {
   repeated MemoryStoreMount memory_mounts = 12;
   repeated RepoConfig repos = 18;
   ToolPolicy tool_policy = 19;
+  string setup_id = 20;
+  int64 runtime_config_generation = 21;
 }
 
 message MemoryStoreMount {
@@ -235,8 +268,8 @@ message MemoryFileSync {
 }
 
 message StartTask {
-  reserved 10, 15 to 17, 20;
-  reserved "secrets", "allowed_tools", "disallowed_tools", "permission_mode", "ask_tools";
+  reserved 10, 14 to 17, 20;
+  reserved "secrets", "skills", "allowed_tools", "disallowed_tools", "permission_mode", "ask_tools";
   string task_id = 1;
   string provider = 2;
   string prompt = 3;
@@ -249,7 +282,6 @@ message StartTask {
   repeated McpConfig mcp_servers = 11;
   repeated RepoConfig repos = 12;
   optional string work_dir = 13;
-  repeated SkillArchive skills = 14;
   repeated string setup_commands = 18;
   repeated CustomTool custom_tools = 19;
   // "append" (default): --append-system-prompt (CC keeps its built-in prompt)
@@ -258,6 +290,7 @@ message StartTask {
   repeated FileMount files = 22;
   repeated FileRef file_refs = 23;
   ToolPolicy tool_policy = 24;
+  int64 runtime_config_generation = 25;
 }
 
 message CustomTool {
@@ -270,6 +303,14 @@ message SkillArchive {
   string name = 1;
   bytes tar_gz = 2;
   string target = 3;
+  optional string skill_id = 4;
+  optional string skill_version = 5;
+  optional string skill_version_id = 6;
+  optional string skill_name = 7;
+  optional string skill_source_type = 8;
+  optional string security_scan_id = 9;
+  optional string target_hash = 10;
+  optional string artifact_hash = 11;
 }
 
 message FileMount {

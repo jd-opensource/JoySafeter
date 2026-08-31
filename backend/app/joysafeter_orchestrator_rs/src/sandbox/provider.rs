@@ -25,6 +25,21 @@ pub enum NetworkIsolation {
     Envoy,
 }
 
+/// Provider-level meaning of `stop()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StopSemantics {
+    /// `stop()` preserves the runtime identity and `start()` resumes it.
+    Resumable,
+    /// `stop()` removes the runtime; future work must provision a replacement.
+    Destructive,
+}
+
+impl StopSemantics {
+    pub fn preserves_runtime(self) -> bool {
+        matches!(self, Self::Resumable)
+    }
+}
+
 /// Capabilities declared by a provider, used by the framework to select
 /// strategies (e.g., file injection, networking) without provider-specific
 /// branching.
@@ -37,8 +52,8 @@ pub struct ProviderCapabilities {
     pub has_egress_management: bool,
     /// Network isolation mechanism.
     pub network_isolation: NetworkIsolation,
-    /// Whether `start()` can resume the same runtime after `stop()`.
-    pub stop_preserves_state: bool,
+    /// Lifecycle contract implemented by `stop()`.
+    pub stop_semantics: StopSemantics,
 }
 
 #[derive(Clone)]
@@ -229,7 +244,7 @@ pub trait SandboxProvider: Send + Sync + 'static {
             has_host_mount: false,
             has_egress_management: false,
             network_isolation: NetworkIsolation::None,
-            stop_preserves_state: false,
+            stop_semantics: StopSemantics::Destructive,
         }
     }
 
@@ -264,8 +279,14 @@ pub trait SandboxProvider: Send + Sync + 'static {
 
 #[cfg(test)]
 mod tests {
-    use super::{SandboxCreateConfig, SandboxRuntimeCredentials};
+    use super::{SandboxCreateConfig, SandboxRuntimeCredentials, StopSemantics};
     use crate::ids::SandboxId;
+
+    #[test]
+    fn stop_semantics_make_runtime_preservation_explicit() {
+        assert!(StopSemantics::Resumable.preserves_runtime());
+        assert!(!StopSemantics::Destructive.preserves_runtime());
+    }
 
     #[test]
     fn sandbox_create_debug_redacts_environment_and_runtime_credentials() {

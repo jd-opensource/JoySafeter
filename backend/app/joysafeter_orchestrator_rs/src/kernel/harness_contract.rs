@@ -33,6 +33,14 @@ pub struct HarnessSkillArchive {
     pub name: String,
     pub tar_gz: Vec<u8>,
     pub target: String,
+    pub skill_id: Option<String>,
+    pub skill_version: Option<String>,
+    pub skill_version_id: Option<String>,
+    pub skill_name: Option<String>,
+    pub skill_source_type: Option<String>,
+    pub security_scan_id: Option<String>,
+    pub target_hash: Option<String>,
+    pub artifact_hash: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,6 +82,7 @@ pub struct HarnessRepository {
 
 #[derive(Clone, Default)]
 pub struct HarnessInput {
+    pub runtime_config_generation: i64,
     pub provider: String,
     pub model: Option<String>,
     pub system_prompt: Option<String>,

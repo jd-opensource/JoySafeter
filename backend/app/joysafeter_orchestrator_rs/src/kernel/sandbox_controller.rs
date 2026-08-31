@@ -22,7 +22,7 @@ use crate::kernel::sandbox_resolver::{
     PoolSandboxProvisioner, SandboxLifecycleService, SandboxNetworkingService,
 };
 use crate::runtime_config::RuntimeConfig;
-use crate::sandbox::provider::SandboxProvider;
+use crate::sandbox::provider::{SandboxProvider, StopSemantics};
 
 const ORPHAN_PROVIDER_DB_INSERT_GRACE_SECS: i64 = 120;
 
@@ -591,9 +591,10 @@ impl IdleSandboxMaintenance {
         external_id: Option<String>,
         current_status: String,
     ) {
-        // In HA mode, skip sandboxes owned by another instance.
-        if let Some(ref coord) = self.redis_coordinator {
-            if let Ok(Some(owner)) = coord.get_sandbox_owner(sandbox_id).await {
+        // In HA mode, skip sandboxes owned by another instance. BridgeStore is
+        // the sole Runner ownership authority and fences individual connections.
+        if self.redis_coordinator.is_some() {
+            if let Some(owner) = self.bridge_store.get_owner_instance(sandbox_id).await {
                 if owner != self.config.instance_id {
                     return;
                 }
@@ -602,7 +603,7 @@ impl IdleSandboxMaintenance {
 
         let graceful = current_status == "idle";
         let mut cleanup_claimed_stopping = graceful;
-        let stop_preserves_state = self.provider.capabilities().stop_preserves_state;
+        let stop_semantics = self.provider.capabilities().stop_semantics;
 
         if graceful {
             if let Some(bridge) = self.bridge_store.get_by_db_id(sandbox_id) {
@@ -731,7 +732,7 @@ impl IdleSandboxMaintenance {
             self.bridge_store.remove(ext_id);
         }
 
-        if !stop_preserves_state {
+        if stop_semantics == StopSemantics::Destructive {
             if let Some(ref ext_id) = external_id {
                 if let Err(error) = self.provider.destroy(ext_id).await {
                     let message = error.to_string();
@@ -852,11 +853,11 @@ impl IdleSandboxMaintenance {
             }
 
             // Remove the stale bridge before touching the provider runtime.
-            let stop_preserves_state = self.provider.capabilities().stop_preserves_state;
+            let stop_semantics = self.provider.capabilities().stop_semantics;
             let mut stop_succeeded = false;
             if let Some(ref ext_id) = external_id {
                 self.bridge_store.remove(ext_id);
-                let stop_result = if stop_preserves_state {
+                let stop_result = if stop_semantics == StopSemantics::Resumable {
                     self.provider.stop(ext_id).await
                 } else {
                     self.provider.destroy(ext_id).await
@@ -876,7 +877,7 @@ impl IdleSandboxMaintenance {
                 stop_succeeded = true;
             }
             if stop_succeeded {
-                if stop_preserves_state {
+                if stop_semantics == StopSemantics::Resumable {
                     let _ = queries::mark_sandbox_stopped_if_status_and_external_id(
                         &self.pool,
                         sandbox_id,
@@ -1093,10 +1094,10 @@ impl ProvisioningSandboxMaintenance {
             .requeue_scheduling_tasks(sandbox_id)
             .await?;
 
-        let stop_preserves_state = self.provider.capabilities().stop_preserves_state;
+        let stop_semantics = self.provider.capabilities().stop_semantics;
         let mut stop_succeeded = external_id.is_none();
         if let Some(ext_id) = external_id {
-            let stop_result = if stop_preserves_state {
+            let stop_result = if stop_semantics == StopSemantics::Resumable {
                 self.provider.stop(ext_id).await
             } else {
                 self.provider.destroy(ext_id).await
@@ -1118,7 +1119,7 @@ impl ProvisioningSandboxMaintenance {
         }
 
         if stop_succeeded {
-            if stop_preserves_state {
+            if stop_semantics == StopSemantics::Resumable {
                 let _ = queries::mark_sandbox_stopped_if_status_and_external_id(
                     &self.pool,
                     sandbox_id,
@@ -1787,7 +1788,7 @@ mod tests {
                 has_host_mount: false,
                 has_egress_management: false,
                 network_isolation: crate::sandbox::provider::NetworkIsolation::None,
-                stop_preserves_state: true,
+                stop_semantics: crate::sandbox::provider::StopSemantics::Resumable,
             }
         }
     }
@@ -1862,7 +1863,7 @@ mod tests {
                 has_host_mount: false,
                 has_egress_management: false,
                 network_isolation: crate::sandbox::provider::NetworkIsolation::None,
-                stop_preserves_state: true,
+                stop_semantics: crate::sandbox::provider::StopSemantics::Resumable,
             }
         }
     }
@@ -1918,8 +1919,8 @@ mod tests {
         }
 
         async fn destroy(&self, external_id: &str) -> anyhow::Result<()> {
-            self.destroyed.lock().await.push(external_id.to_string());
             if external_id == self.external_id {
+                self.destroyed.lock().await.push(external_id.to_string());
                 if let Some(status) = sqlx::query_scalar::<_, String>(
                     "SELECT status FROM joysafeter_sandboxes WHERE id = $1",
                 )
@@ -1970,8 +1971,8 @@ mod tests {
         }
 
         async fn stop(&self, external_id: &str) -> anyhow::Result<()> {
-            self.stopped.lock().await.push(external_id.to_string());
             if external_id == self.external_id {
+                self.stopped.lock().await.push(external_id.to_string());
                 let observed: (String, String, Option<SandboxId>) = sqlx::query_as(
                     r#"
                     SELECT s.status, t.status, t.sandbox_id
@@ -2013,7 +2014,7 @@ mod tests {
                 has_host_mount: false,
                 has_egress_management: false,
                 network_isolation: crate::sandbox::provider::NetworkIsolation::None,
-                stop_preserves_state: true,
+                stop_semantics: crate::sandbox::provider::StopSemantics::Resumable,
             }
         }
     }
@@ -2129,7 +2130,7 @@ mod tests {
                 has_host_mount: false,
                 has_egress_management: false,
                 network_isolation: crate::sandbox::provider::NetworkIsolation::None,
-                stop_preserves_state: true,
+                stop_semantics: crate::sandbox::provider::StopSemantics::Resumable,
             }
         }
     }
@@ -2197,7 +2198,11 @@ mod tests {
                 has_host_mount: false,
                 has_egress_management: false,
                 network_isolation: crate::sandbox::provider::NetworkIsolation::None,
-                stop_preserves_state: self.preserves,
+                stop_semantics: if self.preserves {
+                    crate::sandbox::provider::StopSemantics::Resumable
+                } else {
+                    crate::sandbox::provider::StopSemantics::Destructive
+                },
             }
         }
 

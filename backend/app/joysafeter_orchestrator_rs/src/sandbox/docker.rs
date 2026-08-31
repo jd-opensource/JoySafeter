@@ -15,7 +15,7 @@ use super::file_injection::{FileToInject, InjectionStrategy};
 use super::mounts::SandboxMount;
 use super::provider::{
     NetworkIsolation, ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig,
-    SandboxProvider, SandboxStatus,
+    SandboxProvider, SandboxStatus, StopSemantics,
 };
 use super::runtime::SandboxSocketProvisioner;
 use crate::config::JoySafeterConfig;
@@ -865,7 +865,7 @@ impl SandboxProvider for DockerProvider {
             } else {
                 NetworkIsolation::None
             },
-            stop_preserves_state: true,
+            stop_semantics: StopSemantics::Resumable,
         }
     }
 

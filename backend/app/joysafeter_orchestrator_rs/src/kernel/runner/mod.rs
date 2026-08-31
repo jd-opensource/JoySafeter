@@ -1,10 +1,15 @@
+pub(crate) mod admission;
 pub(crate) mod cleanup;
 pub(crate) mod execution;
+pub(crate) mod failure;
 pub(crate) mod flows;
+pub(crate) mod inbound;
 pub(crate) mod memory_sync;
+pub(crate) mod metrics;
 pub(crate) mod recovery;
 pub(crate) mod session;
 pub(crate) mod setup;
+pub(crate) mod skill_usage;
 pub(crate) mod task_lifecycle;
 
 pub(crate) use cleanup::RunnerCleanupService;

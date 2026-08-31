@@ -41,6 +41,7 @@ def test_usage_log_columns_and_nullability():
         "updated_at": False,
         "skill_id": True,
         "skill_version": False,
+        "sandbox_id": True,
         "session_id": True,
         "agent_id": True,
         "project_id": True,
@@ -58,6 +59,20 @@ def test_usage_log_indexes_cover_hot_queries():
     assert "skill_usage_log_session_created_idx" in names
     assert "skill_usage_log_skill_created_idx" in names
     assert "skill_usage_log_project_created_idx" in names
+
+
+def test_usage_log_has_sandbox_artifact_idempotency_index():
+    index = next(item for item in SkillUsageLog.__table__.indexes if item.name == "uq_skill_usage_log_sandbox_artifact")
+
+    assert index.unique is True
+    assert [column.name for column in index.columns] == [
+        "sandbox_id",
+        "skill_id",
+        "skill_version",
+        "target",
+        "artifact_hash",
+    ]
+    assert str(index.dialect_options["postgresql"]["where"]) == "sandbox_id IS NOT NULL"
 
 
 # ── SkillVersion lifecycle and security fields ────────────────

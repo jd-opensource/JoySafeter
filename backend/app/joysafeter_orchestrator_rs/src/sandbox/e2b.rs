@@ -6,7 +6,7 @@ use tracing::{info, warn};
 use super::file_injection::FileToInject;
 use super::provider::{
     NetworkIsolation, ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig,
-    SandboxProvider, SandboxStatus,
+    SandboxProvider, SandboxStatus, StopSemantics,
 };
 
 /// E2B cloud sandbox provider.
@@ -216,7 +216,7 @@ impl SandboxProvider for E2bProvider {
             has_host_mount: false,
             has_egress_management: false,
             network_isolation: NetworkIsolation::Platform,
-            stop_preserves_state: true,
+            stop_semantics: StopSemantics::Resumable,
         }
     }
 

@@ -105,9 +105,9 @@ impl RunnerCleanupService {
             }
         }
 
-        // Step 6: Remove Redis sandbox owner and queue keys.
+        // Step 6: Remove the Redis queue key. Runner ownership is released by
+        // the connection-generation-fenced BridgeStore teardown path.
         if let Some(coord) = redis_coord {
-            let _ = coord.remove_sandbox(sandbox_db_id).await;
             let _ = coord.remove_sandbox_queue(sandbox_db_id).await;
         }
 
@@ -228,14 +228,22 @@ impl RunnerCleanupService {
     ) {
         // First probe after 3s
         tokio::time::sleep(Duration::from_secs(3)).await;
-        if bridge_store.get_by_db_id(sandbox_db_id).is_some() {
+        if bridge_store
+            .get_owner_instance(sandbox_db_id)
+            .await
+            .is_some()
+        {
             info!(sandbox_id = %sandbox_db_id, "Reconnection detected (3s)");
             return;
         }
 
         // Second probe after 2 more seconds
         tokio::time::sleep(Duration::from_secs(2)).await;
-        if bridge_store.get_by_db_id(sandbox_db_id).is_some() {
+        if bridge_store
+            .get_owner_instance(sandbox_db_id)
+            .await
+            .is_some()
+        {
             info!(sandbox_id = %sandbox_db_id, "Reconnection detected (5s)");
             return;
         }
@@ -243,7 +251,11 @@ impl RunnerCleanupService {
         // Early reconnection checks at 5s intervals (cumulative: 10, 15)
         for i in 0..2 {
             tokio::time::sleep(Duration::from_secs(5)).await;
-            if bridge_store.get_by_db_id(sandbox_db_id).is_some() {
+            if bridge_store
+                .get_owner_instance(sandbox_db_id)
+                .await
+                .is_some()
+            {
                 info!(sandbox_id = %sandbox_db_id, check = i + 2, "Reconnection detected during grace period");
                 return;
             }
@@ -254,7 +266,11 @@ impl RunnerCleanupService {
         tokio::time::sleep(Duration::from_secs(105)).await;
 
         // Final check
-        if bridge_store.get_by_db_id(sandbox_db_id).is_some() {
+        if bridge_store
+            .get_owner_instance(sandbox_db_id)
+            .await
+            .is_some()
+        {
             info!(sandbox_id = %sandbox_db_id, "Reconnection detected at end of grace period");
             return;
         }

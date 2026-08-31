@@ -1,21 +1,19 @@
-use std::sync::Arc;
-
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use tracing::{debug, info};
 
 use crate::db::queries;
+use crate::grpc::proto::SandboxFileResponse;
 use crate::ids::{FileId, SessionId, TaskId};
-use crate::kernel::sandbox_bridge::SandboxBridge;
 
-const ARTIFACT_DIR: &str = "/workspace/artifacts";
-const MAX_ARTIFACT_ARCHIVE_BYTES: usize = 100 * 1024 * 1024;
+pub(crate) const ARTIFACT_DIR: &str = "/workspace/artifacts";
+pub(crate) const MAX_ARTIFACT_ARCHIVE_BYTES: usize = 100 * 1024 * 1024;
 
-pub async fn archive_task_artifacts(
+pub async fn persist_task_artifacts(
     pool: &PgPool,
-    bridge: &Arc<SandboxBridge>,
     task_id: TaskId,
     session_id: Option<SessionId>,
+    response: SandboxFileResponse,
 ) -> anyhow::Result<Option<FileId>> {
     let Some(task) = queries::get_task(pool, task_id).await? else {
         return Ok(None);
@@ -23,15 +21,6 @@ pub async fn archive_task_artifacts(
     let Some(project_id) = task.project_id else {
         return Ok(None);
     };
-
-    let response = bridge
-        .request_sandbox_file(
-            "archive".to_string(),
-            ARTIFACT_DIR.to_string(),
-            MAX_ARTIFACT_ARCHIVE_BYTES as u64,
-            std::time::Duration::from_secs(30),
-        )
-        .await?;
 
     if !response.ok {
         if matches!(response.code.as_str(), "NOT_FOUND" | "ARCHIVE_EMPTY") {

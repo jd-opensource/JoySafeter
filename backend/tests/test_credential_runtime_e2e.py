@@ -186,11 +186,13 @@ def test_repository_and_task_identity_material_stay_in_purpose_adapters() -> Non
     assert identity.reveal_identity_credential(identity_ciphertext) == "identity-secret"
 
 
+@pytest.mark.no_db
 def test_sandbox_runtime_only_exports_explicit_environment_credentials() -> None:
-    resolver = (RUST_KERNEL / "sandbox_resolver.rs").read_text()
+    environment_projection = (RUST_KERNEL / "credentials" / "runtime_projection" / "environment.rs").read_text()
+    llm_egress_projection = (RUST_KERNEL / "credentials" / "runtime_projection" / "llm_egress.rs").read_text()
 
-    assert "for credential_id in environment_credential_ids(&environment.config)?" in resolver
-    assert "let Some(key_value) = env.remove(credential_key.key)" in resolver
+    assert "for credential_id in environment_credential_ids(&environment.config)?" in environment_projection
+    assert "let Some(key_value) = env.remove(credential_key.key)" in llm_egress_projection
     assert (
         "never in sandbox env/secrets"
         in (

@@ -8,7 +8,25 @@ use tonic::{Request, Response, Status, Streaming};
 
 use crate::grpc::proto::agent_bridge_server::AgentBridge;
 use crate::grpc::proto::{OrchestratorMessage, RunnerMessage};
+use crate::kernel::runner::inbound::RunnerInbound;
 use crate::kernel::runner::RunnerSessionCoordinator;
+
+struct TonicRunnerInbound {
+    stream: Streaming<RunnerMessage>,
+}
+
+impl TonicRunnerInbound {
+    fn new(stream: Streaming<RunnerMessage>) -> Self {
+        Self { stream }
+    }
+}
+
+#[async_trait::async_trait]
+impl RunnerInbound for TonicRunnerInbound {
+    async fn message(&mut self) -> anyhow::Result<Option<RunnerMessage>> {
+        self.stream.message().await.map_err(Into::into)
+    }
+}
 
 /// Tonic adapter for the closed Runner wire protocol.
 pub(crate) struct RunnerTransport {
@@ -41,7 +59,10 @@ impl AgentBridge for RunnerTransport {
             .map_err(|_| Status::resource_exhausted("Too many concurrent connections"))?;
         let outbound = self
             .coordinator
-            .open_session(request.into_inner(), connection_permit)
+            .open_session(
+                Box::new(TonicRunnerInbound::new(request.into_inner())),
+                connection_permit,
+            )
             .await;
 
         Ok(Response::new(Box::pin(outbound.map(Ok))))

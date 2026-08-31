@@ -57,6 +57,10 @@ impl BridgeStore for LocalBridgeStore {
         self.inner.remove(external_id)
     }
 
+    fn remove_if_current(&self, external_id: &str, bridge: &Arc<SandboxBridge>) -> bool {
+        self.inner.remove_if_current(external_id, bridge)
+    }
+
     fn all_bridges(&self) -> Vec<Arc<SandboxBridge>> {
         self.inner.all_bridges()
     }
@@ -65,8 +69,10 @@ impl BridgeStore for LocalBridgeStore {
         self.inner.shutdown_all().await;
     }
 
-    async fn get_owner_instance(&self, _sandbox_id: SandboxId) -> Option<String> {
-        Some("self".to_string())
+    async fn get_owner_instance(&self, sandbox_id: SandboxId) -> Option<String> {
+        self.inner
+            .get_by_db_id(sandbox_id)
+            .map(|_| "self".to_string())
     }
 
     async fn heartbeat(&self) -> anyhow::Result<()> {
@@ -104,5 +110,33 @@ impl TaskDispatcher for LocalTaskDispatcher {
             .ok_or_else(|| anyhow!("no local bridge for sandbox {sandbox_id}"))?;
 
         dispatch_to_bridge(&bridge, sandbox_id, &command).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use tokio::sync::mpsc;
+
+    use super::{BridgeStore, LocalBridgeStore};
+    use crate::ids::SandboxId;
+    use crate::kernel::sandbox_bridge::SandboxBridge;
+
+    #[tokio::test]
+    async fn owner_exists_only_while_a_local_bridge_is_registered() {
+        let store = LocalBridgeStore::new();
+        let sandbox_id = SandboxId::new();
+        let (runner_tx, _runner_rx) = mpsc::channel(1);
+        let bridge = Arc::new(SandboxBridge::new(sandbox_id, runner_tx));
+
+        assert_eq!(store.get_owner_instance(sandbox_id).await, None);
+        store.register("runtime-id".to_string(), bridge.clone());
+        assert_eq!(
+            store.get_owner_instance(sandbox_id).await.as_deref(),
+            Some("self")
+        );
+        assert!(store.remove_if_current("runtime-id", &bridge));
+        assert_eq!(store.get_owner_instance(sandbox_id).await, None);
     }
 }

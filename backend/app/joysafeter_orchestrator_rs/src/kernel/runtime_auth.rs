@@ -40,13 +40,25 @@ pub(crate) trait RunnerAuthStore: Send + Sync {
         &self,
         sandbox_id: SandboxId,
         expected: &StoredRunnerAuth,
-    ) -> anyhow::Result<bool>;
+    ) -> anyhow::Result<Option<StoredRunnerAuth>>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct AuthenticatedRunner {
     pub(crate) sandbox_status: String,
     pub(crate) linked_session_id: Option<SessionId>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct VerifiedRunner {
+    sandbox_id: SandboxId,
+    stored: StoredRunnerAuth,
+}
+
+impl VerifiedRunner {
+    pub(crate) fn linked_session_id(&self) -> Option<SessionId> {
+        self.stored.linked_session_id
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -69,12 +81,12 @@ impl RunnerAuthenticator {
         Self { store }
     }
 
-    pub(crate) async fn authenticate_and_record_connection(
+    pub(crate) async fn verify(
         &self,
         sandbox_id: SandboxId,
         presented_token: Option<&str>,
         now: DateTime<Utc>,
-    ) -> Result<AuthenticatedRunner, RunnerAuthenticationServiceError> {
+    ) -> Result<VerifiedRunner, RunnerAuthenticationServiceError> {
         let stored = self
             .store
             .load(sandbox_id)
@@ -91,17 +103,22 @@ impl RunnerAuthenticator {
             presented_token,
             now,
         )?;
-        if !self
+        Ok(VerifiedRunner { sandbox_id, stored })
+    }
+
+    pub(crate) async fn record_connection(
+        &self,
+        verified: &VerifiedRunner,
+    ) -> Result<AuthenticatedRunner, RunnerAuthenticationServiceError> {
+        let current = self
             .store
-            .mark_connected_if_current(sandbox_id, &stored)
+            .mark_connected_if_current(verified.sandbox_id, &verified.stored)
             .await
             .map_err(RunnerAuthenticationServiceError::Store)?
-        {
-            return Err(RunnerAuthenticationServiceError::StateChanged);
-        }
+            .ok_or(RunnerAuthenticationServiceError::StateChanged)?;
         Ok(AuthenticatedRunner {
-            sandbox_status: stored.sandbox_status,
-            linked_session_id: stored.linked_session_id,
+            sandbox_status: current.sandbox_status,
+            linked_session_id: current.linked_session_id,
         })
     }
 }
@@ -217,11 +234,11 @@ mod tests {
         );
         assert_eq!(egress_proxy_token(None), None);
     }
-    use crate::ids::SandboxId;
+    use crate::ids::{SandboxId, SessionId};
 
     struct FakeRunnerAuthStore {
         record: Option<StoredRunnerAuth>,
-        mark_result: bool,
+        committed_record: Option<StoredRunnerAuth>,
         mark_calls: AtomicUsize,
     }
 
@@ -235,9 +252,9 @@ mod tests {
             &self,
             _sandbox_id: SandboxId,
             _expected: &StoredRunnerAuth,
-        ) -> anyhow::Result<bool> {
+        ) -> anyhow::Result<Option<StoredRunnerAuth>> {
             self.mark_calls.fetch_add(1, Ordering::SeqCst);
-            Ok(self.mark_result)
+            Ok(self.committed_record.clone())
         }
     }
 
@@ -399,19 +416,49 @@ mod tests {
     async fn valid_authentication_records_connection_once() {
         let store = Arc::new(FakeRunnerAuthStore {
             record: Some(stored_active("expected-token")),
-            mark_result: true,
+            committed_record: Some(stored_active("expected-token")),
             mark_calls: AtomicUsize::new(0),
         });
         let authenticator = RunnerAuthenticator::new(store.clone());
 
-        let authenticated = authenticator
-            .authenticate_and_record_connection(
+        let verified = authenticator
+            .verify(
                 SandboxId::from_uuid(Uuid::now_v7()),
                 Some("expected-token"),
                 Utc::now(),
             )
             .await
             .expect("valid runner authentication");
+        let authenticated = authenticator
+            .record_connection(&verified)
+            .await
+            .expect("valid runner admission commit");
+
+        assert_eq!(authenticated.sandbox_status, "running");
+        assert_eq!(store.mark_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn verified_runner_does_not_record_connection_until_admission_commits() {
+        let store = Arc::new(FakeRunnerAuthStore {
+            record: Some(stored_active("expected-token")),
+            committed_record: Some(stored_active("expected-token")),
+            mark_calls: AtomicUsize::new(0),
+        });
+        let authenticator = RunnerAuthenticator::new(store.clone());
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+
+        let verified = authenticator
+            .verify(sandbox_id, Some("expected-token"), Utc::now())
+            .await
+            .expect("valid runner credential should produce an admission proof");
+
+        assert_eq!(store.mark_calls.load(Ordering::SeqCst), 0);
+
+        let authenticated = authenticator
+            .record_connection(&verified)
+            .await
+            .expect("admitted runner should record its connection");
 
         assert_eq!(authenticated.sandbox_status, "running");
         assert_eq!(store.mark_calls.load(Ordering::SeqCst), 1);
@@ -421,13 +468,13 @@ mod tests {
     async fn rejected_authentication_does_not_record_connection() {
         let store = Arc::new(FakeRunnerAuthStore {
             record: Some(stored_active("expected-token")),
-            mark_result: true,
+            committed_record: Some(stored_active("expected-token")),
             mark_calls: AtomicUsize::new(0),
         });
         let authenticator = RunnerAuthenticator::new(store.clone());
 
         let error = authenticator
-            .authenticate_and_record_connection(
+            .verify(
                 SandboxId::from_uuid(Uuid::now_v7()),
                 Some("wrong-token"),
                 Utc::now(),
@@ -448,17 +495,21 @@ mod tests {
     async fn concurrent_auth_state_change_fails_closed() {
         let store = Arc::new(FakeRunnerAuthStore {
             record: Some(stored_active("expected-token")),
-            mark_result: false,
+            committed_record: None,
             mark_calls: AtomicUsize::new(0),
         });
         let authenticator = RunnerAuthenticator::new(store.clone());
 
-        let error = authenticator
-            .authenticate_and_record_connection(
+        let verified = authenticator
+            .verify(
                 SandboxId::from_uuid(Uuid::now_v7()),
                 Some("expected-token"),
                 Utc::now(),
             )
+            .await
+            .expect("credential verification succeeds before concurrent state change");
+        let error = authenticator
+            .record_connection(&verified)
             .await
             .expect_err("changed auth state must fail");
 
@@ -466,6 +517,46 @@ mod tests {
             error,
             RunnerAuthenticationServiceError::StateChanged
         ));
+        assert_eq!(store.mark_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn admission_activation_race_uses_current_authoritative_state() {
+        let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+        let linked_session_id = SessionId::from_uuid(Uuid::now_v7());
+        let token_digest = runner_token_digest("expected-token");
+        let verified_record = StoredRunnerAuth {
+            state: "admission".to_string(),
+            token_digest: Some(token_digest.clone()),
+            expires_at: Some(Utc::now() + Duration::minutes(1)),
+            sandbox_status: "creating".to_string(),
+            linked_session_id: None,
+        };
+        let committed_record = StoredRunnerAuth {
+            state: "active".to_string(),
+            token_digest: Some(token_digest),
+            expires_at: None,
+            sandbox_status: "pooled".to_string(),
+            linked_session_id: Some(linked_session_id),
+        };
+        let store = Arc::new(FakeRunnerAuthStore {
+            record: Some(verified_record),
+            committed_record: Some(committed_record),
+            mark_calls: AtomicUsize::new(0),
+        });
+        let authenticator = RunnerAuthenticator::new(store.clone());
+
+        let verified = authenticator
+            .verify(sandbox_id, Some("expected-token"), Utc::now())
+            .await
+            .expect("staged admission should verify before provider activation commits");
+        let authenticated = authenticator
+            .record_connection(&verified)
+            .await
+            .expect("same credential must survive admission-to-active activation");
+
+        assert_eq!(authenticated.sandbox_status, "pooled");
+        assert_eq!(authenticated.linked_session_id, Some(linked_session_id));
         assert_eq!(store.mark_calls.load(Ordering::SeqCst), 1);
     }
 }

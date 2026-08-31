@@ -11,6 +11,7 @@ from app.joysafeter_shared.ids import (
     AgentId,
     OrganizationId,
     ProjectId,
+    SandboxId,
     SessionId,
     SkillId,
     SkillSecurityScanId,
@@ -66,6 +67,7 @@ def _ctx(project_id: ProjectId | None = PROJECT_ID) -> JoySafeterAuthContext:
 
 
 def _usage_row(session_id: SessionId, project_id: ProjectId = PROJECT_ID) -> JoySafeterSkillUsageLog:
+    sandbox_id = SandboxId.new()
     row = JoySafeterSkillUsageLog(
         id=SkillUsageId.new(),
         skill_id=SkillId.new(),
@@ -77,6 +79,7 @@ def _usage_row(session_id: SessionId, project_id: ProjectId = PROJECT_ID) -> Joy
         security_scan_id=SkillSecurityScanId.new(),
         target_hash="a" * 64,
         artifact_hash="b" * 64,
+        sandbox_id=sandbox_id,
         session_id=session_id,
         agent_id=AgentId.new(),
         project_id=project_id,
@@ -120,6 +123,7 @@ async def test_session_skill_usage_api_serializes_runtime_audit(monkeypatch):
     assert item.target == "/skills/runtime-audit-skill"
     assert item.target_hash == "a" * 64
     assert item.artifact_hash == "b" * 64
+    assert item.sandbox_id == row.sandbox_id
     assert item.session_id == session_id
 
     compiled = db.statement.compile()

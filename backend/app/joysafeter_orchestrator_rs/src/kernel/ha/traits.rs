@@ -36,6 +36,11 @@ pub trait BridgeStore: Send + Sync + 'static {
     /// Remove a bridge by external ID.
     fn remove(&self, external_id: &str) -> Option<Arc<SandboxBridge>>;
 
+    /// Remove a bridge only when the registry still points at this connection.
+    /// Runner session teardown must use this CAS form so an old displaced
+    /// connection cannot delete a replacement bridge that already reconnected.
+    fn remove_if_current(&self, external_id: &str, bridge: &Arc<SandboxBridge>) -> bool;
+
     /// Get all currently registered bridges.
     fn all_bridges(&self) -> Vec<Arc<SandboxBridge>>;
 

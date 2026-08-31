@@ -12,6 +12,8 @@ fn runner_transport_only_adapts_tonic_streams_and_limits_connections() {
 
     for required in [
         "impl AgentBridge for RunnerTransport",
+        "struct TonicRunnerInbound",
+        "impl RunnerInbound for TonicRunnerInbound",
         "connection_semaphore",
         "RunnerSessionCoordinator",
         "request.into_inner()",
@@ -71,6 +73,23 @@ fn runner_application_services_own_disjoint_session_execution_and_recovery_flows
             );
         }
     }
+
+    for path in [
+        "src/kernel/runner/session.rs",
+        "src/kernel/runner/setup.rs",
+        "src/kernel/runner/execution.rs",
+        "src/kernel/runner/recovery.rs",
+    ] {
+        let source = source(path);
+        assert!(
+            !source.contains("tonic::Streaming"),
+            "application Runner flow depends on tonic transport: {path}"
+        );
+    }
+
+    let inbound = source("src/kernel/runner/inbound.rs");
+    assert!(inbound.contains("trait RunnerInbound"));
+    assert!(!inbound.contains("tonic::"));
 }
 
 #[test]
@@ -133,7 +152,8 @@ fn runner_authentication_uses_a_kernel_port_and_postgres_adapter() {
     for required in [
         "trait RunnerAuthStore",
         "struct RunnerAuthenticator",
-        "authenticate_and_record_connection",
+        "async fn verify",
+        "async fn record_connection",
         "mark_connected_if_current",
     ] {
         assert!(auth.contains(required), "runner auth misses {required}");
@@ -162,7 +182,7 @@ fn runner_authentication_uses_a_kernel_port_and_postgres_adapter() {
             "runner coordinator owns authentication detail {forbidden}"
         );
     }
-    assert!(session.contains("RunnerAuthenticator"));
+    assert!(session.contains("let admission_service = self.flows.admission()"));
     assert!(
         factories.contains("PostgresRunnerAuthStore"),
         "composition root must choose the runner auth adapter"
@@ -278,6 +298,10 @@ fn harness_builder_delegates_owned_resource_subflows() {
     let generation = source("src/kernel/harness_input_builder/generation_fence.rs");
     let skills = source("src/kernel/harness_input_builder/skill_archives.rs");
     let resources = source("src/kernel/harness_input_builder/session_resources.rs");
+    let setup = source("src/kernel/runner/setup.rs");
+    let execution = source("src/kernel/runner/execution.rs");
+    let skill_usage = source("src/kernel/runner/skill_usage.rs");
+    let skill_usage_store = source("src/db/queries/skill_usage.rs");
 
     for module in [
         "mod generation_fence;",
@@ -317,7 +341,24 @@ fn harness_builder_delegates_owned_resource_subflows() {
     assert!(generation.contains("struct HarnessGenerationFence"));
     assert!(generation.contains("pub(super) async fn load"));
     assert!(skills.contains("pub(super) async fn resolve"));
-    assert!(skills.contains("record_skill_usage"));
+    assert!(!skills.contains("record_skill_usage"));
+    assert!(setup.contains("persist_skill_materialization_receipts"));
+    assert!(setup.contains("record_correlated_setup_result"));
+    for forbidden in [
+        "SkillLoadManifest",
+        "persist_skill_materialization_receipts",
+        "SkillLoadReceiptState",
+        "SkillLoadReport",
+    ] {
+        assert!(
+            !execution.contains(forbidden),
+            "task execution owns forbidden Skill materialization concern {forbidden}"
+        );
+    }
+    assert!(skill_usage.contains("persist_skill_materialization_receipts"));
+    assert!(!skill_usage.contains("SkillLoadReceiptState"));
+    assert!(skill_usage_store.contains("record_loaded_skill_usage"));
+    assert!(skill_usage_store.contains("ON CONFLICT"));
     assert!(resources.contains("pub(super) async fn load_memory_stores"));
     assert!(resources.contains("RepositoryAccessMaterial"));
 }

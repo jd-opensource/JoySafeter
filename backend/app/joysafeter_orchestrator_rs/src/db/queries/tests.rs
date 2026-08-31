@@ -14,7 +14,7 @@ use crate::events::envelope::EventEnvelope;
 use crate::events::persist::EventPersister;
 use crate::events::session_state::SessionStateSubscriber;
 use crate::events::stream_publisher::EventStreamPublisher;
-use crate::ids::{AgentId, EventId, SandboxId, SessionId, TaskId};
+use crate::ids::{AgentId, EventId, SandboxId, SessionId, SkillId, SkillVersionId, TaskId};
 use crate::runtime_config::RuntimeConfig;
 
 fn database_url() -> Option<String> {
@@ -36,6 +36,86 @@ async fn test_pool() -> Option<PgPool> {
             .await
             .expect("connect to migrated Postgres test database"),
     )
+}
+
+#[tokio::test]
+async fn loaded_skill_usage_is_idempotent_per_sandbox_artifact() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let row = sqlx::query_as::<_, (SandboxId, SkillId, SkillVersionId, String, String)>(
+        r#"
+        SELECT sandbox.id, version.skill_id, version.id, version.version, version.skill_name
+        FROM joysafeter_sandboxes sandbox
+        CROSS JOIN joysafeter_skill_versions version
+        LIMIT 1
+        "#,
+    )
+    .fetch_optional(&pool)
+    .await
+    .expect("load sandbox and published skill version for idempotency test");
+    let Some((sandbox_id, skill_id, skill_version_id, skill_version, skill_name)) = row else {
+        eprintln!("skipping skill usage idempotency test: no sandbox or skill version fixture");
+        return;
+    };
+    let artifact_hash = "f".repeat(64);
+    sqlx::query(
+        "DELETE FROM joysafeter_skill_usage_log WHERE sandbox_id = $1 AND artifact_hash = $2",
+    )
+    .bind(sandbox_id)
+    .bind(&artifact_hash)
+    .execute(&pool)
+    .await
+    .expect("clear prior idempotency test rows");
+    let usage = LoadedSkillUsage {
+        skill_id,
+        skill_version,
+        skill_version_id,
+        skill_name,
+        skill_source_type: Some("test".to_string()),
+        target: "skills".to_string(),
+        security_scan_id: None,
+        target_hash: None,
+        artifact_hash: artifact_hash.clone(),
+    };
+
+    assert_eq!(
+        record_loaded_skill_usage(&pool, sandbox_id, &usage)
+            .await
+            .expect("insert first loaded skill usage"),
+        RecordLoadedSkillUsage::Inserted
+    );
+    assert_eq!(
+        record_loaded_skill_usage(&pool, sandbox_id, &usage)
+            .await
+            .expect("deduplicate repeated loaded skill usage"),
+        RecordLoadedSkillUsage::AlreadyRecorded
+    );
+    assert_eq!(
+        record_loaded_skill_usage(&pool, SandboxId::from_uuid(Uuid::now_v7()), &usage)
+            .await
+            .expect("distinguish missing sandbox from idempotent conflict"),
+        RecordLoadedSkillUsage::SandboxMissing
+    );
+
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM joysafeter_skill_usage_log WHERE sandbox_id = $1 AND artifact_hash = $2",
+    )
+    .bind(sandbox_id)
+    .bind(&artifact_hash)
+    .fetch_one(&pool)
+    .await
+    .expect("count idempotent skill usage rows");
+    assert_eq!(count, 1);
+
+    sqlx::query(
+        "DELETE FROM joysafeter_skill_usage_log WHERE sandbox_id = $1 AND artifact_hash = $2",
+    )
+    .bind(sandbox_id)
+    .bind(&artifact_hash)
+    .execute(&pool)
+    .await
+    .expect("clean up idempotency test row");
 }
 
 async fn create_agent_and_session(pool: &PgPool, status: &str) -> (AgentId, SessionId) {
@@ -848,6 +928,208 @@ async fn mark_sandbox_error_does_not_clear_active_task_binding() {
                 .expect("load protected active task");
         assert_eq!(task.0, "running");
         assert_eq!(task.1, Some(sandbox_id));
+    }
+    .await;
+
+    let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+        .bind(sandbox_id)
+        .execute(&pool)
+        .await;
+    cleanup(&pool, agent_id, session_id).await;
+    result
+}
+
+#[tokio::test]
+async fn runner_failure_quarantine_fences_sandbox_even_with_scheduling_task() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (agent_id, session_id) = create_agent_and_session(&pool, "running").await;
+    let task_id = create_task(&pool, agent_id, session_id, "scheduling").await;
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+
+    let result = async {
+        create_sandbox(
+            &pool,
+            sandbox_id,
+            &format!("runner-failure-quarantine-{sandbox_id}"),
+            "docker",
+            "joysafeter/test:latest",
+            Some(session_id),
+            None,
+            None,
+            Some(&json!({})),
+        )
+        .await
+        .expect("create runner failure sandbox");
+        transition_sandbox_cas(&pool, sandbox_id, "creating", "provisioning")
+            .await
+            .expect("sandbox provisioning");
+        sqlx::query(
+            r#"
+            UPDATE joysafeter_sandboxes
+            SET runner_auth_state = 'active', runner_token_digest = $2
+            WHERE id = $1
+            "#,
+        )
+        .bind(sandbox_id)
+        .bind(crate::kernel::runtime_auth::runner_token_digest(
+            "runner-token",
+        ))
+        .execute(&pool)
+        .await
+        .expect("activate runner credential");
+        sqlx::query("UPDATE joysafeter_tasks SET sandbox_id = $2 WHERE id = $1")
+            .bind(task_id)
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await
+            .expect("bind scheduling task");
+
+        let recovery = quarantine_and_recover_runner_failure(
+            &pool,
+            sandbox_id,
+            "runner_protocol_incompatible",
+            "runner protocol is missing setup_ack_v1",
+        )
+        .await
+        .expect("quarantine incompatible runner")
+        .expect("healthy sandbox should be quarantined");
+        assert_eq!(recovery.reset_tasks.len(), 1);
+        assert!(recovery.failed_tasks.is_empty());
+
+        let sandbox: (
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            Option<String>,
+        ) = sqlx::query_as(
+            r#"
+                SELECT status,
+                       runner_auth_state,
+                       runner_token_digest,
+                       config #>> '{runtime_failure,code}',
+                       config->>'setup_error'
+                FROM joysafeter_sandboxes
+                WHERE id = $1
+                "#,
+        )
+        .bind(sandbox_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load quarantined sandbox");
+        assert_eq!(sandbox.0, "error");
+        assert_eq!(sandbox.1, "revoked");
+        assert_eq!(sandbox.2, None);
+        assert_eq!(sandbox.3.as_deref(), Some("runner_protocol_incompatible"));
+        assert_eq!(
+            sandbox.4.as_deref(),
+            Some("runner protocol is missing setup_ack_v1")
+        );
+
+        let task: (String, Option<SandboxId>) =
+            sqlx::query_as("SELECT status, sandbox_id FROM joysafeter_tasks WHERE id = $1")
+                .bind(task_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load task after sandbox quarantine");
+        assert_eq!(task.0, "pending");
+        assert_eq!(task.1, None);
+    }
+    .await;
+
+    let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+        .bind(sandbox_id)
+        .execute(&pool)
+        .await;
+    cleanup(&pool, agent_id, session_id).await;
+    result
+}
+
+#[tokio::test]
+async fn runner_failure_preserves_concurrent_stop_claim_while_revoking_runtime() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (agent_id, session_id) = create_agent_and_session(&pool, "running").await;
+    let task_id = create_task(&pool, agent_id, session_id, "scheduling").await;
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+
+    let result = async {
+        create_sandbox(
+            &pool,
+            sandbox_id,
+            &format!("runner-failure-stop-race-{sandbox_id}"),
+            "docker",
+            "joysafeter/test:latest",
+            Some(session_id),
+            None,
+            None,
+            Some(&json!({})),
+        )
+        .await
+        .expect("create runner failure race sandbox");
+        transition_sandbox_cas(&pool, sandbox_id, "creating", "provisioning")
+            .await
+            .expect("sandbox provisioning");
+        sqlx::query(
+            r#"
+            UPDATE joysafeter_sandboxes
+            SET runner_auth_state = 'active', runner_token_digest = $2,
+                status = 'stopping'
+            WHERE id = $1
+            "#,
+        )
+        .bind(sandbox_id)
+        .bind(crate::kernel::runtime_auth::runner_token_digest(
+            "runner-token",
+        ))
+        .execute(&pool)
+        .await
+        .expect("race lifecycle stop after Runner verification");
+        sqlx::query("UPDATE joysafeter_tasks SET sandbox_id = $2 WHERE id = $1")
+            .bind(task_id)
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await
+            .expect("bind scheduling task");
+
+        let recovery = quarantine_and_recover_runner_failure(
+            &pool,
+            sandbox_id,
+            "runner_protocol_incompatible",
+            "runner protocol is missing setup_ack_v1",
+        )
+        .await
+        .expect("record incompatible runner during stop race")
+        .expect("failure ownership must survive a concurrent lifecycle stop claim");
+        assert_eq!(recovery.reset_tasks.len(), 1);
+        assert!(recovery.failed_tasks.is_empty());
+
+        let sandbox: (String, String, Option<String>) = sqlx::query_as(
+            r#"
+            SELECT status, runner_auth_state, config #>> '{runtime_failure,code}'
+            FROM joysafeter_sandboxes
+            WHERE id = $1
+            "#,
+        )
+        .bind(sandbox_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load stop-raced sandbox");
+        assert_eq!(sandbox.0, "stopping");
+        assert_eq!(sandbox.1, "revoked");
+        assert_eq!(sandbox.2.as_deref(), Some("runner_protocol_incompatible"));
+
+        let task: (String, Option<SandboxId>) =
+            sqlx::query_as("SELECT status, sandbox_id FROM joysafeter_tasks WHERE id = $1")
+                .bind(task_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load recovered task after stop race");
+        assert_eq!(task.0, "pending");
+        assert_eq!(task.1, None);
     }
     .await;
 

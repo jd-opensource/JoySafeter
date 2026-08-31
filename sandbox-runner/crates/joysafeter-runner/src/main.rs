@@ -362,8 +362,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 sandbox_id: sandbox_id.clone(),
                 is_reconnect,
                 active_task_id: active_task_id.clone(),
-                capabilities: vec!["file_mount".to_string(), "url_download".to_string()],
+                capabilities: vec![
+                    "file_mount".to_string(),
+                    "url_download".to_string(),
+                    "setup_ack_v1".to_string(),
+                ],
                 runner_token: Some(runner_token.clone()),
+                applied_runtime_config_generation: session_config.runtime_config_generation,
             })),
         };
         if runner_tx.send(ready).await.is_err() {
@@ -522,12 +527,29 @@ async fn drain_event_buffer(
     count
 }
 
-async fn send_setup_failure_result(
+async fn send_setup_result(
     runner_tx: &mpsc::Sender<RunnerMessage>,
-    error: String,
-    work_dir: Option<String>,
+    setup_id: String,
+    runtime_config_generation: i64,
+    status: proto::SandboxSetupStatus,
+    error: Option<String>,
+    error_code: Option<String>,
+    loaded_skills: Vec<proto::LoadedSkill>,
 ) -> Result<(), mpsc::error::SendError<RunnerMessage>> {
-    send_failure_result(runner_tx, error, None, work_dir).await
+    runner_tx
+        .send(RunnerMessage {
+            payload: Some(proto::runner_message::Payload::SetupResult(
+                proto::SandboxSetupResult {
+                    setup_id,
+                    runtime_config_generation,
+                    status: status as i32,
+                    error,
+                    error_code,
+                    loaded_skills,
+                },
+            )),
+        })
+        .await
 }
 
 async fn send_task_failure_result(
@@ -1008,12 +1030,28 @@ async fn run_session(
             }
             Some(proto::orchestrator_message::Payload::Setup(setup)) => {
                 info!("Received SetupSandbox");
-                let setup_work_dir = setup.work_dir.clone();
+                let setup_id = setup.setup_id.clone();
+                let runtime_config_generation = setup.runtime_config_generation;
                 match runner::handle_setup(setup, runner_tx.clone()).await {
-                    Ok(config) => {
-                        let wd = config.work_dir.clone().unwrap_or_default();
+                    Ok(outcome) => {
+                        let wd = outcome.config.work_dir.clone().unwrap_or_default();
                         info!(work_dir = %wd.display(), "Setup complete");
-                        *session_config = config;
+                        *session_config = outcome.config;
+                        if let Err(error) = send_setup_result(
+                            &runner_tx,
+                            setup_id,
+                            runtime_config_generation,
+                            proto::SandboxSetupStatus::Applied,
+                            None,
+                            None,
+                            outcome.loaded_skills,
+                        )
+                        .await
+                        {
+                            error!(error = %error, "Failed to send SetupSandbox success result");
+                            heartbeat_handle.abort();
+                            return ConnectionResult::Disconnected;
+                        }
                         let idle = RunnerMessage {
                             payload: Some(proto::runner_message::Payload::Idle(RunnerIdle {
                                 sandbox_id: sandbox_id.to_string(),
@@ -1029,10 +1067,14 @@ async fn run_session(
                     }
                     Err(e) => {
                         error!(error = %e, "SetupSandbox failed");
-                        if let Err(send_err) = send_setup_failure_result(
+                        if let Err(send_err) = send_setup_result(
                             &runner_tx,
-                            format!("SetupSandbox failed: {e}"),
-                            setup_work_dir,
+                            setup_id,
+                            runtime_config_generation,
+                            proto::SandboxSetupStatus::Failed,
+                            Some(format!("SetupSandbox failed: {e}")),
+                            Some("SETUP_FAILED".to_string()),
+                            Vec::new(),
                         )
                         .await
                         {
@@ -1104,26 +1146,32 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn setup_failure_result_reports_failed_setup_with_work_dir() {
+    async fn setup_failure_result_is_correlated_to_generation() {
         let (tx, mut rx) = mpsc::channel(1);
 
-        send_setup_failure_result(
+        send_setup_result(
             &tx,
-            "SetupSandbox failed: clone setup repos".to_string(),
-            Some("/workspace".to_string()),
+            "setup-7".to_string(),
+            7,
+            proto::SandboxSetupStatus::Failed,
+            Some("SetupSandbox failed: clone setup repos".to_string()),
+            Some("SETUP_FAILED".to_string()),
+            Vec::new(),
         )
         .await
         .expect("send setup failure result");
 
         let message = rx.recv().await.expect("failure result message");
         match message.payload {
-            Some(proto::runner_message::Payload::Result(result)) => {
-                assert_eq!(result.status, "failed");
+            Some(proto::runner_message::Payload::SetupResult(result)) => {
+                assert_eq!(result.setup_id, "setup-7");
+                assert_eq!(result.runtime_config_generation, 7);
+                assert_eq!(result.status, proto::SandboxSetupStatus::Failed as i32);
                 assert_eq!(
                     result.error.as_deref(),
                     Some("SetupSandbox failed: clone setup repos")
                 );
-                assert_eq!(result.work_dir.as_deref(), Some("/workspace"));
+                assert_eq!(result.error_code.as_deref(), Some("SETUP_FAILED"));
             }
             other => panic!("unexpected runner message: {other:?}"),
         }

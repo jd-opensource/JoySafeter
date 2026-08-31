@@ -64,12 +64,57 @@ class AgentConfigurationPolicy:
             for config in mcp_servers or []
             if isinstance(config, dict) and config.get("name", "")
         }
+        builtin_toolset_seen = False
+        mcp_toolsets_seen: set[str] = set()
+        custom_tools_seen: set[str] = set()
+        mcp_references: list[str] = []
         for tool in tools:
             tool_data = tool.model_dump() if hasattr(tool, "model_dump") else tool
-            if tool_data.get("type") != "mcp_toolset":
+            tool_type = tool_data.get("type")
+            if tool_type == "agent_toolset_20260401":
+                if builtin_toolset_seen:
+                    raise _configuration_error(
+                        code="AGENT_TOOLSET_DUPLICATE",
+                        message="Duplicate built-in toolset",
+                        data={"toolset": "agent_toolset_20260401"},
+                    )
+                builtin_toolset_seen = True
+            elif tool_type == "mcp_toolset":
+                server_name = tool_data.get("mcp_server_name", "")
+                if server_name in mcp_toolsets_seen:
+                    raise _configuration_error(
+                        code="AGENT_TOOLSET_DUPLICATE",
+                        message=f"Duplicate MCP toolset for server: {server_name}",
+                        data={"toolset": "mcp_toolset", "mcp_server_name": server_name},
+                    )
+                mcp_toolsets_seen.add(server_name)
+                mcp_references.append(server_name)
+            elif tool_type == "custom":
+                name = tool_data.get("name", "")
+                if name in custom_tools_seen:
+                    raise _configuration_error(
+                        code="AGENT_CUSTOM_TOOL_DUPLICATE",
+                        message=f"Duplicate custom tool: {name}",
+                        data={"tool_name": name},
+                    )
+                custom_tools_seen.add(name)
+
+            seen_config_names: set[str] = set()
+            for config in tool_data.get("configs") or []:
+                config_data = config.model_dump() if hasattr(config, "model_dump") else config
+                name = config_data.get("name", "") if isinstance(config_data, dict) else ""
+                if name in seen_config_names:
+                    raise _configuration_error(
+                        code="AGENT_TOOL_CONFIG_DUPLICATE",
+                        message=f"Duplicate tool config: {name}",
+                        data={"toolset": tool_type, "tool_name": name},
+                    )
+                seen_config_names.add(name)
+
+        for server_name in mcp_references:
+            if not server_name:
                 continue
-            server_name = tool_data.get("mcp_server_name", "")
-            if server_name and server_name not in declared_names:
+            if server_name not in declared_names:
                 raise _configuration_error(
                     code="AGENT_TOOL_MCP_SERVER_UNDECLARED",
                     message=f"Tool references undeclared MCP server: {server_name}",

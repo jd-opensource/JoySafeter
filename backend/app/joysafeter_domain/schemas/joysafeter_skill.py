@@ -7,6 +7,7 @@ from app.joysafeter_shared.ids import (
     AgentId,
     AgentVersionId,
     ProjectId,
+    SandboxId,
     SessionId,
     SkillFileId,
     SkillId,
@@ -124,6 +125,7 @@ class SkillUsageResponse(BaseModel):
     security_scan_id: Optional[SkillSecurityScanId] = None
     target_hash: Optional[str] = None
     artifact_hash: Optional[str] = None
+    sandbox_id: Optional[SandboxId] = None
     session_id: Optional[SessionId] = None
     agent_id: Optional[AgentId] = None
     project_id: Optional[ProjectId] = None

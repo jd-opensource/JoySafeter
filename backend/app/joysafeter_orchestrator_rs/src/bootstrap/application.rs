@@ -7,8 +7,8 @@ use crate::{db, events, grpc, kernel, runtime_config, xds};
 use tracing::{error, info, warn};
 
 use super::runtime_factories::{
-    build_credential_store, build_runner_authenticator, build_runner_flows,
-    build_sandbox_controller_tasks, build_sandbox_runtime_services,
+    build_credential_store, build_runner_flows, build_sandbox_controller_tasks,
+    build_sandbox_runtime_services,
 };
 use super::supervisor::{
     shutdown_signal, spawn_health_server, ReadinessGate, ServiceCriticality, TaskSupervisor,
@@ -268,6 +268,12 @@ impl OrchestratorApplication {
             );
         }
 
+        let runner_flows = build_runner_flows(
+            db_pool.clone(),
+            config.envoy_enabled,
+            config.grpc_max_executions,
+        );
+
         // Health server — expose readiness/liveness for K8s probes.
         // Starts early (both leader and standby expose /healthz/live).
         // ready_flag is set to true only after services are fully started.
@@ -276,6 +282,7 @@ impl OrchestratorApplication {
             readiness.clone(),
             xds_authority.clone(),
             xds_control_plane.clone(),
+            runner_flows.metrics(),
         )
         .await?;
         supervisor
@@ -400,17 +407,12 @@ impl OrchestratorApplication {
             event_bus.clone(),
             queue.clone(),
             db_pool.clone(),
-            build_runner_authenticator(db_pool.clone()),
             config.clone(),
             sandbox_runtime.identity_policy.clone(),
             redis_coordinator.clone(),
             memory_subscribers.clone(),
             runtime_config.clone(),
-            build_runner_flows(
-                db_pool.clone(),
-                config.envoy_enabled,
-                config.grpc_max_executions,
-            ),
+            runner_flows,
         ));
         let runner_transport = Arc::new(grpc::transport::RunnerTransport::new(
             runner_coordinator,

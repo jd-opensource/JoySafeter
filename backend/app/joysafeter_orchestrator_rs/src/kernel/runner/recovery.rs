@@ -5,7 +5,11 @@ use tracing::{error, info, warn};
 use crate::events::bus::EventBus;
 use crate::ids::SandboxId;
 use crate::kernel::queue::TaskQueue;
+use crate::kernel::sandbox_bridge::SandboxBridge;
 
+use super::failure::RunnerFailureService;
+use super::metrics::RunnerMetrics;
+use super::setup::validate_reconnect_setup_generation;
 use super::task_lifecycle::handle_dispatch_retryable_failure;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -13,6 +17,14 @@ pub(crate) enum ReconnectPlan {
     Fresh,
     Resume(TaskId),
     RescueOrphans,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum ReconnectSetupRestoreError {
+    #[error("sandbox disappeared during reconnect")]
+    MissingSandbox,
+    #[error("failed to load sandbox setup generation during reconnect")]
+    Store(#[source] sqlx::Error),
 }
 
 /// Owns reconnect classification and orphan-recovery policy for Runner sessions.
@@ -39,6 +51,43 @@ impl RunnerRecoveryService {
                 Some(task_id) => ReconnectPlan::Resume(task_id),
                 None => ReconnectPlan::RescueOrphans,
             })
+    }
+
+    pub(crate) async fn restore_setup_state(
+        &self,
+        pool: &PgPool,
+        bridge: &SandboxBridge,
+        sandbox_id: SandboxId,
+        reported_generation: Option<i64>,
+        metrics: &RunnerMetrics,
+    ) -> Result<(), ReconnectSetupRestoreError> {
+        let sandbox = crate::db::queries::get_sandbox(pool, sandbox_id)
+            .await
+            .map_err(ReconnectSetupRestoreError::Store)?
+            .ok_or(ReconnectSetupRestoreError::MissingSandbox)?;
+        match validate_reconnect_setup_generation(
+            &sandbox.runtime_config_status,
+            sandbox.runtime_config_applied_generation,
+            reported_generation,
+        ) {
+            Ok(generation) => {
+                metrics.record_reconnect_setup(true);
+                bridge.restore_applied_setup(generation).await;
+            }
+            Err(reason) => {
+                metrics.record_reconnect_setup(false);
+                bridge.clear_setup().await;
+                warn!(
+                    sandbox_id = %sandbox_id,
+                    reported_generation,
+                    expected_generation = sandbox.runtime_config_applied_generation,
+                    runtime_config_status = %sandbox.runtime_config_status,
+                    reason,
+                    "Runner reconnect did not prove the current setup generation"
+                );
+            }
+        }
+        Ok(())
     }
 
     pub(crate) async fn rescue_orphaned_tasks(
@@ -89,20 +138,19 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::{mpsc, Semaphore};
-use tonic::Streaming;
 
 use crate::config::JoySafeterConfig;
 use crate::db::queries;
 use crate::grpc::proto;
-use crate::grpc::proto::{orchestrator_message, OrchestratorMessage, RunnerMessage};
+use crate::grpc::proto::{orchestrator_message, OrchestratorMessage};
 use crate::ids::SessionId;
 use crate::kernel::ha::BridgeStore;
 use crate::kernel::memory_sync::MemoryStoreSubscribers;
-use crate::kernel::sandbox_bridge::SandboxBridge;
 use crate::kernel::sandbox_resolver::SandboxIdentityPolicy;
 use crate::runtime_config::RuntimeConfig;
 
 use super::execution::{replay_pending_control_inputs, run_single_task};
+use super::inbound::RunnerInbound;
 use super::task_lifecycle::{emit_session_running_status, failover_or_fail_inline, TaskResult};
 
 const HEARTBEAT_TIMEOUT_DEFAULT: u64 = 120;
@@ -111,7 +159,7 @@ impl RunnerRecoveryService {
     /// Runs a complete event loop for a reconnected active task.
     pub(crate) async fn handle_reconnect_with_event_loop(
         &self,
-        inbound: &mut Streaming<RunnerMessage>,
+        inbound: &mut dyn RunnerInbound,
         tx: &mpsc::Sender<OrchestratorMessage>,
         bridge: &Arc<SandboxBridge>,
         pool: &PgPool,
@@ -126,6 +174,8 @@ impl RunnerRecoveryService {
         bridge_store: Arc<dyn BridgeStore>,
         runtime_config: &RuntimeConfig,
         identity_policy: Arc<dyn SandboxIdentityPolicy>,
+        runner_metrics: &RunnerMetrics,
+        failure_service: &RunnerFailureService,
     ) {
         // Verify task exists and belongs to this sandbox
         let task = match queries::get_task(pool, active_task_id).await {
@@ -157,9 +207,51 @@ impl RunnerRecoveryService {
             }
         };
 
+        let sandbox = match queries::get_sandbox(pool, sandbox_db_id).await {
+            Ok(Some(sandbox)) => sandbox,
+            Ok(None) => {
+                warn!(task_id = %active_task_id, sandbox_id = %sandbox_db_id, "Reconnect: sandbox not found");
+                return;
+            }
+            Err(error) => {
+                warn!(task_id = %active_task_id, sandbox_id = %sandbox_db_id, error = %error, "Reconnect: failed to load sandbox setup generation");
+                return;
+            }
+        };
+        if sandbox.runtime_config_status != "ready"
+            || !bridge
+                .setup_applied_for(sandbox.runtime_config_applied_generation)
+                .await
+        {
+            let reason = format!(
+                "Runner reconnect did not prove applied runtime configuration generation {}",
+                sandbox.runtime_config_applied_generation
+            );
+            warn!(task_id = %active_task_id, sandbox_id = %sandbox_db_id, "{reason}");
+            failover_or_fail_inline(
+                pool,
+                event_bus,
+                active_task_id,
+                task.owner_epoch,
+                task.session_id.or(linked_session_id),
+                sandbox_db_id,
+                &reason,
+                None,
+            )
+            .await;
+            let _ = queries::mark_sandbox_error(pool, sandbox_db_id, Some(&reason)).await;
+            let _ = tx
+                .send(OrchestratorMessage {
+                    payload: Some(orchestrator_message::Payload::Shutdown(proto::Shutdown {
+                        reason,
+                    })),
+                })
+                .await;
+            return;
+        }
+
         info!(task_id = %active_task_id, "Resuming reconnected active task with full event loop");
 
-        bridge.setup_done.store(true, Ordering::Relaxed);
         *bridge.current_task_owner_epoch.lock().await = task.owner_epoch;
         *bridge.current_task_id.lock().await = Some(active_task_id);
         let session_id = task.session_id.or(linked_session_id);
@@ -226,6 +318,9 @@ impl RunnerRecoveryService {
             identity_policy.as_ref(),
             &task_cancel,
             None,
+            runner_metrics,
+            failure_service,
+            redis_coord,
         )
         .await;
 

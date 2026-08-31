@@ -35,6 +35,8 @@ use super::traits::{BridgeStore, DispatchCommand, TaskDispatcher};
 
 /// Bridge ownership: maps sandbox_db_id → instance_id. TTL-based liveness.
 const BRIDGE_KEY_PREFIX: &str = "joysafeter:bridge:";
+/// Connection generation paired with the owner key for compare-and-delete.
+const BRIDGE_GENERATION_KEY_PREFIX: &str = "joysafeter:bridge-generation:";
 /// Per-instance inbox stream for cross-instance command relay.
 const INBOX_KEY_PREFIX: &str = "joysafeter:inbox:";
 /// Network-policy request stream (shared across all instances).
@@ -46,6 +48,55 @@ const BRIDGE_TTL_SECS: u64 = 60;
 const INBOX_MAXLEN: usize = 1000;
 /// Network-policy request stream max length (approximate trim).
 const NETWORK_POLICY_REQUEST_MAXLEN: usize = 1000;
+
+const REMOVE_BRIDGE_OWNERSHIP_SCRIPT: &str = r#"
+local owner = redis.call('GET', KEYS[1])
+local generation = redis.call('GET', KEYS[2])
+if generation == ARGV[1] or (generation == false and owner == ARGV[2]) then
+    redis.call('DEL', KEYS[1], KEYS[2])
+    return 1
+end
+return 0
+"#;
+
+const REFRESH_BRIDGE_OWNERSHIP_SCRIPT: &str = r#"
+local owner = redis.call('GET', KEYS[1])
+local generation = redis.call('GET', KEYS[2])
+if generation == ARGV[1]
+    or (generation == false and owner == ARGV[2])
+    or (generation == false and owner == false) then
+    redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+    redis.call('SET', KEYS[2], ARGV[1], 'EX', ARGV[3])
+    return 1
+end
+return 0
+"#;
+
+fn bridge_registration_token(instance_id: &str, connection_id: Uuid) -> String {
+    format!("{instance_id}\n{connection_id}")
+}
+
+fn schedule_bridge_owner_removal(
+    client: redis::Client,
+    instance_id: String,
+    sandbox_id: Uuid,
+    connection_id: Uuid,
+) {
+    tokio::spawn(async move {
+        if let Ok(mut conn) = client.get_multiplexed_async_connection().await {
+            let owner_key = format!("{BRIDGE_KEY_PREFIX}{sandbox_id}");
+            let generation_key = format!("{BRIDGE_GENERATION_KEY_PREFIX}{sandbox_id}");
+            let token = bridge_registration_token(&instance_id, connection_id);
+            let _ = redis::Script::new(REMOVE_BRIDGE_OWNERSHIP_SCRIPT)
+                .key(owner_key)
+                .key(generation_key)
+                .arg(token)
+                .arg(instance_id)
+                .invoke_async::<i64>(&mut conn)
+                .await;
+        }
+    });
+}
 // ---------------------------------------------------------------------------
 // RedisBridgeStore
 // ---------------------------------------------------------------------------
@@ -84,6 +135,10 @@ impl RedisBridgeStore {
 impl BridgeStore for RedisBridgeStore {
     fn register(&self, external_id: String, bridge: Arc<SandboxBridge>) {
         let sandbox_db_id = bridge.sandbox_db_id.as_uuid();
+        let connection_id = bridge.connection_id();
+        let registered_bridge = bridge.clone();
+        let registry = self.inner.clone();
+        let registered_external_id = external_id.clone();
         // Local cache (immediate, sync)
         self.inner.register(external_id, bridge);
 
@@ -91,13 +146,34 @@ impl BridgeStore for RedisBridgeStore {
         let client = self.redis_client.clone();
         let instance_id = self.instance_id.clone();
         tokio::spawn(async move {
+            if !registry
+                .get(&registered_external_id)
+                .is_some_and(|current| Arc::ptr_eq(&current, &registered_bridge))
+            {
+                return;
+            }
             match client.get_multiplexed_async_connection().await {
                 Ok(mut conn) => {
-                    let key = format!("{BRIDGE_KEY_PREFIX}{sandbox_db_id}");
-                    if let Err(e) = conn
-                        .set_ex::<_, _, ()>(&key, &instance_id, BRIDGE_TTL_SECS)
-                        .await
-                    {
+                    let owner_key = format!("{BRIDGE_KEY_PREFIX}{sandbox_db_id}");
+                    let generation_key = format!("{BRIDGE_GENERATION_KEY_PREFIX}{sandbox_db_id}");
+                    let token = bridge_registration_token(&instance_id, connection_id);
+                    let result: redis::RedisResult<()> = redis::pipe()
+                        .atomic()
+                        .cmd("SET")
+                        .arg(&owner_key)
+                        .arg(&instance_id)
+                        .arg("EX")
+                        .arg(BRIDGE_TTL_SECS)
+                        .ignore()
+                        .cmd("SET")
+                        .arg(&generation_key)
+                        .arg(token)
+                        .arg("EX")
+                        .arg(BRIDGE_TTL_SECS)
+                        .ignore()
+                        .query_async(&mut conn)
+                        .await;
+                    if let Err(e) = result {
                         warn!(
                             sandbox_id = %sandbox_db_id,
                             "Failed to register bridge in Redis: {e}"
@@ -125,16 +201,27 @@ impl BridgeStore for RedisBridgeStore {
     fn remove(&self, external_id: &str) -> Option<Arc<SandboxBridge>> {
         let bridge = self.inner.remove(external_id);
         if let Some(ref b) = bridge {
-            let sandbox_db_id = b.sandbox_db_id.as_uuid();
-            let client = self.redis_client.clone();
-            tokio::spawn(async move {
-                if let Ok(mut conn) = client.get_multiplexed_async_connection().await {
-                    let key = format!("{BRIDGE_KEY_PREFIX}{sandbox_db_id}");
-                    let _ = conn.del::<_, ()>(&key).await;
-                }
-            });
+            schedule_bridge_owner_removal(
+                self.redis_client.clone(),
+                self.instance_id.clone(),
+                b.sandbox_db_id.as_uuid(),
+                b.connection_id(),
+            );
         }
         bridge
+    }
+
+    fn remove_if_current(&self, external_id: &str, bridge: &Arc<SandboxBridge>) -> bool {
+        if !self.inner.remove_if_current(external_id, bridge) {
+            return false;
+        }
+        schedule_bridge_owner_removal(
+            self.redis_client.clone(),
+            self.instance_id.clone(),
+            bridge.sandbox_db_id.as_uuid(),
+            bridge.connection_id(),
+        );
+        true
     }
 
     fn all_bridges(&self) -> Vec<Arc<SandboxBridge>> {
@@ -161,32 +248,26 @@ impl BridgeStore for RedisBridgeStore {
 
         let mut conn = self.get_conn().await?;
 
-        // Pipeline all EXPIRE commands in one RTT (200 bridges → ~3ms instead of ~200ms)
+        // Refresh only the exact local connection generation. This prevents a
+        // displaced connection from extending or deleting a replacement owner.
         let mut pipe = redis::pipe();
         for bridge in &bridges {
-            let key = format!("{BRIDGE_KEY_PREFIX}{}", bridge.sandbox_db_id.as_uuid());
-            pipe.cmd("EXPIRE").arg(&key).arg(BRIDGE_TTL_SECS as i64);
+            let sandbox_id = bridge.sandbox_db_id.as_uuid();
+            let owner_key = format!("{BRIDGE_KEY_PREFIX}{sandbox_id}");
+            let generation_key = format!("{BRIDGE_GENERATION_KEY_PREFIX}{sandbox_id}");
+            pipe.cmd("EVAL")
+                .arg(REFRESH_BRIDGE_OWNERSHIP_SCRIPT)
+                .arg(2)
+                .arg(owner_key)
+                .arg(generation_key)
+                .arg(bridge_registration_token(
+                    &self.instance_id,
+                    bridge.connection_id(),
+                ))
+                .arg(&self.instance_id)
+                .arg(BRIDGE_TTL_SECS);
         }
-        let results: Vec<bool> = pipe.query_async(&mut conn).await?;
-
-        // Re-register any keys that didn't exist (EXPIRE returns false)
-        let mut re_register_pipe = redis::pipe();
-        let mut need_re_register = false;
-        for (i, exists) in results.iter().enumerate() {
-            if !exists {
-                let key = format!("{BRIDGE_KEY_PREFIX}{}", bridges[i].sandbox_db_id.as_uuid());
-                re_register_pipe
-                    .cmd("SET")
-                    .arg(&key)
-                    .arg(&self.instance_id)
-                    .arg("EX")
-                    .arg(BRIDGE_TTL_SECS);
-                need_re_register = true;
-            }
-        }
-        if need_re_register {
-            let _: Vec<redis::Value> = re_register_pipe.query_async(&mut conn).await?;
-        }
+        let _: Vec<i64> = pipe.query_async(&mut conn).await?;
 
         debug!(
             total = bridges.len(),
@@ -632,5 +713,139 @@ mod network_policy_request_tests {
         ];
 
         assert!(parse_network_policy_request(&fields).is_err());
+    }
+}
+
+#[cfg(test)]
+mod bridge_owner_tests {
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use redis::AsyncCommands;
+    use tokio::sync::mpsc;
+
+    use super::{
+        bridge_registration_token, BridgeStore, RedisBridgeStore, BRIDGE_GENERATION_KEY_PREFIX,
+        BRIDGE_KEY_PREFIX,
+    };
+    use crate::ids::SandboxId;
+    use crate::kernel::sandbox_bridge::SandboxBridge;
+
+    async fn redis_client() -> Option<redis::Client> {
+        let url =
+            std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379/".to_string());
+        let client = redis::Client::open(url).ok()?;
+        let mut connection = client.get_multiplexed_async_connection().await.ok()?;
+        redis::cmd("PING")
+            .query_async::<String>(&mut connection)
+            .await
+            .ok()?;
+        Some(client)
+    }
+
+    async fn wait_for_owner(
+        client: &redis::Client,
+        sandbox_id: SandboxId,
+        expected_owner: Option<&str>,
+        expected_generation: Option<&str>,
+    ) {
+        let owner_key = format!("{BRIDGE_KEY_PREFIX}{}", sandbox_id.as_uuid());
+        let generation_key = format!("{BRIDGE_GENERATION_KEY_PREFIX}{}", sandbox_id.as_uuid());
+        tokio::time::timeout(Duration::from_secs(3), async {
+            loop {
+                let mut connection = client
+                    .get_multiplexed_async_connection()
+                    .await
+                    .expect("connect to test Redis");
+                let owner: Option<String> = connection.get(&owner_key).await.expect("read owner");
+                let generation: Option<String> = connection
+                    .get(&generation_key)
+                    .await
+                    .expect("read generation");
+                if owner.as_deref() == expected_owner
+                    && generation.as_deref() == expected_generation
+                {
+                    return;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("Redis bridge ownership reached expected state");
+    }
+
+    async fn clear_owner(client: &redis::Client, sandbox_id: SandboxId) {
+        let mut connection = client
+            .get_multiplexed_async_connection()
+            .await
+            .expect("connect to test Redis");
+        let owner_key = format!("{BRIDGE_KEY_PREFIX}{}", sandbox_id.as_uuid());
+        let generation_key = format!("{BRIDGE_GENERATION_KEY_PREFIX}{}", sandbox_id.as_uuid());
+        connection
+            .del::<_, ()>((owner_key, generation_key))
+            .await
+            .expect("clear test ownership");
+    }
+
+    #[test]
+    fn bridge_registration_token_versions_connections_on_the_same_instance() {
+        let first = bridge_registration_token("orchestrator-a", uuid::Uuid::now_v7());
+        let second = bridge_registration_token("orchestrator-a", uuid::Uuid::now_v7());
+
+        assert!(first.starts_with("orchestrator-a\n"));
+        assert_ne!(first, second);
+    }
+
+    #[tokio::test]
+    async fn stale_remote_connection_cannot_remove_or_refresh_replacement_owner() {
+        let Some(client) = redis_client().await else {
+            return;
+        };
+        let sandbox_id = SandboxId::new();
+        clear_owner(&client, sandbox_id).await;
+
+        let old_store = RedisBridgeStore::new(client.clone(), "orchestrator-old");
+        let (old_tx, _old_rx) = mpsc::channel(1);
+        let old_bridge = Arc::new(SandboxBridge::new(sandbox_id, old_tx));
+        old_store.register("runtime-id".to_string(), old_bridge.clone());
+        let old_generation =
+            bridge_registration_token("orchestrator-old", old_bridge.connection_id());
+        wait_for_owner(
+            &client,
+            sandbox_id,
+            Some("orchestrator-old"),
+            Some(&old_generation),
+        )
+        .await;
+
+        let replacement_store = RedisBridgeStore::new(client.clone(), "orchestrator-new");
+        let (replacement_tx, _replacement_rx) = mpsc::channel(1);
+        let replacement_bridge = Arc::new(SandboxBridge::new(sandbox_id, replacement_tx));
+        replacement_store.register("runtime-id".to_string(), replacement_bridge.clone());
+        let replacement_generation =
+            bridge_registration_token("orchestrator-new", replacement_bridge.connection_id());
+        wait_for_owner(
+            &client,
+            sandbox_id,
+            Some("orchestrator-new"),
+            Some(&replacement_generation),
+        )
+        .await;
+
+        assert!(old_store.remove_if_current("runtime-id", &old_bridge));
+        old_store
+            .heartbeat()
+            .await
+            .expect("stale heartbeat must be safely ignored");
+        wait_for_owner(
+            &client,
+            sandbox_id,
+            Some("orchestrator-new"),
+            Some(&replacement_generation),
+        )
+        .await;
+
+        assert!(replacement_store.remove_if_current("runtime-id", &replacement_bridge));
+        wait_for_owner(&client, sandbox_id, None, None).await;
     }
 }

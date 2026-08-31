@@ -182,6 +182,10 @@ impl HarnessInputBuilder {
             Some(task.id),
             initial_fence.as_ref().map(|fence| fence.generation),
         );
+        let runtime_config_generation = initial_fence
+            .as_ref()
+            .map(|fence| fence.generation)
+            .unwrap_or(0);
         let credential_access = &self.credential_access;
         #[cfg(test)]
         self.pause_at_checkpoint(HarnessBuildCheckpoint::AfterInitialRead)
@@ -202,6 +206,7 @@ impl HarnessInputBuilder {
             .await?;
 
         let mut input = HarnessInput {
+            runtime_config_generation,
             provider: agent
                 .as_ref()
                 .and_then(|a| a.engine_kind.clone())
@@ -249,8 +254,14 @@ impl HarnessInputBuilder {
                 &mcp_metadata,
             )?
             .runner_servers();
-            input.custom_tools = parse_custom_tools(agent.tools.as_ref());
             input.tool_policy = ToolPolicy::from_agent_tools(agent.tools.as_ref())?;
+            input.custom_tools = parse_custom_tools(agent.tools.as_ref())?;
+            super::engine_adapter::validate_runtime_capabilities(
+                &input.provider,
+                &input.tool_policy,
+                !input.mcp_servers.is_empty(),
+                !input.custom_tools.is_empty(),
+            )?;
             input.setup_commands = Self::resolve_environment_setup_commands(
                 snapshot_environment.as_ref(),
                 live_environment.as_ref(),
@@ -292,7 +303,7 @@ impl HarnessInputBuilder {
             input
                 .env
                 .extend(json_object_to_string_map(agent.env.as_ref()));
-            skill_archives::resolve(&self.pool, agent, task, &mut input).await?;
+            skill_archives::resolve(&self.pool, agent, &mut input).await?;
         }
 
         if let Some(ref session) = session {
@@ -451,10 +462,11 @@ mod tests {
     use tokio::sync::Notify;
 
     use super::{
-        apply_runtime_protocol_env, ensure_skill_entrypoint, parse_semver,
-        published_version_scan_audit, resolve_skill_version_request, safe_archive_path,
-        session_container_work_dir, should_inject_conversation_history, HarnessBuildCheckpoint,
-        HarnessInputBuilder, SkillFileForArchive, SkillForArchive, SkillVersionForArchive,
+        apply_runtime_protocol_env, ensure_skill_entrypoint, extract_tool_name_sets,
+        parse_custom_tools, parse_semver, published_version_scan_audit,
+        resolve_skill_version_request, safe_archive_path, session_container_work_dir,
+        should_inject_conversation_history, HarnessBuildCheckpoint, HarnessInputBuilder,
+        SkillFileForArchive, SkillForArchive, SkillVersionForArchive,
     };
     use crate::ids::{
         AgentId, CredentialGroupId, CredentialId, EnvironmentId, FileId, OrganizationId, ProjectId,
@@ -476,6 +488,59 @@ mod tests {
             .ok()
             .or_else(|| env::var("DATABASE_URL").ok())
             .map(|url| url.replace("postgresql+asyncpg://", "postgres://"))
+    }
+
+    #[test]
+    fn custom_tool_projection_rejects_duplicate_names() {
+        let tools = json!([
+            {"type": "custom", "name": "deploy", "description": "one", "input_schema": {}},
+            {"type": "custom", "name": "deploy", "description": "two", "input_schema": {}}
+        ]);
+
+        assert!(parse_custom_tools(Some(&tools)).is_err());
+    }
+
+    #[test]
+    fn custom_tool_projection_rejects_non_object_schema() {
+        let tools = json!([{
+            "type": "custom",
+            "name": "deploy",
+            "description": "deploy",
+            "input_schema": "not-an-object"
+        }]);
+
+        assert!(parse_custom_tools(Some(&tools)).is_err());
+    }
+
+    #[test]
+    fn event_routing_reads_canonical_mcp_toolset_field() {
+        let agent = crate::db::models::JoySafeterAgent {
+            id: AgentId::new(),
+            project_id: None,
+            name: "agent".into(),
+            engine_kind: Some("claude".into()),
+            model: None,
+            system_prompt: None,
+            description: None,
+            env: None,
+            mcp_servers: None,
+            skills: None,
+            agents: None,
+            commands: None,
+            tools: Some(json!([{
+                "type": "mcp_toolset",
+                "mcp_server_name": "docs"
+            }])),
+            metadata: None,
+            multiagent: None,
+            version: 1,
+            environment_id: None,
+            model_credential_id: None,
+        };
+
+        let (_, mcp_names) = extract_tool_name_sets(&agent);
+
+        assert!(mcp_names.contains("docs"));
     }
 
     async fn test_pool() -> Option<PgPool> {
@@ -1166,7 +1231,8 @@ mod tests {
             "tools": [{
                 "type": "custom",
                 "name": "snapshot_tool",
-                "description": "from snapshot"
+                "description": "from snapshot",
+                "input_schema": {}
             }],
             "metadata": {"setup_commands": ["echo snapshot-metadata"], "max_turns": 12},
             "skills": [],
@@ -2086,30 +2152,58 @@ fn json_object_to_string_map(value: Option<&serde_json::Value>) -> HashMap<Strin
         .unwrap_or_default()
 }
 
-fn parse_custom_tools(value: Option<&serde_json::Value>) -> Vec<HarnessCustomTool> {
-    value
-        .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter(|item| item.get("type").and_then(|v| v.as_str()) == Some("custom"))
-                .filter_map(|item| {
-                    let name = item.get("name").and_then(|v| v.as_str())?;
-                    Some(HarnessCustomTool {
-                        name: name.to_string(),
-                        description: item
-                            .get("description")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("")
-                            .to_string(),
-                        input_schema_json: item
-                            .get("input_schema")
-                            .map(|v| v.to_string())
-                            .unwrap_or_else(|| "{}".to_string()),
-                    })
-                })
-                .collect()
-        })
-        .unwrap_or_default()
+fn parse_custom_tools(
+    value: Option<&serde_json::Value>,
+) -> Result<Vec<HarnessCustomTool>, CustomToolProjectionError> {
+    let Some(items) = value.and_then(|value| value.as_array()) else {
+        return Ok(Vec::new());
+    };
+    let mut names = std::collections::HashSet::new();
+    let mut custom_tools = Vec::new();
+
+    for item in items
+        .iter()
+        .filter(|item| item.get("type").and_then(|value| value.as_str()) == Some("custom"))
+    {
+        let name = item
+            .get("name")
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or(CustomToolProjectionError::MissingName)?
+            .to_string();
+        if !names.insert(name.clone()) {
+            return Err(CustomToolProjectionError::DuplicateName(name));
+        }
+        let description = item
+            .get("description")
+            .and_then(|value| value.as_str())
+            .ok_or(CustomToolProjectionError::MissingDescription)?
+            .to_string();
+        let input_schema = item
+            .get("input_schema")
+            .and_then(|value| value.as_object())
+            .ok_or(CustomToolProjectionError::InvalidInputSchema)?;
+        custom_tools.push(HarnessCustomTool {
+            name,
+            description,
+            input_schema_json: serde_json::Value::Object(input_schema.clone()).to_string(),
+        });
+    }
+
+    Ok(custom_tools)
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+enum CustomToolProjectionError {
+    #[error("custom tool name must be a non-empty string")]
+    MissingName,
+    #[error("custom tool description must be a string")]
+    MissingDescription,
+    #[error("custom tool input_schema must be an object")]
+    InvalidInputSchema,
+    #[error("duplicate custom tool {0}")]
+    DuplicateName(String),
 }
 
 /// Parse a strict ``MAJOR.MINOR.PATCH`` version into a comparable tuple.
@@ -2200,7 +2294,7 @@ pub fn extract_tool_name_sets(
                         }
                     }
                     "mcp_toolset" => {
-                        if let Some(name) = item.get("name").and_then(|v| v.as_str()) {
+                        if let Some(name) = item.get("mcp_server_name").and_then(|v| v.as_str()) {
                             mcp_names.insert(name.to_string());
                         }
                     }

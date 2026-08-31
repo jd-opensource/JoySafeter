@@ -35,6 +35,54 @@ def test_agent_create_requires_explicit_engine_kind() -> None:
         JoySafeterCreateAgentRequest(name="Agent")
 
 
+def test_agent_tool_policy_serialization_preserves_nullable_inheritance_contract() -> None:
+    request = JoySafeterCreateAgentRequest(
+        name="Agent",
+        engine_kind="claude",
+        tools=[
+            {
+                "type": "agent_toolset_20260401",
+                "configs": [{"name": "Bash"}],
+            },
+            {
+                "type": "mcp_toolset",
+                "mcp_server_name": "docs",
+                "configs": [{"name": "search"}],
+            },
+        ],
+    )
+
+    tools = request.model_dump(mode="json")["tools"]
+
+    assert tools[0]["default_config"] is None
+    assert tools[0]["configs"][0]["permission_policy"] is None
+    assert tools[1]["default_config"] is None
+    assert tools[1]["configs"][0]["permission_policy"] is None
+
+
+def test_agent_toolset_disabled_default_is_preserved_for_runtime_compilation() -> None:
+    request = JoySafeterCreateAgentRequest(
+        name="Agent",
+        engine_kind="codex",
+        tools=[
+            {
+                "type": "agent_toolset_20260401",
+                "default_config": {
+                    "enabled": False,
+                    "permission_policy": {"type": "always_allow"},
+                },
+            }
+        ],
+    )
+
+    default_config = request.model_dump(mode="json")["tools"][0]["default_config"]
+
+    assert default_config == {
+        "permission_policy": {"type": "always_allow"},
+        "enabled": False,
+    }
+
+
 @pytest.mark.parametrize("request_type", [JoySafeterCreateAgentRequest, JoySafeterUpdateAgentRequest])
 def test_agent_requests_reject_removed_system_prompt_field(request_type) -> None:
     payload = {"system_prompt": "old field"}

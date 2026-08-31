@@ -1,4 +1,6 @@
 use super::*;
+use crate::grpc::proto::RunnerMessage;
+use crate::kernel::runner::execution::drive_sandbox_file_request;
 #[tokio::test]
 async fn pending_control_replay_marks_processed_only_after_send_succeeds() {
     let Some(pool) = test_pool().await else {
@@ -180,7 +182,7 @@ async fn pending_control_replay_marks_processed_only_after_send_succeeds() {
 }
 
 #[tokio::test]
-async fn task_setup_failure_result_marks_task_failed_and_keeps_sandbox_error() {
+async fn setup_gate_failure_marks_task_failed_and_keeps_sandbox_error() {
     let Some(pool) = test_pool().await else {
         return;
     };
@@ -208,12 +210,23 @@ async fn task_setup_failure_result_marks_task_failed_and_keeps_sandbox_error() {
             let _ = queries::transition_sandbox_cas(&pool, sandbox_id, "idle", "running")
                 .await
                 .expect("sandbox running");
-            sqlx::query("UPDATE joysafeter_sandboxes SET last_task_id = $2 WHERE id = $1")
+            sqlx::query(
+                r#"
+                UPDATE joysafeter_sandboxes
+                SET last_task_id = $2,
+                    runner_auth_state = 'active',
+                    runner_token_digest = $3
+                WHERE id = $1
+                "#,
+            )
                 .bind(sandbox_id)
                 .bind(task_id)
+                .bind(crate::kernel::runtime_auth::runner_token_digest(
+                    "runner-token",
+                ))
                 .execute(&pool)
                 .await
-                .expect("set sandbox last task");
+                .expect("activate runner and set sandbox last task");
 
             sqlx::query(
                 r#"
@@ -244,39 +257,31 @@ async fn task_setup_failure_result_marks_task_failed_and_keeps_sandbox_error() {
             let event_bus = EventBus::new(pool.clone(), &config, runtime_config, redis_client);
             let (tx, _rx) = mpsc::channel(4);
             let bridge = Arc::new(SandboxBridge::new(sandbox_id, tx));
-            bridge.setup_done.store(true, Ordering::Relaxed);
-            let setup_failure = proto::RunnerHarnessResult {
-                status: "failed".to_string(),
-                error: Some(
-                    "SetupSandbox failed: clone setup repos to /workspace: clone repo missing"
-                        .to_string(),
-                ),
-                ..Default::default()
-            };
-            let mut task_error = false;
+            bridge.restore_applied_setup(0).await;
+            *bridge.current_task_id.lock().await = Some(task_id);
+            let task = queries::get_task(&pool, task_id)
+                .await
+                .expect("load task for setup gate failure")
+                .expect("task exists");
+            let setup_failure =
+                "SetupSandbox failed: clone setup repos to /workspace: clone repo missing";
 
-            let outcome = handle_task_setup_failure_result(
-                &setup_failure,
+            fail_setup_gate(
                 &pool,
                 &event_bus,
                 &bridge,
-                task_id,
-                None,
+                &task,
                 Some(session_id),
                 sandbox_id,
-                &mut task_error,
+                crate::kernel::runner::failure::RunnerFailure::setup_failed(setup_failure),
+                None,
+                &crate::kernel::runner::failure::RunnerFailureService::new(),
+                &config,
             )
             .await;
 
-            assert!(outcome.task_done);
-            assert!(!outcome.runner_idle_seen);
-            assert!(outcome.terminal_idle_handled);
-            assert!(matches!(outcome.task_result, Some(TaskResult::Failed(_))));
-            assert!(task_error);
-            assert!(!bridge.setup_done.load(Ordering::Relaxed));
-            assert!(is_setup_failure_task_result(&TaskResult::Failed(
-                setup_failure.error.clone().unwrap()
-            )));
+            assert_eq!(*bridge.current_task_id.lock().await, None);
+            assert_eq!(*bridge.current_task_owner_epoch.lock().await, None);
 
             let (task_status, task_error_msg): (String, Option<String>) =
                 sqlx::query_as("SELECT status, error FROM joysafeter_tasks WHERE id = $1")
@@ -285,7 +290,7 @@ async fn task_setup_failure_result_marks_task_failed_and_keeps_sandbox_error() {
                     .await
                     .expect("load task after setup failure");
             assert_eq!(task_status, "failed");
-            assert_eq!(task_error_msg, setup_failure.error);
+            assert_eq!(task_error_msg.as_deref(), Some(setup_failure));
 
             let (sandbox_status, setup_error, last_task_id): (String, Option<String>, Option<Uuid>) =
                 sqlx::query_as(
@@ -296,7 +301,7 @@ async fn task_setup_failure_result_marks_task_failed_and_keeps_sandbox_error() {
                 .await
                 .expect("load sandbox after task setup failure");
             assert_eq!(sandbox_status, "error");
-            assert_eq!(setup_error, setup_failure.error);
+            assert_eq!(setup_error.as_deref(), Some(setup_failure));
             assert_eq!(last_task_id, None);
 
             let (session_status, stop_reason): (String, Option<serde_json::Value>) =
@@ -311,7 +316,7 @@ async fn task_setup_failure_result_marks_task_failed_and_keeps_sandbox_error() {
                     .as_ref()
                     .and_then(|value| value.get("message"))
                     .and_then(|value| value.as_str()),
-                setup_failure.error.as_deref()
+                Some(setup_failure)
             );
         }
         .await;
@@ -373,7 +378,7 @@ async fn late_runner_result_after_cancel_keeps_cancelled_session_authority() {
         let mut task_error = false;
         let custom_names = std::collections::HashSet::new();
         let mcp_names = std::collections::HashSet::new();
-
+        let config = JoySafeterConfig::from_env();
         let outcome = handle_task_message(
             &runner_result,
             &pool,
@@ -393,6 +398,11 @@ async fn late_runner_result_after_cancel_keeps_cancelled_session_authority() {
             Arc::new(MemoryStoreSubscribers::new()),
             Arc::new(BridgeRegistry::new()) as Arc<dyn BridgeStore>,
             2000,
+            &RunnerMetrics::default(),
+            &crate::kernel::runner::failure::RunnerFailureService::new(),
+            None,
+            None,
+            &config,
         )
         .await;
 
@@ -485,4 +495,67 @@ async fn late_runner_result_after_cancel_keeps_cancelled_session_authority() {
         .await;
     cleanup(&pool, agent_id, session_id).await;
     result
+}
+
+struct ChannelRunnerInbound {
+    messages: mpsc::Receiver<RunnerMessage>,
+}
+
+#[async_trait::async_trait]
+impl crate::kernel::runner::inbound::RunnerInbound for ChannelRunnerInbound {
+    async fn message(&mut self) -> anyhow::Result<Option<RunnerMessage>> {
+        Ok(self.messages.recv().await)
+    }
+}
+
+#[tokio::test]
+async fn sandbox_file_request_keeps_driving_runner_inbound_until_response() {
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    let (runner_tx, mut runner_rx) = mpsc::channel(4);
+    let bridge = Arc::new(SandboxBridge::new(sandbox_id, runner_tx));
+    let (inbound_tx, inbound_rx) = mpsc::channel(4);
+    let mut inbound = ChannelRunnerInbound {
+        messages: inbound_rx,
+    };
+
+    let response_task = tokio::spawn(async move {
+        let request = runner_rx
+            .recv()
+            .await
+            .expect("receive sandbox file request");
+        let request = match request.payload {
+            Some(orchestrator_message::Payload::SandboxFileRequest(request)) => request,
+            other => panic!("unexpected outbound message: {other:?}"),
+        };
+        inbound_tx
+            .send(RunnerMessage {
+                payload: Some(runner_message::Payload::SandboxFileResponse(
+                    proto::SandboxFileResponse {
+                        request_id: request.request_id,
+                        ok: true,
+                        code: "OK".to_string(),
+                        path: request.path,
+                        content_bytes: b"archive".to_vec(),
+                        ..Default::default()
+                    },
+                )),
+            })
+            .await
+            .expect("send sandbox file response");
+    });
+
+    let response = drive_sandbox_file_request(
+        &mut inbound,
+        &bridge,
+        "archive",
+        "/workspace/artifacts",
+        1024,
+        Duration::from_secs(1),
+    )
+    .await
+    .expect("file request completes while inbound is driven");
+
+    response_task.await.expect("response task completes");
+    assert!(response.ok);
+    assert_eq!(response.content_bytes, b"archive");
 }

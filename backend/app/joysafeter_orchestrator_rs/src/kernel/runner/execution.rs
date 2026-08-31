@@ -6,7 +6,6 @@ use serde_json::json;
 use sqlx::PgPool;
 use tokio::sync::{mpsc, Semaphore};
 use tokio::time::Instant;
-use tonic::Streaming;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -24,14 +23,17 @@ use crate::kernel::ha::BridgeStore;
 use crate::kernel::harness_input_builder::HarnessInputBuilder;
 use crate::kernel::memory_sync::MemoryStoreSubscribers;
 use crate::kernel::queue::TaskQueue;
+use crate::kernel::runner::metrics::RunnerMetrics;
 use crate::kernel::sandbox_bridge::SandboxBridge;
 use crate::kernel::sandbox_resolver::SandboxIdentityPolicy;
 use crate::runtime_config::RuntimeConfig;
 
+use super::failure::{RunnerFailure, RunnerFailureService};
+use super::inbound::RunnerInbound;
 use super::memory_sync::handle_memory_sync_db;
 use super::setup::{
-    build_start_task_full, is_setup_failure_error, is_setup_failure_result,
-    is_setup_failure_task_result, mark_idle_setup_failure, send_setup,
+    build_start_task_full, ensure_setup_applied, handle_out_of_band_setup_result,
+    SetupResultHandling,
 };
 use super::task_lifecycle::{
     compute_stop_reason, emit_session_idle_status, emit_session_running_status,
@@ -43,6 +45,75 @@ use super::task_lifecycle::{
 
 const HEARTBEAT_TIMEOUT_DEFAULT: u64 = 120;
 const LIVE_INPUT_PREFIX: &str = "__joysafeter_input_v1__:";
+
+pub(crate) async fn drive_sandbox_file_request(
+    inbound: &mut dyn RunnerInbound,
+    bridge: &Arc<SandboxBridge>,
+    operation: &str,
+    path: &str,
+    max_bytes: u64,
+    timeout: Duration,
+) -> anyhow::Result<proto::SandboxFileResponse> {
+    let request =
+        bridge.request_sandbox_file(operation.to_string(), path.to_string(), max_bytes, timeout);
+    tokio::pin!(request);
+
+    loop {
+        tokio::select! {
+            response = &mut request => return response,
+            message = inbound.message() => {
+                let Some(message) = message? else {
+                    anyhow::bail!("runner disconnected while waiting for sandbox file response");
+                };
+                match message.payload {
+                    Some(runner_message::Payload::SandboxFileResponse(response)) => {
+                        if bridge.complete_sandbox_file_response(response).await {
+                            return request.await;
+                        } else {
+                            debug!("Received unmatched sandbox file response while request was pending");
+                        }
+                    }
+                    Some(runner_message::Payload::Heartbeat(heartbeat)) => {
+                        if let Err(error) = bridge
+                            .record_runner_heartbeat(
+                                &heartbeat.runtime_state,
+                                heartbeat.active_task_id.as_deref(),
+                                heartbeat.harness_session_id,
+                            )
+                            .await
+                        {
+                            warn!(error = %error, "Ignoring invalid Runner heartbeat while waiting for sandbox file response");
+                        }
+                    }
+                    Some(runner_message::Payload::Idle(_)) => {}
+                    Some(other) => {
+                        debug!(payload = ?other, "Ignoring out-of-scope Runner message while waiting for sandbox file response");
+                    }
+                    None => {}
+                }
+            }
+        }
+    }
+}
+
+async fn archive_task_artifacts(
+    inbound: &mut dyn RunnerInbound,
+    pool: &PgPool,
+    bridge: &Arc<SandboxBridge>,
+    task_id: TaskId,
+    session_id: Option<SessionId>,
+) -> anyhow::Result<Option<crate::ids::FileId>> {
+    let response = drive_sandbox_file_request(
+        inbound,
+        bridge,
+        "archive",
+        crate::sandbox::artifacts::ARTIFACT_DIR,
+        crate::sandbox::artifacts::MAX_ARTIFACT_ARCHIVE_BYTES as u64,
+        Duration::from_secs(30),
+    )
+    .await?;
+    crate::sandbox::artifacts::persist_task_artifacts(pool, task_id, session_id, response).await
+}
 
 /// Owns process-local concurrency state for Runner task execution.
 pub(crate) struct RunnerExecutionService {
@@ -66,7 +137,7 @@ impl RunnerExecutionService {
 // ---------------------------------------------------------------------------
 
 pub(crate) async fn multi_task_loop(
-    inbound: &mut Streaming<RunnerMessage>,
+    inbound: &mut dyn RunnerInbound,
     tx: &mpsc::Sender<OrchestratorMessage>,
     bridge: &Arc<SandboxBridge>,
     pool: &PgPool,
@@ -74,6 +145,8 @@ pub(crate) async fn multi_task_loop(
     queue: &TaskQueue,
     config: &JoySafeterConfig,
     harness_input_builder: &HarnessInputBuilder,
+    runner_metrics: &RunnerMetrics,
+    failure_service: &RunnerFailureService,
     identity_policy: &Arc<dyn SandboxIdentityPolicy>,
     sandbox_db_id: SandboxId,
     sandbox_external_id: &str,
@@ -166,17 +239,27 @@ pub(crate) async fn multi_task_loop(
                                         // This removes the row bloat on long-
                                         // running sandboxes.
                                     }
-                                    Some(runner_message::Payload::Result(result))
-                                        if is_setup_failure_result(result) =>
-                                    {
-                                        mark_idle_setup_failure(
-                                            pool,
-                                            bridge,
-                                            sandbox_db_id,
-                                            result,
-                                        )
-                                        .await;
-                                        return true;
+                                    Some(runner_message::Payload::SetupResult(result)) => {
+                                        match handle_out_of_band_setup_result(bridge, sandbox_db_id, result, runner_metrics).await {
+                                            SetupResultHandling::Applied | SetupResultHandling::Stale => {}
+                                            SetupResultHandling::Failed(reason) => {
+                                                if let Err(error) = failure_service
+                                                    .eject_sandbox(
+                                                        pool,
+                                                        sandbox_db_id,
+                                                        linked_session_id,
+                                                        RunnerFailure::setup_failed(reason),
+                                                        Some(queue),
+                                                        redis_coord,
+                                                        config,
+                                                    )
+                                                    .await
+                                                {
+                                                    warn!(sandbox_id = %sandbox_db_id, error = %error, "Failed to quarantine idle sandbox after SetupSandbox rejection");
+                                                }
+                                                return true;
+                                            }
+                                        }
                                     }
                                     Some(runner_message::Payload::SandboxFileResponse(response)) => {
                                         if !bridge
@@ -339,58 +422,7 @@ pub(crate) async fn multi_task_loop(
             }
         }
 
-        // Send SetupSandbox if not done yet (pool containers)
-        if !bridge.setup_done.load(Ordering::Relaxed) {
-            match send_setup(pool, bridge, sandbox_db_id, tx, harness_input_builder).await {
-                Ok(true) => bridge.setup_done.store(true, Ordering::Relaxed),
-                Ok(false) if session_id.is_none() => {
-                    bridge.setup_done.store(true, Ordering::Relaxed)
-                }
-                Ok(false) => {
-                    error!(
-                        task_id = %task_id,
-                        sandbox_id = %sandbox_db_id,
-                        "Failed to send SetupSandbox because linked session was unavailable"
-                    );
-                    fail_pre_start_task(
-                        pool,
-                        event_bus,
-                        task_id,
-                        task_owner_epoch,
-                        session_id,
-                        sandbox_db_id,
-                        "Failed to send SetupSandbox: linked session unavailable",
-                    )
-                    .await;
-                    *bridge.current_task_id.lock().await = None;
-                    *bridge.current_task_owner_epoch.lock().await = None;
-                    continue;
-                }
-                Err(e) => {
-                    let reason = format!("Failed to send SetupSandbox: {e}");
-                    error!(
-                        task_id = %task_id,
-                        sandbox_id = %sandbox_db_id,
-                        "Failed to send SetupSandbox, marking task failed: {e}",
-                    );
-                    fail_pre_start_task(
-                        pool,
-                        event_bus,
-                        task_id,
-                        task_owner_epoch,
-                        session_id,
-                        sandbox_db_id,
-                        &reason,
-                    )
-                    .await;
-                    *bridge.current_task_id.lock().await = None;
-                    *bridge.current_task_owner_epoch.lock().await = None;
-                    continue;
-                }
-            }
-        }
-
-        // Build and send StartTask (full field resolution from DB)
+        // Resolve the exact task generation before gating dispatch on runner setup.
         let start_task = match build_start_task_full(
             harness_input_builder,
             &task,
@@ -425,6 +457,41 @@ pub(crate) async fn multi_task_loop(
                 continue;
             }
         };
+        if let Err(error) = ensure_setup_applied(
+            inbound,
+            tx,
+            bridge,
+            pool,
+            sandbox_db_id,
+            start_task.runtime_config_generation,
+            harness_input_builder,
+            runner_metrics,
+        )
+        .await
+        {
+            let reason = format!("SetupSandbox gate failed before StartTask: {error}");
+            let failure = if error.is_runner_fault() {
+                RunnerFailure::protocol_invalid(reason.clone())
+            } else {
+                RunnerFailure::setup_failed(reason.clone())
+            };
+            error!(task_id = %task_id, sandbox_id = %sandbox_db_id, "{reason}");
+            fail_setup_gate(
+                pool,
+                event_bus,
+                bridge,
+                &task,
+                session_id,
+                sandbox_db_id,
+                failure,
+                redis_coord,
+                failure_service,
+                config,
+            )
+            .await;
+            return true;
+        }
+
         let msg = OrchestratorMessage {
             payload: Some(orchestrator_message::Payload::Start(start_task)),
         };
@@ -447,6 +514,7 @@ pub(crate) async fn multi_task_loop(
             }
             return false;
         }
+        runner_metrics.record_start_task_dispatched();
         info!(task_id = %task_id, "StartTask sent");
 
         let _ = emit_session_running_status(
@@ -483,6 +551,9 @@ pub(crate) async fn multi_task_loop(
             identity_policy.as_ref(),
             &task_cancel,
             Some(queue),
+            runner_metrics,
+            failure_service,
+            redis_coord,
         )
         .await;
 
@@ -504,18 +575,13 @@ pub(crate) async fn multi_task_loop(
             .requires_action_pending
             .store(false, Ordering::Relaxed);
         bridge.reset_confirmation();
-        let setup_failure = is_setup_failure_task_result(&result);
-        if !matches!(result, TaskResult::Disconnected) && !setup_failure {
-            if let Err(e) =
-                crate::sandbox::artifacts::archive_task_artifacts(pool, bridge, task_id, session_id)
-                    .await
+        if !matches!(result, TaskResult::Disconnected) {
+            if let Err(e) = archive_task_artifacts(inbound, pool, bridge, task_id, session_id).await
             {
                 warn!(task_id = %task_id, error = %e, "Failed to archive task artifacts");
             }
         }
-        if !setup_failure {
-            let _ = queries::complete_sandbox_task(pool, sandbox_db_id).await;
-        }
+        let _ = queries::complete_sandbox_task(pool, sandbox_db_id).await;
         heartbeat_deadline = Instant::now() + heartbeat_timeout;
 
         // Remove the task-to-sandbox mapping and publish completion.
@@ -526,8 +592,6 @@ pub(crate) async fn multi_task_loop(
                     .unwrap_or_default();
             let _ = coord.publish_task_event(task_id, &complete_payload).await;
             let _ = coord.remove_task_sandbox(task_id).await;
-            // Refresh the sandbox ownership TTL.
-            let _ = coord.refresh_sandbox(sandbox_db_id).await;
         }
 
         match result {
@@ -535,10 +599,6 @@ pub(crate) async fn multi_task_loop(
                 consecutive_failures = 0;
                 *bridge.last_error.lock().await = None;
                 info!(task_id = %task_id, "Task completed successfully");
-            }
-            TaskResult::Failed(ref reason) if is_setup_failure_error(reason) => {
-                warn!(task_id = %task_id, "SetupSandbox failed during task dispatch: {reason}");
-                return true;
             }
             TaskResult::Failed(ref reason) => {
                 consecutive_failures += 1;
@@ -560,13 +620,74 @@ pub(crate) async fn multi_task_loop(
 
         // Ejection check
         if consecutive_failures >= runtime_config.sandbox_failure_threshold() {
+            let reason = format!(
+                "runner exceeded consecutive task failure threshold after {consecutive_failures} failures"
+            );
             warn!(
                 sandbox_id = %sandbox_external_id,
                 failures = consecutive_failures,
                 "Sandbox exceeded failure threshold, ejecting"
             );
+            if let Err(error) = failure_service
+                .eject_sandbox(
+                    pool,
+                    sandbox_db_id,
+                    None,
+                    RunnerFailure::execution_unhealthy(reason),
+                    Some(queue),
+                    redis_coord,
+                    config,
+                )
+                .await
+            {
+                warn!(sandbox_id = %sandbox_db_id, error = %error, "Failed to quarantine unhealthy Runner after task failure threshold");
+            }
             return true; // failure_ejected
         }
+    }
+}
+
+pub(crate) async fn fail_setup_gate(
+    pool: &PgPool,
+    event_bus: &EventBus,
+    bridge: &Arc<SandboxBridge>,
+    task: &crate::db::models::JoySafeterTask,
+    session_id: Option<SessionId>,
+    sandbox_db_id: SandboxId,
+    failure: RunnerFailure,
+    redis_coord: Option<&crate::kernel::redis_coordinator::RedisCoordinator>,
+    failure_service: &RunnerFailureService,
+    config: &JoySafeterConfig,
+) {
+    let reason = failure.message().to_string();
+    fail_pre_start_task(
+        pool,
+        event_bus,
+        task.id,
+        task.owner_epoch,
+        session_id,
+        sandbox_db_id,
+        &reason,
+    )
+    .await;
+    if let Err(error) = failure_service
+        .eject_sandbox(
+            pool,
+            sandbox_db_id,
+            None,
+            failure,
+            None,
+            redis_coord,
+            config,
+        )
+        .await
+    {
+        warn!(sandbox_id = %sandbox_db_id, error = %error, "Failed to quarantine sandbox after SetupSandbox gate failure");
+    }
+    *bridge.current_task_id.lock().await = None;
+    *bridge.current_task_owner_epoch.lock().await = None;
+    if let Some(coord) = redis_coord {
+        let _ = coord.remove_task_sandbox(task.id).await;
     }
 }
 
@@ -577,105 +698,13 @@ pub(crate) struct TaskMessageOutcome {
     pub(crate) terminal_idle_handled: bool,
     pub(crate) task_result: Option<TaskResult>,
 }
-pub(crate) async fn handle_task_setup_failure_result(
-    harness_result: &proto::RunnerHarnessResult,
-    pool: &PgPool,
-    event_bus: &EventBus,
-    bridge: &Arc<SandboxBridge>,
-    task_id: TaskId,
-    expected_owner_epoch: Option<i64>,
-    session_id: Option<SessionId>,
-    sandbox_db_id: SandboxId,
-    task_error: &mut bool,
-) -> TaskMessageOutcome {
-    *task_error = true;
-    let error = harness_result
-        .error
-        .as_deref()
-        .unwrap_or("SetupSandbox failed");
-
-    let cas_ok = match queries::transition_task_cas(
-        pool,
-        task_id,
-        "running",
-        "failed",
-        Some(error),
-        expected_owner_epoch,
-    )
-    .await
-    {
-        Ok(true) => true,
-        Ok(false) => {
-            warn!(task_id = %task_id, "CAS conflict: task already terminal, ignoring setup failure result");
-            false
-        }
-        Err(db_error) => {
-            error!(task_id = %task_id, error = %db_error, "Failed to transition setup failure result");
-            false
-        }
-    };
-    if cas_ok {
-        let _ = queries::complete_task(
-            pool,
-            task_id,
-            "failed",
-            Some(&harness_result.output),
-            Some(error),
-            None,
-        )
-        .await;
-    }
-    let task_result = if cas_ok {
-        TaskResult::Failed(error.to_string())
-    } else {
-        load_terminal_task_result(pool, task_id)
-            .await
-            .unwrap_or_else(|| TaskResult::Failed(error.to_string()))
-    };
-
-    mark_idle_setup_failure(pool, bridge, sandbox_db_id, harness_result).await;
-    *bridge.last_result_status.lock().await = Some("failed".to_string());
-    *bridge.last_result_error.lock().await = Some(error.to_string());
-
-    let result_payload = json!({
-        "type": "complete",
-        "status": "failed",
-        "output": harness_result.output,
-        "error": error,
-        "duration_ms": harness_result.duration_ms,
-    });
-    bridge.broadcast_to_task(task_id, result_payload).await;
-    bridge.remove_task_subscribers(task_id).await;
-
-    if cas_ok {
-        emit_session_idle_status(
-            pool,
-            event_bus,
-            task_id,
-            session_id,
-            sandbox_db_id,
-            json!({"type": "error", "message": error}),
-            "setup failure result",
-        )
-        .await;
-        event_bus.flush().await;
-    }
-
-    info!(task_id = %task_id, "SetupSandbox failure result received during task dispatch");
-    TaskMessageOutcome {
-        task_done: true,
-        terminal_idle_handled: true,
-        task_result: Some(task_result),
-        ..Default::default()
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Single task event loop — with HITL support
 // ---------------------------------------------------------------------------
 
 pub(crate) async fn run_single_task(
-    inbound: &mut Streaming<RunnerMessage>,
+    inbound: &mut dyn RunnerInbound,
     tx: &mpsc::Sender<OrchestratorMessage>,
     bridge: &Arc<SandboxBridge>,
     pool: &PgPool,
@@ -691,6 +720,9 @@ pub(crate) async fn run_single_task(
     identity_policy: &dyn SandboxIdentityPolicy,
     task_cancel: &tokio_util::sync::CancellationToken,
     queue: Option<&TaskQueue>,
+    runner_metrics: &RunnerMetrics,
+    failure_service: &RunnerFailureService,
+    redis_coord: Option<&crate::kernel::redis_coordinator::RedisCoordinator>,
 ) -> TaskResult {
     // Prefer the persisted per-task timeout, falling back to the configured default.
     let timeout_secs = match queries::get_task(pool, task_id).await {
@@ -971,6 +1003,11 @@ pub(crate) async fn run_single_task(
                             &custom_names, &mcp_names,
                             memory_subscribers.clone(), bridge_store.clone(),
                             config.grpc_max_memories_per_store,
+                            runner_metrics,
+                            failure_service,
+                            queue,
+                            redis_coord,
+                            config,
                         ).await;
                         if outcome.task_done { task_done = true; }
                         if outcome.runner_idle_seen { runner_idle_seen = true; }
@@ -1116,6 +1153,11 @@ pub(crate) async fn handle_task_message(
     memory_subscribers: Arc<MemoryStoreSubscribers>,
     bridge_store: Arc<dyn BridgeStore>,
     max_memories_per_store: i64,
+    runner_metrics: &RunnerMetrics,
+    failure_service: &RunnerFailureService,
+    queue: Option<&TaskQueue>,
+    redis_coord: Option<&crate::kernel::redis_coordinator::RedisCoordinator>,
+    config: &JoySafeterConfig,
 ) -> TaskMessageOutcome {
     let payload = match &msg.payload {
         Some(p) => p,
@@ -1237,21 +1279,6 @@ pub(crate) async fn handle_task_message(
         }
 
         runner_message::Payload::Result(harness_result) => {
-            if is_setup_failure_result(harness_result) {
-                return handle_task_setup_failure_result(
-                    harness_result,
-                    pool,
-                    event_bus,
-                    bridge,
-                    task_id,
-                    expected_owner_epoch,
-                    session_id,
-                    sandbox_db_id,
-                    task_error,
-                )
-                .await;
-            }
-
             let status = harness_result.status.as_str();
             match status {
                 "completed" => *task_completed = true,
@@ -1504,6 +1531,49 @@ pub(crate) async fn handle_task_message(
             }
             debug!(task_id = %task_id, "Heartbeat");
             TaskMessageOutcome::default()
+        }
+
+        runner_message::Payload::SetupResult(result) => {
+            match handle_out_of_band_setup_result(bridge, sandbox_db_id, result, runner_metrics)
+                .await
+            {
+                SetupResultHandling::Applied | SetupResultHandling::Stale => {
+                    TaskMessageOutcome::default()
+                }
+                SetupResultHandling::Failed(reason) => {
+                    *task_error = true;
+                    fail_pre_start_task(
+                        pool,
+                        event_bus,
+                        task_id,
+                        expected_owner_epoch,
+                        session_id,
+                        sandbox_db_id,
+                        &reason,
+                    )
+                    .await;
+                    if let Err(error) = failure_service
+                        .eject_sandbox(
+                            pool,
+                            sandbox_db_id,
+                            None,
+                            RunnerFailure::setup_failed(reason.clone()),
+                            queue,
+                            redis_coord,
+                            config,
+                        )
+                        .await
+                    {
+                        warn!(sandbox_id = %sandbox_db_id, error = %error, "Failed to quarantine running sandbox after SetupSandbox rejection");
+                    }
+                    TaskMessageOutcome {
+                        task_done: true,
+                        terminal_idle_handled: true,
+                        task_result: Some(TaskResult::Failed(reason)),
+                        ..Default::default()
+                    }
+                }
+            }
         }
 
         runner_message::Payload::MemorySync(sync_msg) => {

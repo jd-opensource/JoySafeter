@@ -2,7 +2,7 @@ use super::*;
 use crate::config::JoySafeterConfig;
 use crate::db::models::JoySafeterAgent;
 use crate::db::task_identity_store::PostgresTaskIdentityStore;
-use crate::ids::{CredentialGroupId, FileId, OrganizationId, SessionResourceId};
+use crate::ids::{CredentialGroupId, EnvironmentId, FileId, OrganizationId, SessionResourceId};
 use crate::kernel::credentials::access::{
     CredentialAccessContext, CredentialMaterialAccessService,
 };
@@ -1048,7 +1048,7 @@ impl SandboxProvider for RecordingProvider {
             has_host_mount: false,
             has_egress_management: true,
             network_isolation: crate::sandbox::provider::NetworkIsolation::Envoy,
-            stop_preserves_state: false,
+            stop_semantics: crate::sandbox::provider::StopSemantics::Destructive,
         }
     }
 }
@@ -1672,7 +1672,6 @@ async fn task_identity_context_is_project_scoped_expiring_and_single_consume() {
     let failing_task_id = TaskId::from_uuid(Uuid::now_v7());
     let expired_task_id = TaskId::from_uuid(Uuid::now_v7());
     let malformed_task_id = TaskId::from_uuid(Uuid::now_v7());
-    let invalid_kind_task_id = TaskId::from_uuid(Uuid::now_v7());
     let session_id = SessionId::from_uuid(Uuid::now_v7());
     let unique = Uuid::now_v7().simple().to_string();
     let project_id = ProjectId::new();
@@ -2719,7 +2718,7 @@ async fn sandbox_resolver_new_sandbox_error_race_does_not_destroy_changed_runtim
     let err = result.expect_err("concurrent new-sandbox error must abort resolve");
     let message = err.to_string();
     assert!(
-        message.contains("changed state before provisioning transition"),
+        message.contains("concurrent new sandbox error"),
         "{message}"
     );
     assert!(destroyed.is_empty());
@@ -3703,35 +3702,53 @@ async fn sandbox_resolver_restart_does_not_resurrect_concurrent_error() {
 }
 
 #[tokio::test]
-async fn sandbox_resolver_restart_claims_row_before_provider_start() {
+async fn sandbox_resolver_restart_claims_before_start_and_restores_limited_networking() {
     let Some(pool) = test_pool().await else {
         return;
     };
 
     let agent_id = AgentId::from_uuid(Uuid::now_v7());
+    let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
     let session_id = SessionId::from_uuid(Uuid::now_v7());
     let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
     let unique = agent_id.as_uuid().simple().to_string();
     let image = format!("resolver-restart-ordering-{unique}:latest");
     let external_id = format!("resolver-restart-ordering-{sandbox_id}");
+    let networking = serde_json::json!({"type": "limited", "allowed_hosts": []});
 
     async {
             sqlx::query(
                 r#"
+                INSERT INTO joysafeter_environments
+                    (id, name, description, config, image_tag, image_version)
+                VALUES ($1, $2, 'resolver restart ordering environment', $3, $4, 1)
+                "#,
+            )
+            .bind(environment_id)
+            .bind(format!("resolver-restart-ordering-environment-{unique}"))
+            .bind(serde_json::json!({"networking": networking.clone()}))
+            .bind(&image)
+            .execute(&pool)
+            .await
+            .expect("insert resolver restart ordering environment");
+
+            sqlx::query(
+                r#"
                 INSERT INTO joysafeter_agents (
                     id, name, engine_kind, model, system_prompt, env, mcp_servers,
-                    skills, tools, agents, commands, metadata, version
+                    skills, tools, agents, commands, metadata, version, environment_id
                 )
                 VALUES (
                     $1, $2, 'claude', $3, 'resolver restart ordering system', '{}'::jsonb, '[]'::jsonb,
                     '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
-                    '{}'::jsonb, 1
+                    '{}'::jsonb, 1, $4
                 )
                 "#,
             )
             .bind(agent_id)
             .bind(format!("resolver-restart-ordering-agent-{unique}"))
             .bind(serde_json::json!({"id": "resolver-restart-ordering-model"}))
+            .bind(environment_id)
             .execute(&pool)
             .await
             .expect("insert resolver restart ordering agent");
@@ -3751,10 +3768,16 @@ async fn sandbox_resolver_restart_claims_row_before_provider_start() {
             let expected = ExpectedFingerprint {
                 image: image.clone(),
                 engine_kind: "claude".to_string(),
-                networking: None,
+                networking: Some(networking.clone()),
                 env: HashMap::new(),
                 mounts: vec![],
-                egress_policy_hash: empty_network_policy_revision(),
+                egress_policy_hash: DesiredNetworkPolicy::from_inputs(
+                    Some(&networking),
+                    &SandboxCredentials::default(),
+                )
+                .expect("build limited policy")
+                .revision()
+                .to_string(),
             };
             let sandbox_config = provisioning_config(
                 "stopped_for_restart",
@@ -3792,11 +3815,11 @@ async fn sandbox_resolver_restart_claims_row_before_provider_start() {
             config.sandbox_provider = "recording".to_string();
             config.sandbox_pool_enabled = false;
             config.sandbox_workspace_root = None;
-            config.envoy_enabled = false;
+            config.envoy_enabled = true;
             config.sandbox_image = image.clone();
             config.image_claude = image.clone();
 
-            let resolver = SandboxResolver::new(pool.clone(), provider.clone(), config);
+            let resolver = recording_resolver(pool.clone(), provider.clone(), config);
             let resolved = resolver
                 .resolve(
                     TaskId::from_uuid(Uuid::now_v7()),
@@ -3813,14 +3836,26 @@ async fn sandbox_resolver_restart_claims_row_before_provider_start() {
                 provider.start_observed_statuses.lock().await.as_slice(),
                 &["provisioning".to_string()]
             );
+            assert_eq!(
+                provider.networking.lock().await.as_slice(),
+                &[(
+                    sandbox_id,
+                    Some(serde_json::json!({
+                        "type": "limited",
+                        "allowed_hosts": []
+                    }))
+                )]
+            );
 
-            let sandbox_status: String =
-                sqlx::query_scalar("SELECT status FROM joysafeter_sandboxes WHERE id = $1")
+            let sandbox_status: (String, String) =
+                sqlx::query_as(
+                    "SELECT status, networking_status FROM joysafeter_sandboxes WHERE id = $1",
+                )
                     .bind(sandbox_id)
                     .fetch_one(&pool)
                     .await
                     .expect("load restarted sandbox status");
-            assert_eq!(sandbox_status, "provisioning");
+            assert_eq!(sandbox_status, ("provisioning".to_string(), "ready".to_string()));
         }
         .await;
 
@@ -3834,6 +3869,172 @@ async fn sandbox_resolver_restart_claims_row_before_provider_start() {
         .await;
     let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
         .bind(agent_id)
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("DELETE FROM joysafeter_environments WHERE id = $1")
+        .bind(environment_id)
+        .execute(&pool)
+        .await;
+}
+
+#[tokio::test]
+async fn sandbox_resolver_destroys_restarted_sandbox_when_network_restore_fails() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+
+    let agent_id = AgentId::from_uuid(Uuid::now_v7());
+    let environment_id = EnvironmentId::from_uuid(Uuid::now_v7());
+    let session_id = SessionId::from_uuid(Uuid::now_v7());
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    let unique = agent_id.as_uuid().simple().to_string();
+    let image = format!("resolver-restart-network-failure-{unique}:latest");
+    let external_id = format!("resolver-restart-network-failure-{sandbox_id}");
+    let networking = serde_json::json!({"type": "limited", "allowed_hosts": []});
+
+    async {
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_environments
+                (id, name, description, config, image_tag, image_version)
+            VALUES ($1, $2, 'resolver restart failure environment', $3, $4, 1)
+            "#,
+        )
+        .bind(environment_id)
+        .bind(format!("resolver-restart-failure-environment-{unique}"))
+        .bind(serde_json::json!({"networking": networking.clone()}))
+        .bind(&image)
+        .execute(&pool)
+        .await
+        .expect("insert resolver restart failure environment");
+
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_agents (
+                id, name, engine_kind, model, system_prompt, env, mcp_servers,
+                skills, tools, agents, commands, metadata, version, environment_id
+            )
+            VALUES (
+                $1, $2, 'claude', $3, 'resolver restart failure system', '{}'::jsonb, '[]'::jsonb,
+                '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb,
+                '{}'::jsonb, 1, $4
+            )
+            "#,
+        )
+        .bind(agent_id)
+        .bind(format!("resolver-restart-failure-agent-{unique}"))
+        .bind(serde_json::json!({"id": "resolver-restart-failure-model"}))
+        .bind(environment_id)
+        .execute(&pool)
+        .await
+        .expect("insert resolver restart failure agent");
+
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_sessions (id, agent_id, status)
+            VALUES ($1, $2, 'idle')
+            "#,
+        )
+        .bind(session_id)
+        .bind(agent_id)
+        .execute(&pool)
+        .await
+        .expect("insert resolver restart failure session");
+
+        let expected = ExpectedFingerprint {
+            image: image.clone(),
+            engine_kind: "claude".to_string(),
+            networking: Some(networking.clone()),
+            env: HashMap::new(),
+            mounts: vec![],
+            egress_policy_hash: DesiredNetworkPolicy::from_inputs(
+                Some(&networking),
+                &SandboxCredentials::default(),
+            )
+            .expect("build limited policy")
+            .revision()
+            .to_string(),
+        };
+        let sandbox_config = provisioning_config(
+            "stopped_for_restart",
+            100,
+            "Stopped sandbox ready for restart",
+            true,
+            &expected,
+            Some("resolver-restart-failure-token"),
+        );
+
+        queries::create_sandbox(
+            &pool,
+            sandbox_id,
+            &external_id,
+            "recording",
+            &image,
+            Some(session_id),
+            None,
+            None,
+            Some(&sandbox_config),
+        )
+        .await
+        .expect("create restart failure sandbox");
+        sqlx::query("UPDATE joysafeter_sandboxes SET status = 'stopped' WHERE id = $1")
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await
+            .expect("mark restart failure sandbox stopped");
+
+        let provider = Arc::new(RecordingProvider {
+            networking_error: Mutex::new(Some("network restore failed".to_string())),
+            ..Default::default()
+        });
+        let mut config = JoySafeterConfig::from_env();
+        config.sandbox_provider = "recording".to_string();
+        config.sandbox_pool_enabled = false;
+        config.sandbox_workspace_root = None;
+        config.envoy_enabled = true;
+        config.sandbox_image = image.clone();
+        config.image_claude = image.clone();
+
+        let resolver = recording_resolver(pool.clone(), provider.clone(), config);
+        let error = resolver
+            .resolve(
+                TaskId::from_uuid(Uuid::now_v7()),
+                Some(session_id),
+                Some(agent_id),
+                None,
+            )
+            .await
+            .expect_err("network restore failure must reject restarted sandbox");
+        assert!(format!("{error:#}").contains("network restore failed"));
+        assert_eq!(
+            provider.destroyed.lock().await.as_slice(),
+            &[external_id.clone()]
+        );
+
+        let status: String =
+            sqlx::query_scalar("SELECT status FROM joysafeter_sandboxes WHERE id = $1")
+                .bind(sandbox_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load sandbox after failed network restore");
+        assert_eq!(status, "destroyed");
+    }
+    .await;
+
+    let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+        .bind(sandbox_id)
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id = $1")
+        .bind(session_id)
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id = $1")
+        .bind(agent_id)
+        .execute(&pool)
+        .await;
+    let _ = sqlx::query("DELETE FROM joysafeter_environments WHERE id = $1")
+        .bind(environment_id)
         .execute(&pool)
         .await;
 }

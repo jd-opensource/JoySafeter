@@ -441,7 +441,6 @@ impl CommandListener {
         }
 
         if let Some(ref coord) = self.redis_coordinator {
-            let _ = coord.remove_sandbox(sandbox_id).await;
             let _ = coord.remove_sandbox_queue(sandbox_id).await;
         }
 

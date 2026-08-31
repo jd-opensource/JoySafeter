@@ -17,7 +17,7 @@ use super::mounts::SandboxMount;
 use super::pod_watcher::PodWatcher;
 use super::provider::{
     NetworkIsolation, ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig,
-    SandboxProvider, SandboxStatus,
+    SandboxProvider, SandboxStatus, StopSemantics,
 };
 use super::runtime::{PlacementEventSink, SandboxSocketProvisioner};
 use crate::config::JoySafeterConfig;
@@ -749,7 +749,7 @@ impl SandboxProvider for K8sProvider {
             } else {
                 NetworkIsolation::None
             },
-            stop_preserves_state: false,
+            stop_semantics: StopSemantics::Destructive,
         }
     }
 }

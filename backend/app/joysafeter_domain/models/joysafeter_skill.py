@@ -16,7 +16,7 @@ import enum
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, ClassVar, List, Optional
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -24,6 +24,7 @@ from app.joysafeter_shared.database import Base
 from app.joysafeter_shared.ids import (
     AgentId,
     ProjectId,
+    SandboxId,
     SessionId,
     SkillFileId,
     SkillId,
@@ -486,7 +487,7 @@ class JoySafeterSkillVersionFile(JoySafeterModel):
 
 
 class JoySafeterSkillUsageLog(Base, TimestampMixin):
-    """One row per successful skill pack into a session bundle.
+    """One row per skill artifact confirmed loaded in a sandbox.
 
     ``created_at`` (from ``TimestampMixin``) is the load timestamp; no
     ``updated_at`` semantics — rows are insert-only by design.
@@ -525,6 +526,10 @@ class JoySafeterSkillUsageLog(Base, TimestampMixin):
     target_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     artifact_hash: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
+    # Runtime identity that owns idempotency. Historical rows remain NULL;
+    # newly confirmed Runner loads always provide a sandbox id.
+    sandbox_id: Mapped[Optional[SandboxId]] = mapped_column(EntityIdType(SandboxId), nullable=True)
+
     # Which session loaded this skill. Stored as the underlying UUID via the
     # typed-id persistence codec so reads hydrate to a SessionId symmetrically;
     # no FK because the audit row must survive session deletion.
@@ -559,6 +564,16 @@ class JoySafeterSkillUsageLog(Base, TimestampMixin):
         Index("skill_usage_log_artifact_hash_idx", "artifact_hash"),
         Index("skill_usage_log_target_hash_idx", "target_hash"),
         Index("skill_usage_log_security_scan_idx", "security_scan_id"),
+        Index(
+            "uq_skill_usage_log_sandbox_artifact",
+            "sandbox_id",
+            "skill_id",
+            "skill_version",
+            "target",
+            "artifact_hash",
+            unique=True,
+            postgresql_where=text("sandbox_id IS NOT NULL"),
+        ),
         Index(
             "skill_usage_log_project_artifact_created_idx",
             "project_id",

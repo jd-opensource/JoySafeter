@@ -1,10 +1,16 @@
 from pathlib import Path
 from re import DOTALL, findall
 
+import pytest
+
+pytestmark = pytest.mark.no_db
+
 KERNEL_ROOT = Path(__file__).parents[1] / "app" / "joysafeter_orchestrator_rs" / "src" / "kernel"
-RUNTIME_CONSUMERS = ("harness_input_builder.rs", "sandbox_resolver.rs")
 CREDENTIAL_STORE = KERNEL_ROOT / "credentials" / "store.rs"
 MCP_RUNTIME_PLAN = KERNEL_ROOT / "mcp_runtime_plan.rs"
+SANDBOX_CONTEXT = KERNEL_ROOT / "sandbox_resolver" / "context.rs"
+ENVIRONMENT_PROJECTION = KERNEL_ROOT / "credentials" / "runtime_projection" / "environment.rs"
+EXTERNAL_EGRESS_PROJECTION = KERNEL_ROOT / "credentials" / "runtime_projection" / "external_egress.rs"
 
 
 def _select_statements(source: str) -> list[str]:
@@ -17,11 +23,15 @@ def _select_statements(source: str) -> list[str]:
 
 def test_runtime_consumers_delegate_credential_reads_to_the_central_store() -> None:
     harness_source = (KERNEL_ROOT / "harness_input_builder.rs").read_text()
-    sandbox_source = (KERNEL_ROOT / "sandbox_resolver.rs").read_text()
+    sandbox_context_source = SANDBOX_CONTEXT.read_text()
+    environment_projection_source = ENVIRONMENT_PROJECTION.read_text()
+    external_egress_projection_source = EXTERNAL_EGRESS_PROJECTION.read_text()
 
     for relative_path, source in (
         ("harness_input_builder.rs", harness_source),
-        ("sandbox_resolver.rs", sandbox_source),
+        ("sandbox_resolver/context.rs", sandbox_context_source),
+        ("credentials/runtime_projection/environment.rs", environment_projection_source),
+        ("credentials/runtime_projection/external_egress.rs", external_egress_projection_source),
     ):
         assert _select_statements(source) == [], relative_path
         assert "CredentialMaterialAccessService" in source, relative_path
@@ -31,9 +41,9 @@ def test_runtime_consumers_delegate_credential_reads_to_the_central_store() -> N
     runtime_plan_source = MCP_RUNTIME_PLAN.read_text()
     assert ".load_mcp_member_metadata(" in runtime_plan_source
     assert ".resolve_mcp_member(" in runtime_plan_source
-    assert ".resolve_model(" in sandbox_source
-    assert "resolve_mcp_runtime_plan_with_access(" in sandbox_source
-    assert ".resolve_http_egress_field(" in sandbox_source
+    assert ".resolve_model(" in environment_projection_source
+    assert "resolve_mcp_runtime_plan_with_access(" in sandbox_context_source
+    assert ".resolve_http_egress_field(" in external_egress_projection_source
 
 
 def test_central_store_queries_load_lifecycle_state_for_fail_closed_validation() -> None:

@@ -6,18 +6,13 @@ use flate2::Compression;
 use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool};
 use tar::{Builder, Header};
-use tracing::warn;
-use uuid::Uuid;
 
-use crate::ids::{
-    OrganizationId, ProjectId, SkillId, SkillSecurityScanId, SkillUsageId, SkillVersionId,
-};
+use crate::ids::{OrganizationId, ProjectId, SkillId, SkillSecurityScanId, SkillVersionId};
 use crate::kernel::harness_contract::{HarnessInput, HarnessSkillArchive};
 
 pub(super) async fn resolve(
     pool: &PgPool,
     agent: &crate::db::models::JoySafeterAgent,
-    task: &crate::db::models::JoySafeterTask,
     input: &mut HarnessInput,
 ) -> anyhow::Result<()> {
     for (target, items) in [
@@ -29,7 +24,7 @@ pub(super) async fn resolve(
             continue;
         };
         for item in arr {
-            let archive = resolve_skill_item(pool, target, item, agent, task).await?;
+            let archive = resolve_skill_item(pool, target, item, agent).await?;
             input.skills.push(archive);
         }
     }
@@ -41,7 +36,6 @@ async fn resolve_skill_item(
     target: &str,
     item: &serde_json::Value,
     agent: &crate::db::models::JoySafeterAgent,
-    task: &crate::db::models::JoySafeterTask,
 ) -> anyhow::Result<HarnessSkillArchive> {
     if target != "skills" {
         let encoded = item
@@ -61,6 +55,14 @@ async fn resolve_skill_item(
             name: name.to_string(),
             tar_gz: data,
             target: target.to_string(),
+            skill_id: None,
+            skill_version: None,
+            skill_version_id: None,
+            skill_name: None,
+            skill_source_type: None,
+            security_scan_id: None,
+            target_hash: None,
+            artifact_hash: None,
         });
     }
 
@@ -73,7 +75,7 @@ async fn resolve_skill_item(
         .unwrap_or("latest");
     let skill_id = SkillId::from_public(skill_id)
         .map_err(|_| anyhow::anyhow!("invalid skill_id for target {target}: {skill_id}"))?;
-    pack_skill(pool, skill_id, version, target, agent, task).await
+    pack_skill(pool, skill_id, version, target, agent).await
 }
 
 async fn pack_skill(
@@ -82,7 +84,6 @@ async fn pack_skill(
     version: &str,
     target: &str,
     agent: &crate::db::models::JoySafeterAgent,
-    task: &crate::db::models::JoySafeterTask,
 ) -> anyhow::Result<HarnessSkillArchive> {
     let skill = load_skill_for_archive(pool, skill_id, agent.project_id)
         .await?
@@ -109,23 +110,20 @@ async fn pack_skill(
     let skill_name = version_meta.skill_name.clone();
     let data = create_targz(&skill_name, &files)?;
     let artifact_hash = hex::encode(Sha256::digest(&data));
-    record_skill_usage(
-        pool,
-        skill_id,
-        &resolved_version,
-        &version_meta,
-        &skill,
-        &artifact_hash,
-        target,
-        agent,
-        task,
-    )
-    .await;
+    let (security_scan_id, target_hash) = published_version_scan_audit(&version_meta);
 
     Ok(HarnessSkillArchive {
-        name: skill_name,
+        name: skill_name.clone(),
         tar_gz: data,
         target: target.to_string(),
+        skill_id: Some(skill_id.to_string()),
+        skill_version: Some(resolved_version),
+        skill_version_id: Some(version_meta.id.to_string()),
+        skill_name: Some(skill_name),
+        skill_source_type: skill.source_type,
+        security_scan_id: security_scan_id.map(|id| id.to_string()),
+        target_hash: target_hash.map(str::to_string),
+        artifact_hash: Some(artifact_hash),
     })
 }
 
@@ -179,52 +177,6 @@ async fn load_skill_version_meta(
     .fetch_optional(pool)
     .await
     .map_err(Into::into)
-}
-
-async fn record_skill_usage(
-    pool: &PgPool,
-    skill_id: SkillId,
-    skill_version: &str,
-    version_meta: &SkillVersionForArchive,
-    skill: &SkillForArchive,
-    artifact_hash: &str,
-    target: &str,
-    agent: &crate::db::models::JoySafeterAgent,
-    task: &crate::db::models::JoySafeterTask,
-) {
-    let skill_version_id = Some(version_meta.id);
-    let (security_scan_id, target_hash) = published_version_scan_audit(version_meta);
-    if let Err(e) = sqlx::query(
-        r#"
-        INSERT INTO joysafeter_skill_usage_log
-          (id, skill_id, skill_name, skill_source_type, skill_version, skill_version_id,
-           target, security_scan_id, target_hash, artifact_hash,
-           session_id, agent_id, project_id, user_id, created_at, updated_at)
-        VALUES ($1, $2, $3, $4, $5,
-                CASE WHEN $6::uuid IS NULL THEN NULL
-                     WHEN EXISTS (SELECT 1 FROM joysafeter_skill_versions WHERE id = $6) THEN $6
-                     ELSE NULL END,
-                $7, $8, $9, $10, $11, $12, $13, NULL, NOW(), NOW())
-        "#,
-    )
-    .bind(SkillUsageId::from_uuid(Uuid::now_v7()))
-    .bind(skill_id)
-    .bind(&version_meta.skill_name)
-    .bind(skill.source_type.as_deref())
-    .bind(skill_version)
-    .bind(skill_version_id)
-    .bind(target)
-    .bind(security_scan_id)
-    .bind(target_hash)
-    .bind(artifact_hash)
-    .bind(task.session_id.map(|id| id.as_uuid()))
-    .bind(agent.id.as_uuid())
-    .bind(agent.project_id)
-    .execute(pool)
-    .await
-    {
-        warn!(skill_id = %skill_id, "Failed to write skill usage audit row: {e}");
-    }
 }
 
 /// Return the highest published version string for a skill, or None if it

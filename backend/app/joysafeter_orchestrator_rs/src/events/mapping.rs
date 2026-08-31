@@ -31,7 +31,7 @@ pub fn map_harness_event(
                 .map(|s| s.contains(tool_name))
                 .unwrap_or(false);
             let is_mcp = mcp_server_names
-                .map(|s| s.contains(tool_name))
+                .map(|servers| is_mcp_runtime_tool(tool_name, servers))
                 .unwrap_or(false);
 
             let event_type = if is_custom {
@@ -73,7 +73,7 @@ pub fn map_harness_event(
 
             // Check if this is an MCP tool result (matching Python event_mapping.py line 153)
             let is_mcp = mcp_server_names
-                .map(|s| s.contains(tool_name))
+                .map(|servers| is_mcp_runtime_tool(tool_name, servers))
                 .unwrap_or(false);
 
             let event_type = if is_mcp {
@@ -172,10 +172,73 @@ pub fn map_harness_event(
     }
 }
 
+fn is_mcp_runtime_tool(tool_name: &str, server_names: &HashSet<String>) -> bool {
+    if server_names.contains(tool_name) {
+        return true;
+    }
+    tool_name
+        .strip_prefix("mcp__")
+        .and_then(|runtime_name| runtime_name.split_once("__"))
+        .map(|(server_name, _)| server_names.contains(server_name))
+        .unwrap_or(false)
+}
+
 /// Check whether a RunnerHarnessEvent is a control_request (HITL).
 pub fn is_control_request(event: &proto::RunnerHarnessEvent) -> bool {
     matches!(
         event.event.as_ref(),
         Some(proto::runner_harness_event::Event::ToolUse(e)) if e.is_control_request
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use super::map_harness_event;
+    use crate::grpc::proto;
+
+    #[test]
+    fn routes_canonical_mcp_runtime_tool_names_by_server() {
+        let event = proto::RunnerHarnessEvent {
+            seq: 1,
+            timestamp_ms: 1,
+            event: Some(proto::runner_harness_event::Event::ToolUse(
+                proto::ToolUseEvent {
+                    tool: "mcp__docs__search".into(),
+                    call_id: "call-1".into(),
+                    input_json: "{}".into(),
+                    is_control_request: false,
+                },
+            )),
+        };
+        let mcp_servers = HashSet::from(["docs".to_string()]);
+
+        let (event_type, _) = map_harness_event(&event, None, Some(&mcp_servers))
+            .expect("tool use must produce an event");
+
+        assert_eq!(event_type, "agent.mcp_tool_use");
+    }
+
+    #[test]
+    fn does_not_route_unknown_mcp_runtime_tool_names() {
+        let event = proto::RunnerHarnessEvent {
+            seq: 1,
+            timestamp_ms: 1,
+            event: Some(proto::runner_harness_event::Event::ToolUse(
+                proto::ToolUseEvent {
+                    tool: "mcp__other__search".into(),
+                    call_id: "call-1".into(),
+                    input_json: "{}".into(),
+                    is_control_request: false,
+                },
+            )),
+        };
+        let mcp_servers = HashSet::from(["docs".to_string()]);
+
+        let (event_type, _) = map_harness_event(&event, None, Some(&mcp_servers))
+            .expect("tool use must produce an event");
+
+        assert_eq!(event_type, "agent.tool_use");
+    }
 }
