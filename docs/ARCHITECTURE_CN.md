@@ -103,7 +103,9 @@ flowchart TB
 | **db-init** | `db-init`（profile `init`） | — | 一次性 Alembic 迁移 |
 
 当前支持的本地栈使用部署脚本：
-`cd deploy && ./deploy.sh doctor && ./deploy.sh local`。
+`cd deploy && ./deploy.sh doctor && ./deploy.sh build --group runtime && ./deploy.sh local && ./deploy.sh verify`。
+验证命令只是运维契约检查，不成为第二个生命周期 owner：它观察 Compose 状态、orchestrator 健康/xDS/指标和
+Registry 派生的 runtime 镜像库存，不创建领域对象，也不修改 PostgreSQL。
 
 ### 协同契约
 
@@ -244,15 +246,20 @@ Cookie/session 回退（首次登录自动开通默认 org+project）。所有 p
 
 | 子系统 | 模块 | 职责 |
 |---|---|---|
-| gRPC 服务 | `src/grpc/server.rs` | `AgentBridge.Session` 双向流；处理 runner 消息、下发 orchestrator 命令 |
+| Runner gRPC 服务 | `src/grpc/server.rs` | 只绑定 Runner TCP/UDS listener、配置 tonic 限制并管理 server task 生命周期 |
+| Runner transport | `src/grpc/transport.rs` | 把封闭的 `AgentBridge.Session` protobuf 流适配为应用层 `RunnerInbound` port、限制连接数，并把 tonic stream/error 类型封闭在 adapter 内 |
+| Runner inbound port | `src/kernel/runner/inbound.rs` | 定义 Setup、执行、恢复和 session 编排共同消费的 transport-neutral 消息源；不拥有连接或任务状态 |
+| Runner session | `src/kernel/runner/session.rs` | 编排握手、bridge 替换/注册与统一退出路径，通过 `RunnerFlowSet` 协同子流程 |
+| Runner 子流程 | `src/kernel/runner/{admission,setup,task_lifecycle,execution,recovery,memory_sync,failure,cleanup,metrics}.rs` | 分别拥有身份/协议准入、Setup、持久任务转换、执行/事件、重连恢复、memory 同步、终态故障驱逐、断连清理与低基数观测 |
 | xDS 控制面 | `src/xds/control_plane.rs`、`src/xds/resource_store.rs`、`src/xds/node_ownership.rs`、`src/xds/delta.rs` | 单一进程级装配根、原子且显式归属的资源世界、完整 sandbox-to-node 生命周期与 Delta reconciliation |
 | xDS authority/transport | `src/xds/authority.rs`、`src/xds/auth.rs`、`src/xds/transport.rs`、`src/xds/leader.rs` | `Standby → Staging → RecoveryServing → Ready → Revoked`、epoch fencing、认证 ADS 与 leader endpoint 发布 |
 | 任务调度器 | `src/kernel/scheduler.rs` | 认领 pending 任务（`FOR UPDATE SKIP LOCKED`），解析沙箱，推入沙箱队列 |
 | 任务控制器 | `src/kernel/task_controller.rs` | 生命周期、启动恢复、故障转移/重试 |
 | 沙箱控制器 | `src/kernel/sandbox_controller.rs` | 空闲清扫、provisioning 轮询、预热池、孤儿清理 |
 | 沙箱解析器 | `src/kernel/sandbox_resolver.rs` | 三段式解析：复用会话沙箱 → 从池认领 → 新建；注入 runner env |
-| 沙箱 bridge | `src/kernel/sandbox_bridge.rs` | 每沙箱的进程内状态：runner 流、状态、订阅者、控制队列 |
-| Redis 协调器 | `src/kernel/redis_coordinator.rs` | 跨实例 HA：owner 映射、心跳、队列、事件发布 |
+| 沙箱 bridge | `src/kernel/sandbox_bridge.rs` | 每连接进程内状态：runner 流、connection ID、Setup generation、runtime activity、订阅者与控制队列 |
+| HA bridge store | `src/kernel/ha/{traits,local,redis_impl}.rs` | Runner 连接所有权的唯一权威：本地查找或 Redis owner + connection-generation fencing、heartbeat、compare-and-delete 与跨实例分派 |
+| Redis 协调器 | `src/kernel/redis_coordinator.rs` | 不包含 Runner ownership 的跨实例协调：实例心跳、task 映射、分布式锁、队列和事件发布 |
 | 命令监听器 | `src/kernel/command_listener.rs` | Redis cancel/input/shutdown/memory_update 中继与 ACK |
 | 事件总线 | `src/events/bus.rs` | 进程内事件总线，驱动 stream 持久化和实时扇出 |
 | 会话广播器 | `src/kernel/session_broadcaster.rs` | 实时 SSE 扇出：Redis Pub/Sub |
@@ -263,6 +270,21 @@ PostgreSQL 恢复 → `Ready` → `:9090` Runner gRPC → 任务与生命周期�
 `RecoveryServing` 即发布 leader endpoint，让 Envoy 能完成恢复 ACK；正常变更必须等到 `Ready`。
 Lease 丢失和进程退出先进入 `Revoked`，再移除 endpoint 并停止传输。启用受管出口但没有 Kubernetes
 Lease-elected xDS authority 时进程 fail closed。
+
+bridge 注册之后，所有 session 退出都经过同一条 finalization 路径。协议、Setup、执行故障先由
+`RunnerFailureService` 完成持久化 quarantine、凭据撤销和任务修复；普通 transport 断连才保留重连宽限期。
+随后两类路径都只对同一 connection 做 compare-and-remove，释放对应 Redis ownership generation，并注销
+请求范围的 memory 状态。旧连接因此不能删除或续租替代连接，包括替代连接已迁移到其他 orchestrator 副本时。
+
+Runner 认证是两阶段证明。凭据校验可能在 provider `create` 尚未返回时观察到短暂的
+`creating/admission`；连接提交必须再次以同一 token digest 校验 PostgreSQL 当前行，并返回当前
+sandbox/session 绑定。合法的单向 `admission → active` 激活允许通过；token 轮换、过期、撤销、
+stopping/destroyed 状态或记录消失一律 fail-closed。
+
+Sandbox 文件请求归 Runner execution 流所有。子操作可以等待类型化文件响应，但 execution 流必须持续
+消费 `RunnerInbound` 并把匹配响应路由到 `SandboxBridge`；禁止只等待 bridge 而停止读取双向流，否则会
+在单一 inbound owner 上形成自锁。只有收到匹配响应后才进入 artifact 持久化；artifact 失败不改写已经
+权威完成的任务结果。
 
 #### Orchestrator 主流程、子流程与扩展边界
 
@@ -282,6 +304,16 @@ Factory 装载，`main.rs` 和业务服务不得通过分支硬编码实例化�
 新增 sandbox 后端时，只向 `ProviderFactoryRegistry` 注册一个 `ProviderFactory`，统一产出
 `SandboxProvider`、`NetworkPolicyRuntime` 和可选 `EnvoyManager`。调用方只消费 trait，不按 provider 类型
 downcast 或分支。Registry 只能存在于 bootstrap，不能退化成业务代码随处读取的 service locator。
+
+`RunnerSessionCoordinator` 只拥有握手顺序、bridge 替换/注册和注册后的统一退出编排，不自行构造子流程。
+`admission.rs` 拥有身份校验、协议能力门禁和连接落账；`setup.rs` 拥有 SetupSandbox generation 状态；
+`failure.rs` 拥有原子化 quarantine、凭据撤销和任务修复；`recovery.rs` 拥有重连证明与孤儿任务恢复；
+`execution.rs` 拥有任务、事件和 artifact 行为；`cleanup.rs` 拥有断连释放与宽限期到期；`metrics.rs`
+只观测，不参与状态判断。各子流程只通过显式类型输入输出协同，不共享请求级可变上下文。
+
+`BridgeStore` 是唯一 Runner ownership API。multi 模式 Redis adapter 同时保存兼容 owner 值和独立的不透明
+connection-generation key，注册、heartbeat、删除均受该 generation fencing，退出使用 compare-and-delete。
+`RedisCoordinator` 不得再维护第二套 sandbox owner key，只负责实例存活、task 映射、锁、队列与事件。
 
 #### Network-policy 领域与应用流程
 
@@ -363,6 +395,27 @@ Kubernetes placement 链路刻意采用依赖反转：watcher 只发 `PlacementE
 Runner gRPC 与 ADS 使用不同 server 和端口（`:9090`/`:9091` 对比 `:9092`），执行协议与控制面协议的变更、认证、
 限流和失败处理不会互相泄漏。
 
+Agent schema 中可选的工具权限字段将 JSON `null` 与字段缺失统一解释为继承所属 toolset 的默认值。被禁用的
+toolset 生成默认 Deny，显式启用的具体工具仍可按 toolset 权限决策覆盖；非 null 的错误 JSON 类型、未知决策和
+非法 selector 继续在 `kernel/tool_policy.rs` fail-closed，不允许传输层或具体 runtime 自行猜测。
+
+运行时能力兼容性由 orchestrator 的 engine registry 统一声明，并在构建不可变 `HarnessInput` 时、模型凭据解密和
+`SetupSandbox` 之前完成前检。Claude/native 支持 MCP、custom tool、Skill 和非 Deny 默认策略；Codex 支持 MCP
+与 Skill，但不支持 custom tool 注册；Pi 支持 Skill，但不支持 MCP/custom tool，且只接受无条件 Allow 的工具策略。
+Runner adapter 保留同样校验作为进程内最后防线，而不是第二套策略来源。重复 builtin toolset、同一 server 的重复
+MCP toolset、同一 toolset 内重复 selector 以及重复 custom tool 名称均明确拒绝，不依赖顺序或 adapter 猜测。
+
+| 阶段 | 归属 | 输入 → 输出 | 失败归属 |
+|---|---|---|---|
+| Agent 命令校验 | Python `AgentConfigurationPolicy` | 类型化请求 + MCP 声明 → 可持久化且无歧义的工具配置 | PostgreSQL 变更前拒绝重复 toolset/selector/custom 名称和未声明 MCP 引用 |
+| 执行快照 | PostgreSQL + `run_spec.rs` | 版本化 Agent/Environment → 不可变任务视图 | 拒绝非法 typed ID/快照覆盖；快照已有字段不回退到 live 可变状态 |
+| 授权编译 | `kernel/tool_policy.rs` | 快照 `tools` JSON → provider-neutral `ToolPolicy` | 统一拥有继承、enabled/disabled、selector 唯一性和 fail-closed 解析 |
+| MCP 规划 | `kernel/mcp_runtime_plan.rs` | 声明 + 已授权凭据元数据 + 网络模式 → Runner 安全配置 + Envoy 路由 | 拥有 transport/auth 匹配和秘密落点，不决定工具授权 |
+| 引擎兼容性 | `kernel/engine_adapter.rs` | engine + 已编译策略 + 能力投影 → 可执行/不可执行 | 拒绝 runtime 无法落实的组合；Skill、MCP、custom tool 是独立能力 |
+| Harness 编排 | `kernel/harness_input_builder.rs` | 不可变投影 → 请求局部 `HarnessInput` | 只编排子流程，在模型秘密暴露前校验能力，并执行最终 generation fence |
+| 传输与执行 | `grpc/harness_projection.rs` → Runner decoder → runtime adapter | `HarnessInput` → protobuf → 原生 runtime 配置 | gRPC 只序列化；Runner 拒绝缺失/未知 wire 值；adapter 保留本地最终防线 |
+| 事件分类 | `events/mapping.rs` | runtime 工具名 + 不可变声明名称集合 → session event 类型 | 识别 `mcp__<server>__<tool>`，未知 server 不会被扩权为 MCP 事件 |
+
 Kubernetes socket 存储遵循同一归属规则：sandbox initContainer 在 Runner 启动前创建 UUID 作用域的节点
 本地 hostPath 目录；不可恢复的 Pod 停止或销毁时，由 Kubernetes provider 通过每个节点上的 Envoy
 DaemonSet Pod 删除该 UUID 目录。清理只接受解析后的 sandbox UUID 和固定命令参数，Pod 已不存在时仍可
@@ -409,6 +462,7 @@ timeout 负责终态失败，因此 placement 缺失在 xDS 边界失败，不�
 | `RunnerHeartbeat` | 存活（任何消息都会重置心跳期限；120s 超时） |
 | `RunnerIdle` | harness 进入空闲；把 `harness_session_id` / `work_dir` 持久化回会话 |
 | `MemoryFileSync` | Agent 在沙箱内写了 memory 文件 → 同步回来 |
+| `SandboxSetupResult` | 对单个 `setup_id` 与运行时配置 generation 的关联结果；成功时原子携带该 generation 的不可变 Skill 物化回执 |
 
 **`RunnerHarnessEvent`** 携带 `seq` + `timestamp_ms` + 一个 `oneof`：
 `TextEvent` · `ThinkingEvent` · `ToolUseEvent`（`tool`、`call_id`、`input_json`、
@@ -421,8 +475,8 @@ token/tool 指标）。
 
 | 消息 | 载荷 |
 |---|---|
-| `SetupSandbox` | 一次性准备稳定沙箱配置：`skills[]`、`mcp_servers[]`、`custom_tools[]`、`setup_commands[]`、`memory_mounts[]`、`repos[]`、工具策略列表、`provider`、`model`、env |
-| `StartTask` | 权威任务快照：`task_id`、prompt/system prompt、provider/model、执行限制、env、任务级 `mcp_servers`/`repos`/`skills`/`custom_tools`、工具策略，以及 `files[]`/`file_refs[]` |
+| `SetupSandbox` | generation 级沙箱准备：稳定的 `skills[]`、`mcp_servers[]`、`custom_tools[]`、`setup_commands[]`、`memory_mounts[]`、`repos[]`、工具策略、`provider`、`model`、env、`setup_id` 与 `runtime_config_generation` |
+| `StartTask` | 引用已应用 `runtime_config_generation` 的权威任务快照：`task_id`、prompt/system prompt、provider/model、执行限制、env、任务级 `mcp_servers`/`repos`/`custom_tools`、工具策略及 `files[]`/`file_refs[]`；不再运输或物化 Skill |
 | `CancelTask` | `reason` |
 | `SendInput` | `content`（控制请求回复 / 中断注入） |
 | `Shutdown` | `reason` |
@@ -431,6 +485,11 @@ token/tool 指标）。
 > 协议不再提供通用 `secrets` map。受管 MCP 凭据与受限网络模式下的模型凭据停留在 Envoy
 > 边界；非受限网络模式的模型凭据只通过沙箱创建 env 提供；仓库克隆凭据使用窄化且仅限 clone 的
 > `RepoConfig.authorization_token`，不再借用可复用的 secrets 容器。
+
+Skill 物化只有一个所有者和一个提交点。`SetupSandbox` 携带不可变 manifest；Runner 校验并
+物化后，把回执放入匹配的 `SandboxSetupResult`。Setup 流程必须先按下发 manifest 校验全部回执，
+再持久化可信审计记录，最后才能把该 generation 标记为已应用。任何在关联 Setup gate 之外出现的
+成功结果都 fail-closed；`StartTask` 不再建立第二套 Skill 生命周期，也不存在依赖消息先后顺序的回执门禁。
 
 ---
 
@@ -518,6 +577,11 @@ endpoint、认证或网络模式。
   Envoy 边界。MCP 凭据运行时方案封闭为 `static_bearer`、`header_api_key`、`custom_header`。
 - PostgreSQL 的 `runtime_config_generation` 与网络策略 hash/version/status 是持久化真相；只有捕获 generation
   仍匹配且精确网络策略 generation 已 `ready`，任务才可执行。
+- 沙箱停止时必须撤销其 provider-local xDS 资源。因此 stopped runtime 的恢复属于
+  `SandboxResolver` 拥有的应用编排：声明 stopped 行、启动 provider runtime、重新应用 limited
+  networking、等待精确 generation ready，之后才能返回 `ResolvedSandbox`。仅有 provider
+  `Running` 或历史 PostgreSQL `ready` 标记不能证明沙箱可执行；网络恢复失败时必须销毁已重启的
+  runtime，并让本次 resolve fail closed。
 
 多副本 xDS 只允许一种拓扑：
 
@@ -550,6 +614,14 @@ Redis 消息丢失由 PostgreSQL 驱动的 degraded-policy reconcile 和周期 p
 xDS 禁用状态都返回 503。指标标签保持有界，覆盖 authority phase/epoch、恢复结果与耗时、ADS 鉴权/拒绝、
 活跃 Envoy 节点、待 ACK delivery 数量与最长等待、ACK/NACK、重连删除、ownership 迁移、旧 session 关闭和
 持久化 degraded inventory；sandbox ID、资源名、hash、token、payload 与错误文本不得成为标签。
+
+同一个 `/metrics` 端点还暴露 Runner 协议生命周期计数器。`runner/metrics.rs` 只拥有进程内观测：
+SetupSandbox 已发送/已应用/失败/过期结果、重连 generation 证明接受/拒绝，以及仅在匹配 setup ACK 后发生的
+StartTask 派发。失败标签是封闭低基数集合：`ack_timeout`、`runner_disconnected`、`stream_error`、
+`protocol_error`、`generation_mismatch`、`runner_rejected`、`send_failed`；task/session/sandbox/setup/generation
+ID 均不得成为标签。Runner 流程只记录指标，不把指标作为生命周期真相；PostgreSQL 与 bridge/setup 状态机仍是
+权威。Helm 在 `monitoring.runnerAlerts` 下独立拥有 Setup 失败、重连证明拒绝和过期 Setup 结果告警，与
+`monitoring.xdsAlerts` 分离，避免执行协议失败和 xDS authority 失败互相混淆。
 
 xDS 当前使用独立 shared-token keyring，按要求暂不启用 mTLS。服务端接受
 `JOYSAFETER_XDS_AUTH_KEYRING` 中所有 token；Envoy bootstrap 只使用
@@ -662,7 +734,7 @@ authoring 的草稿文件在持久化前没有实体身份，禁止用空字符�
 | **Organizations** | `/organizations` | 组织 + 成员 CRUD、transfer-ownership |
 | **Analytics** | `/analytics` | 用量分析：汇总、时序、引擎占比、调用、Agent 对比/排名、时延/错误统计 |
 | **Quickstart** | `/quickstart` | **SSE** `/chat`——引导式 onboarding LLM 代理 |
-| **Health** | `/health` | 就绪（Postgres + Redis）、存活 |
+| **Health** | `/health` | API 对 PostgreSQL 与已配置 Redis 的就绪检查及存活；不推断 orchestrator 成员或 xDS readiness |
 
 ---
 
@@ -690,9 +762,16 @@ quickstart）。**Agent 工作负载的模型流量委托给沙箱内的 CLI har
 3. **安全扫描**（`joysafeter_domain/.../joysafeter_skill_security.py` → **skillspector** 服务）——
    默认记录风险和规范 sha256；当 `SKILL_SECURITY_SCAN_ENFORCEMENT_ENABLED=true` 时，仅在发布版本时
    对同一份快照执行新的 fail-closed 扫描，默认值为 `false`。
-4. **打包与投递**——Rust orchestrator 的 `HarnessInputBuilder` 在任务启动时解析已发布版本，从不可变
-   版本文件现场生成 `tar.gz` `SkillArchive` 并记录用量；归档随后注入沙箱，由 runner 解包。无可用版本
-   会终止输入构建，不会静默降级。
+4. **打包、投递与确认**——Rust orchestrator 的 `HarnessInputBuilder` 解析已发布版本，并在 generation
+   级 `SetupSandbox` 中生成带审计元数据的 `tar.gz` `SkillArchive`。runner 校验制品 hash，完成解包
+   或确认已有相同 `.skill_hash` 后，把回执原子放入关联的 `SandboxSetupResult`。orchestrator 以本次
+   Setup 下发的 manifest 为唯一权威：每个受管 Skill 必须且只能回报一次，所有不可变字段必须完全
+   一致。缺失、重复、额外或被修改的回执都会按 Runner 协议违规 fail-closed，且不写使用记录。
+   合法回执只使用可信 manifest 字段入库，并按 Sandbox、Skill、版本、target 和制品 hash 幂等；
+   “已存在”与“Sandbox 已不存在”是不同结果。只有校验和审计持久化都成功后，该 generation 才能
+   进入 ready。`StartTask` 只引用该 generation，不再物化或重复回报 Skill；重连也只恢复此前已 ready
+   的 generation。无可用版本、解包失败、审计存储失败或回执不匹配都会在 ready 前终止 Setup，
+   Runner 上报元数据永远不成为权威事实。
 
 版本暴露在所有边界统一按层级解析：同项目 Agent 可使用任意已发布版本，`latest` 解析为最高 SemVer；
 同组织跨项目只能使用 organization/public 指针对应版本；跨组织只能使用 public 指针对应版本。Skill

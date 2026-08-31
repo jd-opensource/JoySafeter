@@ -72,6 +72,20 @@ cd frontend
 bun run dev
 ```
 
+## Runner Protocol Code Generation
+
+`proto/joysafeter.proto` is the only source of truth for the Runner protocol. Regenerate the
+checked-in Python protobuf modules after every schema change:
+
+```bash
+cd backend
+uv run python scripts/generate_runner_proto.py
+```
+
+The orchestrator regenerates `src/grpc/joysafeter.rs` through its `build.rs` during Cargo builds;
+the sandbox runner generates its Rust module into Cargo `OUT_DIR`. Do not hand-edit generated
+protobuf files.
+
 ## Tests and Quality Checks
 
 ```bash
@@ -179,11 +193,18 @@ kubectl get nodes
 ./deploy/deploy.sh --tag local k8s deploy --dry-run --sync-images \
   --release joysafeter-local \
   --namespace joysafeter-local
+
+# 部署后验证控制面、唯一 xDS authority、Envoy 节点收敛和四个 runtime 镜像
+./deploy/deploy.sh k8s verify \
+  --release joysafeter-local \
+  --namespace joysafeter-local \
+  --runtime-images
 ```
 
 Runner gRPC and ADS must render as distinct service ports. Deployment verification must wait for
 the orchestrator readiness endpoint and the Envoy DaemonSet before exercising Runner and managed
-network-policy flows.
+network-policy flows. `--runtime-images` creates short-lived probe Pods and therefore requires Pod
+create/delete permission in the target namespace.
 
 ## Component Guides
 

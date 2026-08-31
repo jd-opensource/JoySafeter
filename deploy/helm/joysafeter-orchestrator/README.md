@@ -88,6 +88,9 @@ cd deploy
 不传 `--sync-images` 时，chart 继续使用 values 文件中的镜像。直接调用 Helm 仅用于需要完全手工控制
 values 的运维场景：
 
+namespace 只由 Helm 的 `--namespace` / `-n` 决定。模板使用 `.Release.Namespace` 生成资源 metadata、
+集群内 Service FQDN 和 `JOYSAFETER_K8S_NAMESPACE`，不要在 values 文件中再定义 namespace。
+
 ```bash
 cd deploy/helm/joysafeter-orchestrator
 

@@ -107,7 +107,10 @@ flowchart TB
 | **db-init** | `db-init` (profile `init`) | — | One-shot Alembic migrations |
 
 Use the deployment helper for the supported local stack:
-`cd deploy && ./deploy.sh doctor && ./deploy.sh local`.
+`cd deploy && ./deploy.sh doctor && ./deploy.sh build --group runtime && ./deploy.sh local && ./deploy.sh verify`.
+The verification command is an operational contract check, not a second lifecycle owner: it observes
+Compose state, orchestrator health/xDS/metrics, and the Registry-derived runtime image inventory without
+creating domain objects or mutating PostgreSQL.
 
 ### Collaboration contracts
 
@@ -293,9 +296,10 @@ over gRPC.
 | Subsystem | Module | Responsibility |
 |---|---|---|
 | Runner server | `src/grpc/server.rs` | Binds the Runner TCP/UDS listeners, configures tonic limits/keepalive, and owns only server-task lifecycle |
-| Runner transport | `src/grpc/transport.rs` | Adapts the closed protobuf `AgentBridge.Session` stream, enforces connection limits, and delegates typed messages |
+| Runner transport | `src/grpc/transport.rs` | Adapts the closed protobuf `AgentBridge.Session` stream into the application-owned `RunnerInbound` port, enforces connection limits, and contains all tonic stream/error types |
+| Runner inbound port | `src/kernel/runner/inbound.rs` | Defines the transport-neutral message source consumed by setup, execution, recovery, and session orchestration; it owns no connection or task state |
 | Runner session | `src/kernel/runner/session.rs` | Authenticates runners, performs the handshake, registers/displaces bridges, and delegates work through `RunnerFlowSet` |
-| Runner child flows | `src/kernel/runner/{setup,task_lifecycle,execution,recovery,memory_sync,cleanup}.rs` | Own setup, durable task transitions, execution/event handling, reconnect recovery, memory synchronization, and disconnect cleanup independently |
+| Runner child flows | `src/kernel/runner/{admission,setup,task_lifecycle,execution,recovery,memory_sync,failure,cleanup,metrics}.rs` | Own identity/protocol admission, setup, durable task transitions, execution/event handling, reconnect recovery, memory synchronization, terminal failure ejection, disconnect cleanup, and bounded observations independently |
 | xDS control plane | `src/xds/control_plane.rs`, `src/xds/resource_store.rs`, `src/xds/node_ownership.rs`, `src/xds/delta.rs` | One process-level composition root, atomic explicitly-owned resource world, complete sandbox-to-node lifecycle, and Delta reconciliation |
 | xDS transport | `src/xds/auth.rs`, `src/xds/transport.rs` | Dedicated `:9092` ADS listener, keyring authentication, and transport isolation from runner gRPC |
 | xDS authority | `src/xds/authority.rs`, `src/xds/leader.rs` | Single `Standby → Staging → RecoveryServing → Ready → Revoked` lifecycle, epoch-fenced recovery/mutation guards, ADS admission, and leader endpoint publication |
@@ -303,8 +307,9 @@ over gRPC.
 | Task controller | `src/kernel/task_controller.rs` | Lifecycle, startup recovery, failover/retry |
 | Sandbox controller | `src/kernel/sandbox_controller.rs` | Timer/notification orchestration over isolated idle, provisioning, pool, orphan, and task-recovery capabilities |
 | Sandbox resolution | `src/kernel/sandbox_resolver.rs`, `src/kernel/sandbox_resolver/*` | Reuse/restart → pool claim → create orchestration over explicit context, lifecycle, networking, provisioning, pool, and identity-policy capabilities |
-| Sandbox bridge | `src/kernel/sandbox_bridge.rs` | Per-sandbox in-memory state: runner stream, status, subscribers, control queue |
-| Redis coordinator | `src/kernel/redis_coordinator.rs` | Cross-instance HA: owner mapping, heartbeats, queues, event publishing |
+| Sandbox bridge | `src/kernel/sandbox_bridge.rs` | Per-connection in-memory state: runner stream, connection ID, setup generation, runtime activity, subscribers, and control queue |
+| HA bridge store | `src/kernel/ha/{traits,local,redis_impl}.rs` | Sole Runner-connection ownership authority: local lookup or Redis owner + connection-generation fencing, heartbeat, compare-and-delete, and cross-instance dispatch |
+| Redis coordinator | `src/kernel/redis_coordinator.rs` | Cross-instance coordination other than Runner ownership: instance heartbeat, task mapping, distributed locks, queues, and event publication |
 | Command listener | `src/kernel/command_listener.rs` | Redis command relay for cancel/input/shutdown/memory updates with ACKs |
 | Event bus | `src/events/bus.rs` | In-process event bus feeding stream persistence and realtime fan-out |
 | Session broadcaster | `src/kernel/session_broadcaster.rs` | Live SSE fan-out via Redis Pub/Sub |
@@ -316,6 +321,25 @@ lifecycle background loops. In multi mode, the Lease owner publishes its endpoin
 Envoy can ACK recovery; mutation guards remain unavailable until `Ready`. Lease loss and shutdown enter
 `Revoked` before endpoint removal and transport shutdown. Multi mode fails closed when managed egress is
 enabled without the Kubernetes leader-only xDS authority.
+
+After a bridge is registered, every session exit follows one finalization path. Protocol/setup/execution
+failures first delegate durable quarantine, credential revocation, and task repair to `RunnerFailureService`;
+ordinary transport loss retains the reconnect grace period. Both paths then compare-and-remove only the
+same bridge connection, release its Redis ownership generation, and unregister request-scoped memory state.
+An old connection cannot delete or refresh a replacement connection, including when another orchestrator
+replica owns that replacement.
+
+Runner authentication is a two-step proof. Credential verification may observe the short-lived
+`creating/admission` state while the provider is still returning from `create`; connection commit then
+revalidates the same token digest against the current PostgreSQL row and returns the current sandbox/session
+binding. The legal monotonic `admission → active` activation is accepted, while credential rotation,
+expiration, revocation, stopping/destroyed status, or row deletion fail closed.
+
+Sandbox file requests remain owned by the active Runner execution flow. A child operation may await a typed
+file response, but the execution flow must continue consuming `RunnerInbound` and route matching responses
+to `SandboxBridge`; waiting on the bridge without driving inbound is forbidden because it self-deadlocks the
+single bidirectional stream. Artifact persistence starts only after the matching response is received and is
+best-effort relative to the already-authoritative task result.
 
 #### Orchestrator ownership and extension boundaries
 
@@ -447,6 +471,31 @@ accepts only an unconditionally-allow policy and otherwise fails explicitly. Leg
 `allowed_tools`, `disallowed_tools`, and `ask_tools` protobuf fields are reserved and cannot become a second
 authorization model.
 
+Runtime capability compatibility is owned by the orchestrator engine registry and checked while building the
+immutable harness input, before model credential reveal and before `SetupSandbox`. Claude/native support MCP,
+custom tools, Skills, and non-deny defaults; Codex supports MCP and Skills but not custom-tool registration;
+Pi supports Skills but does not support MCP or custom-tool registration and requires an unconditionally-allow
+tool policy. Runner adapters retain the same checks as a final process-local defense, not as a second policy
+source.
+
+The Agent schema's optional tool-policy fields use JSON `null` and field absence equivalently: both mean
+inherit the enclosing toolset default. A disabled toolset produces a deny default, while an explicitly enabled
+tool entry may override it using the toolset permission decision. Non-null values with the wrong JSON type,
+unknown decisions, and malformed selectors remain fail-closed at `kernel/tool_policy.rs`.
+Duplicate built-in toolsets, duplicate MCP toolsets for one server, duplicate per-tool selectors, and duplicate
+custom-tool names are rejected rather than relying on ordering or adapter-specific conflict resolution.
+
+| Stage | Owner | Input → output | Failure ownership |
+|---|---|---|---|
+| Agent command validation | Python `AgentConfigurationPolicy` | typed request + declared MCP servers → persistable, unambiguous tool configuration | Rejects duplicate toolsets/selectors/custom names and undeclared MCP references before PostgreSQL changes |
+| Execution snapshot | PostgreSQL + `run_spec.rs` | versioned Agent/Environment state → immutable task view | Rejects malformed typed IDs and snapshot overrides; never consults live mutable state for an existing snapshot field |
+| Authorization compilation | `kernel/tool_policy.rs` | snapshot `tools` JSON → provider-neutral `ToolPolicy` | Owns inheritance, enabled/disabled semantics, selector uniqueness, and fail-closed parsing |
+| MCP planning | `kernel/mcp_runtime_plan.rs` | declarations + authorized credential metadata + network mode → runner-safe servers + Envoy routes | Owns transport/auth matching and secret placement; does not decide tool authorization |
+| Engine compatibility | `kernel/engine_adapter.rs` | engine + compiled policy + projected capabilities → executable/not executable | Rejects combinations the selected runtime cannot enforce; Skills, MCP, and custom tools remain separate capabilities |
+| Harness assembly | `kernel/harness_input_builder.rs` | immutable projections → request-local `HarnessInput` | Orders the child flows, validates capability compatibility before model-secret reveal, and enforces the final generation fence |
+| Wire projection and execution | `grpc/harness_projection.rs` → Runner decoder → runtime adapter | `HarnessInput` → protobuf → native runtime config | gRPC only serializes; Runner rejects missing/unknown wire values; adapter keeps a final local capability guard |
+| Event classification | `events/mapping.rs` | runtime tool name + immutable declared-name sets → session event type | Recognizes canonical `mcp__<server>__<tool>` names without widening unknown servers into MCP events |
+
 `HarnessInputBuilder` provides the final consistency barrier. It reads immutable execution snapshots,
 materializes skills, session files, memory mounts, repositories, MCP declarations, model/environment data,
 and tool policy, then re-reads the session/sandbox generation fence before returning. A changed generation,
@@ -456,13 +505,20 @@ never sent. Child handlers may return values but do not share mutable state outs
 
 #### Runner application capabilities
 
-`RunnerSessionCoordinator` owns only authentication, handshake, bridge displacement/registration, and
-connection lifetime. Bootstrap injects a `RunnerFlowSet`; the coordinator does not construct concrete
-flows. Setup, task lifecycle, execution, recovery, memory synchronization, and cleanup exchange typed
-inputs through the coordinator and do not share request-scoped mutable context. Transport failures belong
-to `grpc/transport.rs`; authentication/connection failures belong to the coordinator; task/event/artifact
-failures belong to execution; reconnect classification and orphan recovery belong to recovery; disconnect
-state release belongs to cleanup.
+`RunnerSessionCoordinator` owns only handshake sequencing, bridge displacement/registration, and the
+single post-registration exit/finalization path. Bootstrap injects a `RunnerFlowSet`; the coordinator does
+not construct concrete flows. Admission, setup, task lifecycle, execution, recovery, memory synchronization,
+failure ejection, cleanup, and metrics exchange typed inputs through the coordinator and do not share
+request-scoped mutable context. `admission.rs` owns identity verification, protocol capability admission,
+and connection recording; `failure.rs` owns atomic durable quarantine/revocation/task repair; `setup.rs`
+owns SetupSandbox generation state; recovery owns reconnect proof and orphan recovery; execution owns
+task/event/artifact behavior; cleanup owns disconnect release and grace expiry; metrics observes but never
+drives lifecycle decisions. Transport framing failures remain in `grpc/transport.rs`.
+
+`BridgeStore` is the only Runner ownership API. In multi mode its Redis adapter stores a compatibility owner
+value plus a separate opaque connection-generation key. Registration, heartbeat, and removal are fenced by
+that generation, and teardown uses compare-and-delete. `RedisCoordinator` must not publish a second sandbox
+owner key; it owns only instance liveness, task mapping, locks, queues, and event delivery.
 
 Runner authentication has its own durable lifecycle and is not task identity or product RBAC. Provisioning
 generates a random purpose-specific token, persists only its SHA-256 digest, expiry, and `admission` state
@@ -625,6 +681,7 @@ gRPC stream carries execution, not scheduling.
 | `RunnerHeartbeat` | Liveness (also, any message resets the heartbeat deadline; 120s timeout) |
 | `RunnerIdle` | Harness went idle; persists `harness_session_id` / `work_dir` back to the session |
 | `MemoryFileSync` | Agent wrote a memory file inside the sandbox → sync back |
+| `SandboxSetupResult` | Correlated result for one `setup_id` and runtime-config generation; on success it atomically carries the immutable Skill materialization receipts for that generation |
 
 **`RunnerHarnessEvent`** carries `seq` + `timestamp_ms` + a `oneof`:
 `TextEvent` · `ThinkingEvent` · `ToolUseEvent` (`tool`, `call_id`, `input_json`,
@@ -637,8 +694,8 @@ result, token/tool metrics).
 
 | Message | Payload |
 |---|---|
-| `SetupSandbox` | One-time prep: stable sandbox `skills[]`, `mcp_servers[]`, `custom_tools[]`, `setup_commands[]`, `memory_mounts[]`, `repos[]`, tool policy lists, `provider`, `model`, env |
-| `StartTask` | Authoritative task snapshot: `task_id`, prompt/system prompt, provider/model, limits, env, per-task `mcp_servers`/`repos`/`skills`/`custom_tools`, tool policy lists, and `files[]`/`file_refs[]` |
+| `SetupSandbox` | Generation-scoped preparation: stable sandbox `skills[]`, `mcp_servers[]`, `custom_tools[]`, `setup_commands[]`, `memory_mounts[]`, `repos[]`, tool policy, `provider`, `model`, env, `setup_id`, and `runtime_config_generation` |
+| `StartTask` | Authoritative task snapshot referencing an already-applied `runtime_config_generation`: `task_id`, prompt/system prompt, provider/model, limits, env, per-task `mcp_servers`/`repos`/`custom_tools`, tool policy, and `files[]`/`file_refs[]`; it never transports or materializes Skills |
 | `CancelTask` | `reason` |
 | `SendInput` | `content` (control-request reply / interrupt injection) |
 | `Shutdown` | `reason` |
@@ -648,6 +705,13 @@ result, token/tool metrics).
 > model credentials remain at the Envoy boundary. Unrestricted-network model credentials are
 > supplied only through sandbox creation env, while repository clone credentials use the narrow,
 > clone-only `RepoConfig.authorization_token` field rather than a reusable secret bag.
+
+Skill materialization has one owner and one commit point. `SetupSandbox` carries the immutable
+manifest; the Runner verifies and materializes it, then returns receipts inside the matching
+`SandboxSetupResult`. The setup flow validates every receipt against its dispatched manifest and
+persists the trusted audit rows before it may mark that generation applied. A success result seen
+outside the correlated setup gate fails closed, and `StartTask` cannot create a second Skill
+lifecycle or an ordering-dependent receipt gate.
 
 ---
 
@@ -749,6 +813,12 @@ or network mode.
 - `runtime_config_generation` and sandbox `networking_policy_hash/version/status` in PostgreSQL
   are durable truth. A sandbox is executable only when the captured runtime generation still
   matches and the exact network-policy generation is `ready`.
+- Stopping a sandbox revokes its provider-local xDS resources. Resuming a stopped runtime is
+  therefore an application-level activation flow owned by `SandboxResolver`: claim the stopped
+  row, start the provider runtime, re-apply limited networking, wait for the exact generation to
+  become ready, and only then return `ResolvedSandbox`. Provider `Running` state or a historical
+  PostgreSQL `ready` marker alone never proves that the sandbox is executable. A failed network
+  restore destroys the restarted runtime and fails the resolve operation closed.
 
 Multi-replica xDS follows one topology only:
 
@@ -797,6 +867,17 @@ phase/epoch, recovery result and duration, authenticated/rejected ADS streams, a
 pending delivery age, ACK/NACK totals, reconnect removals, ownership transitions, stale-session
 closures, and durable degraded inventory. Sandbox IDs, resource names, hashes, tokens, payloads,
 and error text are never metric labels.
+
+The same `/metrics` endpoint exposes Runner protocol lifecycle counters. `runner/metrics.rs` owns
+only process-local observations: SetupSandbox sent/applied/failure/stale-result counts, reconnect
+generation-proof accept/reject counts, and StartTask dispatches that occurred after a matching
+setup ACK. Failure labels are a closed low-cardinality set (`ack_timeout`, `runner_disconnected`,
+`stream_error`, `protocol_error`, `generation_mismatch`, `runner_rejected`, `send_failed`); task,
+session, sandbox, setup, and generation IDs are never labels. Runner flows record counters but do
+not use metrics as lifecycle truth: PostgreSQL and the bridge/setup state machine remain
+authoritative. Helm owns optional alerts under `monitoring.runnerAlerts` for setup failures,
+rejected reconnect proofs, and stale setup results, separately from `monitoring.xdsAlerts` so
+execution-protocol and xDS-authority failures retain distinct ownership.
 
 xDS currently uses a dedicated shared-token keyring; mTLS is intentionally not enabled. The server
 accepts every token in `JOYSAFETER_XDS_AUTH_KEYRING`, while generated Envoy bootstrap uses the token
@@ -945,7 +1026,7 @@ separate `MemoryStoreId` / `memstore_` identity.
 | **Organizations** | `/organizations` | org + member CRUD, transfer-ownership |
 | **Analytics** | `/analytics` | Usage analytics: summary, timeseries, engine share, calls, agent comparison/ranking, latency/error stats |
 | **Quickstart** | `/quickstart` | **SSE** `/chat` — guided onboarding LLM proxy |
-| **Health** | `/health` | readiness (Postgres + Redis), liveness |
+| **Health** | `/health` | API readiness for PostgreSQL plus configured Redis, and liveness; it does not infer orchestrator membership or xDS readiness |
 
 ---
 
@@ -977,10 +1058,20 @@ a `SKILL.md`-fronted directory. The pipeline spans three layers:
    service) — records advisory verdicts and canonical hashes. When
    `SKILL_SECURITY_SCAN_ENFORCEMENT_ENABLED=true`, publishing runs a fresh fail-closed scan
    over the exact snapshot; the default is `false`.
-4. **Pack & deliver** — the Rust orchestrator's `HarnessInputBuilder` resolves a published version
-   when the task starts, builds the `tar.gz` `SkillArchive` from immutable version files, and
-   records usage. The runner unpacks the injected archive in the sandbox; missing versions stop
-   input construction instead of silently degrading.
+4. **Pack, deliver & acknowledge** — the Rust orchestrator's `HarnessInputBuilder` resolves a
+   published version and builds the `tar.gz` `SkillArchive` with immutable audit metadata in the
+   generation-scoped `SetupSandbox`. The runner verifies the artifact hash, unpacks it (or confirms
+   the existing `.skill_hash`), and returns the receipts atomically in the correlated
+   `SandboxSetupResult`. The orchestrator treats its dispatched Setup manifest as authoritative:
+   every managed Skill must be reported exactly once and every immutable field must match. Missing,
+   duplicate, extra, or modified receipts fail closed as Runner protocol violations and write no
+   usage row. Valid receipts write the trusted manifest fields, idempotently keyed by sandbox,
+   Skill, version, target, and artifact hash; a missing sandbox is distinct from an idempotent
+   conflict. Only after receipt validation and audit persistence may the setup generation become
+   ready. `StartTask` references that generation and never rematerializes or re-reports Skills;
+   reconnect restores only a previously ready generation. No usable version, unpack failure, audit
+   persistence failure, or receipt mismatch stops setup before readiness, and Runner-supplied
+   metadata never becomes authoritative.
 
 Version exposure is tier-aware at every boundary. Same-project Agents may use any published
 version and resolve `latest` to the highest SemVer. Cross-project callers in the same organization

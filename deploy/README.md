@@ -7,7 +7,9 @@
 ```bash
 cd deploy
 ./deploy.sh doctor
+./deploy.sh build --group runtime
 ./deploy.sh local
+./deploy.sh verify
 ```
 
 `deploy.sh doctor` 会创建缺失的 `deploy/.env`、`backend/.env`、`frontend/.env`，所以它不是
@@ -18,6 +20,9 @@ Official Images 的多架构镜像源，避免单架构镜像在 arm64 上误走
 它还会在缺失时自动克隆 NVIDIA SkillSpector 到 `.deps/SkillSpector`，预检
 Docker socket / Compose 配置 / 常用端口，等待本地 Redis 就绪，并在启动完整服务前运行数据库迁移。
 `doctor` 只做环境准备和预检，不启动容器；`local` 会执行完整部署。
+`verify` 是本地部署后的完整门禁：检查八个 Compose 长驻服务、orchestrator
+`/healthz/live`、`/healthz/ready`、`/healthz/xds`、xDS/Runner 指标契约，以及 Claude、Codex、Native、Pi
+四个 runtime 镜像是否都存在。它不创建 Agent、Session 或凭据，也不修改业务状态。
 
 `deploy.sh local` 会先用脚本控制的 Buildx 路径构建核心镜像，再用这个 Compose 文件启动：
 
@@ -110,6 +115,7 @@ docker compose down
 |---|---|---|
 | `./deploy.sh doctor` | 准备 env、探测 CPU 架构、检查 Docker/Compose/SkillSpector/socket/端口/Compose 配置 | 否 |
 | `./deploy.sh local` | 完整本地 Compose 部署：基础服务、迁移、API/Rust orchestrator/worker/frontend | 是 |
+| `./deploy.sh verify` | 验证本地服务、orchestrator 健康/xDS/指标契约和四个 runtime 镜像库存 | 否 |
 | `./deploy.sh build` | 构建核心部署镜像：backend、frontend、orchestrator-rs、skillspector | 否 |
 | `./deploy.sh build --group all` | 构建核心部署镜像与 agent runtime 镜像 | 否 |
 | `./deploy.sh push` | 构建并推送核心部署镜像到 `DOCKER_REGISTRY` | 否 |
@@ -127,6 +133,22 @@ docker compose down
 | `--no-cache` | `build`、`push` | 禁用 Docker 构建缓存 |
 | `--mirror MIRROR` | `build`、`push` | 只用于手工镜像构建；本地 `local` 默认使用 `public.ecr.aws/docker/library/` 多架构基础镜像 |
 | `--pip-mirror MIRROR` | `build`、`push` | 切换 Python 包下载镜像 |
+
+Helm/Kubernetes 验证继续通过同一个入口执行：
+
+```bash
+./deploy.sh k8s verify --namespace joysafeter
+./deploy.sh k8s verify --namespace joysafeter --runtime-images
+```
+
+`--namespace`（Helm 的 release namespace）是 namespace 的唯一真相源。Chart 模板、集群内
+Service FQDN、sandbox provider 配置和监控规则都从 `.Release.Namespace` 派生；values 文件不再
+维护第二份 namespace 字段。
+
+默认 `k8s verify` 只读验证 Deployment/Envoy rollout、每个 orchestrator Pod 的 live/ready/metrics
+契约、唯一 Ready xDS authority，以及 authority 观测到的 Envoy 节点数。显式 `--runtime-images` 时，验证器
+才会为四个 runtime 镜像逐一创建一次性 Pod、等待成功退出并清理；该模式会短暂修改 namespace，适合发布
+门禁和本地 Colima 集群，不应在未授权的共享生产 namespace 中随意运行。
 
 健康检查：
 
@@ -163,6 +185,9 @@ profile。也可以通过 `ORCHESTRATOR_RS_FULL_IMAGE` 指向预构建镜像。
 ```bash
 ./deploy.sh doctor
 ./deploy.sh build --arch arm64   # 或 --arch amd64
+# 可按网络环境统一覆盖 Debian/Ubuntu 软件源
+APT_MIRROR_BASE=https://mirror.example.com ./deploy.sh build --arch arm64
+ALPINE_MIRROR_BASE=https://mirror.example.com/alpine ./deploy.sh build --arch arm64
 docker compose --profile rust-orchestrator up -d --no-build
 ```
 
