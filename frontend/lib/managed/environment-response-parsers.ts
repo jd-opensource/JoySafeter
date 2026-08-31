@@ -142,12 +142,15 @@ function parseEgressServices(value: unknown): EnvironmentEgressService[] {
       throw new TypeError(`HTTP egress auth source[${index}] is unsupported`)
     }
     if (authSource === 'agent_identity') {
-      if (CREDENTIAL_REF in service || 'inject' in service) {
+      const hasCredentialRef =
+        service[CREDENTIAL_REF] !== undefined && service[CREDENTIAL_REF] !== null
+      const hasInject = service.inject !== undefined && service.inject !== null
+      if (hasCredentialRef || hasInject) {
         throw new TypeError(
           `HTTP egress service[${index}] Agent Identity cannot include static credential fields`,
         )
       }
-      const serviceRest = omitKeys(service, ['auth_source'])
+      const serviceRest = omitKeys(service, ['auth_source', CREDENTIAL_REF, 'inject'])
       return {
         ...serviceRest,
         auth_source: 'agent_identity',

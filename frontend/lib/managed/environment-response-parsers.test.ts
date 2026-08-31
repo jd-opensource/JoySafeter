@@ -157,6 +157,35 @@ describe('environment response parsers', () => {
     })
   })
 
+  it('accepts null static credential fields from Agent Identity API responses', () => {
+    const environment = parseEnvironmentResponse({
+      ...rawEnvironment(),
+      config: {
+        egress_services: [
+          {
+            name: 'icc-dataagent-api',
+            kind: 'external',
+            exposure: 'placeholder',
+            base_url: 'http://icc-dataagent-api.jd.com',
+            auth_source: 'agent_identity',
+            credential_ref: null,
+            inject: null,
+            allowed_paths: ['/api/controller/tools/search_table_schema/invoke'],
+          },
+        ],
+      },
+    })
+
+    expect(environment.config?.egress_services?.[0]).toEqual({
+      name: 'icc-dataagent-api',
+      kind: 'external',
+      exposure: 'placeholder',
+      base_url: 'http://icc-dataagent-api.jd.com',
+      auth_source: 'agent_identity',
+      allowed_paths: ['/api/controller/tools/search_table_schema/invoke'],
+    })
+  })
+
   it.each([
     {
       name: 'secocean',
