@@ -199,7 +199,10 @@ build_image() {
             ${extra_build_args[@]+"${extra_build_args[@]}"} \
             --tag "$image_name" \
             "$context"
-        docker push "$image_name"
+        verify_local_image_platform "$image_name" "$PLATFORMS"
+        push_plain_image_and_verify "$image_name"
+        log_success "$service 镜像构建完成: $image_name"
+        return 0
     elif [ "$USE_BUILDX" = true ] && [ "$PUSH" = true ]; then
         if docker ps --format '{{.Names}}' | grep -q "buildx_buildkit_multiarch0"; then
             log_info "推送前检查 BuildKit 容器 DNS 连通性..."
@@ -320,6 +323,125 @@ build_image() {
     fi
 
     log_success "$service 镜像构建完成: $image_name"
+}
+
+push_plain_image_and_verify() {
+    local image_name=$1 push_output digest repository push_attempt verify_attempt
+    local push_attempts="${PUSH_ATTEMPTS:-3}"
+    local push_delay_seconds="${PUSH_RETRY_DELAY_SECONDS:-5}"
+    local verify_attempts="${PUSH_VERIFY_ATTEMPTS:-5}"
+    local verify_delay_seconds="${PUSH_VERIFY_DELAY_SECONDS:-5}"
+
+    for ((push_attempt = 1; push_attempt <= push_attempts; push_attempt++)); do
+        if push_output="$(docker push "$image_name" 2>&1)"; then
+            break
+        fi
+        printf '%s\n' "$push_output" >&2
+        if [ "$push_attempt" -ge "$push_attempts" ]; then
+            log_error "镜像推送失败: $image_name"
+            return 1
+        fi
+        log_warning "镜像推送失败（${push_attempt}/${push_attempts}），${push_delay_seconds}s 后重试: $image_name"
+        sleep "$push_delay_seconds"
+    done
+    printf '%s\n' "$push_output"
+
+    digest="$(printf '%s\n' "$push_output" | sed -nE 's/.*digest: (sha256:[0-9a-f]{64}).*/\1/p' | tail -1)"
+    if [ -z "$digest" ]; then
+        log_error "无法从推送结果解析 digest: $image_name"
+        return 1
+    fi
+
+    repository="${image_name%:*}"
+    log_info "按 digest 验证远端镜像: $repository@$digest"
+    for ((verify_attempt = 1; verify_attempt <= verify_attempts; verify_attempt++)); do
+        if docker pull --platform "$PLATFORMS" "$repository@$digest"; then
+            log_success "远端镜像已验证: $repository@$digest"
+            return 0
+        fi
+        if [ "$verify_attempt" -lt "$verify_attempts" ]; then
+            log_warning "远端 digest 暂不可读（${verify_attempt}/${verify_attempts}），${verify_delay_seconds}s 后重试"
+            sleep "$verify_delay_seconds"
+        fi
+    done
+
+    log_error "远端镜像 digest 验证失败: $repository@$digest"
+    return 1
+}
+
+registry_host_from_prefix() {
+    local normalized_registry
+    normalized_registry="$(normalize_registry "$1")"
+    printf '%s\n' "${normalized_registry%%/*}"
+}
+
+registry_scheme_for_host() {
+    local registry_host=$1 configured_scheme
+    if [ -n "${REGISTRY_SCHEME:-}" ]; then
+        case "$REGISTRY_SCHEME" in
+            http|https) printf '%s\n' "$REGISTRY_SCHEME"; return 0 ;;
+            *) log_error "REGISTRY_SCHEME 仅支持 http 或 https: $REGISTRY_SCHEME"; return 1 ;;
+        esac
+    fi
+    case "$registry_host" in
+        localhost|127.*|\[::1\]*) printf 'http\n'; return 0 ;;
+    esac
+    configured_scheme="$(docker info --format "{{with index .RegistryConfig.IndexConfigs \"$registry_host\"}}{{if .Secure}}https{{else}}http{{end}}{{end}}" 2>/dev/null || true)"
+    case "$configured_scheme" in
+        http|https) printf '%s\n' "$configured_scheme" ;;
+        *) printf 'https\n' ;;
+    esac
+}
+
+preflight_image_push() {
+    local registry=$1 registry_host registry_scheme registry_url http_code docker_config probe_image probe_output expected_uname
+
+    if [ -z "$registry" ]; then
+        log_error "推送镜像必须指定 --registry 或 DOCKER_REGISTRY"
+        return 1
+    fi
+
+    registry_host="$(registry_host_from_prefix "$registry")"
+    registry_scheme="$(registry_scheme_for_host "$registry_host")" || return 1
+    registry_url="${registry_scheme}://${registry_host}/v2/"
+    http_code="$(curl -sS --connect-timeout 10 --max-time 20 -o /dev/null -w '%{http_code}' "$registry_url" 2>/dev/null || true)"
+    case "$http_code" in
+        200|401|403) ;;
+        *)
+            log_error "Registry 不可用: $registry_url (HTTP ${http_code:-000})"
+            return 1
+            ;;
+    esac
+
+    docker_config="${DOCKER_CONFIG:-$HOME/.docker}/config.json"
+    if [ ! -f "$docker_config" ] || ! grep -q "\"$registry_host\"" "$docker_config"; then
+        log_error "未找到 Registry 登录信息: $registry_host；请先执行 docker login $registry_host"
+        return 1
+    fi
+
+    if [ "${PLAIN_IMAGE:-false}" != true ]; then
+        return 0
+    fi
+    if [[ "$PLATFORMS" == *,* ]]; then
+        log_error "plain push 只支持单一平台: $PLATFORMS"
+        return 1
+    fi
+
+    case "$PLATFORMS" in
+        linux/amd64) expected_uname=x86_64 ;;
+        linux/arm64) expected_uname=aarch64 ;;
+        *) return 0 ;;
+    esac
+    probe_image="${PLATFORM_PROBE_IMAGE:-${BASE_IMAGE_REGISTRY}alpine:3.22}"
+    if ! probe_output="$(docker run --rm --platform "$PLATFORMS" "$probe_image" uname -m 2>/dev/null)"; then
+        log_error "Docker 无法执行 $PLATFORMS 容器；请检查 Colima/Rosetta 或 binfmt 配置"
+        return 1
+    fi
+    if [ "$probe_output" != "$expected_uname" ]; then
+        log_error "Docker 平台探针不匹配: 实际=$probe_output 期望=$expected_uname"
+        return 1
+    fi
+    log_success "镜像推送预检通过: registry=$registry_host platform=$PLATFORMS"
 }
 
 resolve_skillspector_source_path() {
@@ -494,7 +616,7 @@ image_component_source_registry() {
         log_error "镜像组件 Registry 不存在: $IMAGE_COMPONENT_REGISTRY_FILE"
         return 1
     }
-    awk -F '\t' 'BEGIN { OFS="|" } !/^#/ && NF { print $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13 }' \
+    awk -F '\t' 'BEGIN { OFS="|" } !/^#/ && NF { print $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14 }' \
         "$IMAGE_COMPONENT_REGISTRY_FILE"
 }
 
@@ -574,20 +696,20 @@ image_component_ci_matrix() {
 }
 
 print_image_component_registry() {
-    local requested_family=$1 format=$2 record component group label handler image_env default_image dockerfile context target env_keys family build_contexts helm_key
+    local requested_family=$1 format=$2 record component group label handler image_env default_image dockerfile context target env_keys family build_contexts helm_key profiles
     if [ "$format" = github ]; then
         image_component_ci_matrix "$requested_family"
         return
     fi
     [ "$format" = table ] || { log_error "未知 Registry 输出格式: $format（可选: table, github）"; return 1; }
-    printf 'COMPONENT\tGROUP\tCI_FAMILY\tHANDLER\tIMAGE\tDOCKERFILE\tTARGET\tHELM_KEY\n'
+    printf 'COMPONENT\tGROUP\tCI_FAMILY\tHANDLER\tIMAGE\tDOCKERFILE\tTARGET\tHELM_KEY\tPROFILES\n'
     while IFS= read -r record; do
-        IFS='|' read -r component group label handler image_env default_image dockerfile context target env_keys family build_contexts helm_key <<< "$record"
+        IFS='|' read -r component group label handler image_env default_image dockerfile context target env_keys family build_contexts helm_key profiles <<< "$record"
         if [ "$requested_family" != all ] && [ "$family" != "$requested_family" ]; then
             continue
         fi
-        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-            "$component" "$group" "$family" "$handler" "$(component_image_name "$component")" "$dockerfile" "$target" "$helm_key"
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+            "$component" "$group" "$family" "$handler" "$(component_image_name "$component")" "$dockerfile" "$target" "$helm_key" "$profiles"
     done < <(image_component_source_registry)
 }
 
@@ -640,6 +762,32 @@ select_image_group() {
             select_image_component "$component"
         fi
     done < <(image_component_registry)
+}
+
+print_image_profile_options() {
+    image_component_source_registry \
+        | cut -d'|' -f14 \
+        | tr ',' '\n' \
+        | sed '/^$/d; /^-$/d' \
+        | sort -u \
+        | paste -sd/ -
+}
+
+select_image_profile() {
+    local requested_profile=$1 record component profiles matched=false
+    while IFS= read -r record; do
+        IFS='|' read -r component _ _ _ _ _ _ _ _ _ _ _ _ profiles <<< "$record"
+        case ",$profiles," in
+            *",$requested_profile,"*)
+                select_image_component "$component"
+                matched=true
+                ;;
+        esac
+    done < <(image_component_source_registry)
+    if [ "$matched" != true ]; then
+        log_error "未知镜像发布 profile: $requested_profile（可选: $(print_image_profile_options)）"
+        return 1
+    fi
 }
 
 selected_image_components() {
@@ -737,13 +885,13 @@ print_selected_image_refs() {
 build_selected_images() {
     local component
 
-    if [ "$USE_BUILDX" = true ]; then
-        init_buildx
+    if [ "$PUSH" = true ]; then
+        preflight_image_push "$REGISTRY" || return 1
         echo ""
     fi
-    if [ "$USE_BUILDX" = true ] && [ "$PUSH" = true ] && [ -z "$REGISTRY" ]; then
-        log_error "使用 Buildx 构建多架构镜像并推送时，必须指定镜像仓库（--registry）"
-        return 1
+    if [ "$USE_BUILDX" = true ] && [ "${PLAIN_IMAGE:-false}" != true ]; then
+        init_buildx
+        echo ""
     fi
 
     while IFS= read -r component; do

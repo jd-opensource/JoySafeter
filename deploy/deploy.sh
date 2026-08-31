@@ -111,6 +111,7 @@ show_usage() {
                          支持: amd64, arm64, armv7
   --component NAME       处理指定组件，可重复；$(print_image_component_options)
   --group GROUP          处理组件组，可重复；core/runtime/all（默认: core）
+  --profile PROFILE      处理发布集合；$(print_image_profile_options)
   --family FAMILY        registry 的 CI 镜像族；container/orchestrator（默认: all）
   --format FORMAT        registry 输出格式；table/github（默认: table）
   --no-cache             禁用 Docker 构建缓存（默认使用缓存）
@@ -121,6 +122,7 @@ show_usage() {
 
 环境变量:
   DOCKER_REGISTRY        镜像仓库地址（默认: 空，本地镜像）
+  REGISTRY_SCHEME        Registry 健康检查协议（http/https；默认读取 Docker daemon 配置）
 $(print_image_component_environment)
   IMAGE_TAG              镜像标签（默认: latest）
   BUILD_PLATFORMS        目标平台架构（默认: linux/amd64,linux/arm64）
@@ -176,6 +178,14 @@ $(print_image_component_environment)
 
   # 内部仓库不接受 OCI index 时，推送单架构普通 manifest
   $0 push --group all --arch amd64 --plain
+
+  # 只发布编排面和四个 sandbox runtime
+  $0 push --profile sandbox-plane --arch amd64 --plain \
+    --registry aisec-repo.jd.com/joysafeter --tag latest
+
+  # 发布除 frontend/backend(API/worker) 外的全部镜像
+  $0 push --profile non-app --arch amd64 --plain \
+    --registry aisec-repo.jd.com/joysafeter --tag latest
 
   # 构建指定架构并推送
   $0 push --arch amd64 --arch arm64
@@ -323,6 +333,10 @@ main() {
                 ;;
             --group)
                 select_image_group "$2" || exit 1
+                shift 2
+                ;;
+            --profile)
+                select_image_profile "$2" || exit 1
                 shift 2
                 ;;
             --family)

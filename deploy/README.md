@@ -129,6 +129,7 @@ docker compose down
 | `--platform linux/amd64,linux/arm64` | `build`、`push` | 构建多架构 manifest |
 | `--component NAME` | `build`、`push`、`pull` | 选择一个组件，可重复指定 |
 | `--group core\|runtime\|all` | `build`、`push`、`pull` | 选择统一注册表中的组件组；默认 `core` |
+| `--profile app\|sandbox-plane\|non-app` | `build`、`push`、`pull` | 选择 Registry 声明的稳定发布集合；`non-app` 排除 frontend/backend(API/worker) |
 | `--api-url URL` | `build`、`push` | （已废弃）前端 API 地址现在通过容器环境变量运行时注入 |
 | `--no-cache` | `build`、`push` | 禁用 Docker 构建缓存 |
 | `--mirror MIRROR` | `build`、`push` | 只用于手工镜像构建；本地 `local` 默认使用 `public.ecr.aws/docker/library/` 多架构基础镜像 |
@@ -240,7 +241,7 @@ docker compose down
 
 普通本地部署使用 `local`，它会自动处理 CPU 架构和本地 `.env`。只有需要单独构建/推送/拉取镜像时再用 `build` / `push` / `pull`。默认处理核心部署镜像：backend、frontend、orchestrator、skillspector；agent runtime 镜像使用 `--group runtime`，全部镜像使用 `--group all`。
 
-`deploy/image-components.tsv` 是组件名、分组、默认镜像名、Dockerfile、context、runtime target、Compose
+`deploy/image-components.tsv` 是组件名、分组、发布 profile、默认镜像名、Dockerfile、context、runtime target、Compose
 环境变量和 CI build family 的唯一 Registry。`deploy.sh` 的 build/push/pull、Compose 镜像同步，以及
 `.github/workflows/docker-build.yml` / `.github/workflows/release.yml` 的 matrix 都从该文件加载。Helm 部署使用
 `--sync-images` 时，也从同一 Registry 生成 orchestrator、Claude、Codex、Native、Pi 五个镜像覆盖；新增镜像
@@ -254,13 +255,29 @@ cd deploy
 ./deploy.sh build
 ./deploy.sh build --group all
 ./deploy.sh push
+./deploy.sh push --profile sandbox-plane --arch amd64 --plain \
+  --registry aisec-repo.jd.com/joysafeter --tag latest
+./deploy.sh push --profile non-app --arch amd64 --plain \
+  --registry aisec-repo.jd.com/joysafeter --tag latest
 ./deploy.sh pull --registry registry.example.com/your-org --tag v0.3.2
 ./deploy.sh registry
 ./deploy.sh --registry registry.example.com/your-org --tag v0.3.2 \
   k8s deploy --sync-images --namespace joysafeter
 ```
 
-`pull` 成功后会同步 `deploy/.env` 中被拉取镜像对应的变量，后续 `docker compose up --no-build` 会使用本次拉取的镜像。核心部署镜像和 agent runtime 镜像都支持多架构 Buildx push；本地 `build` 未指定单架构时仍只加载第一个目标平台，这是 Docker 本地镜像存储的限制。
+`sandbox-plane` 包含 orchestrator 与 Claude Code、Codex、Native、Pi 四个 sandbox runtime；`non-app`
+在此基础上包含 SkillSpector，明确排除 frontend 和 backend（API/worker 共用 backend 镜像）。旧入口
+`deploy/scripts/build-push-amd64-images.sh` 仅作兼容转发，默认发布 `sandbox-plane`，所有构建、推送和验证
+逻辑仍由 `deploy.sh` 与 `deploy/lib/images.sh` 唯一持有。旧的目标参数（如 `orchestrator native`）、
+`TARGETS` / `IMAGES`、`REGISTRY_PREFIX`、`TAG`、`SKIP_PUSH=1` 和 `NO_CACHE=1` 会被翻译为统一 CLI 参数，
+不会在兼容脚本中重复实现镜像生命周期。
+
+单架构 `--plain` 发布会在构建前检查 Registry、登录信息和目标架构执行能力，并在每个镜像推送后解析
+digest、按 digest 拉取验证。Registry 健康检查默认读取 Docker daemon 的 secure/insecure 配置；特殊环境可用
+`REGISTRY_SCHEME=http` 或 `REGISTRY_SCHEME=https` 显式覆盖。Registry 不可用时会在耗时构建开始前失败。`pull` 成功后会同步
+`deploy/.env` 中被拉取镜像对应的变量，后续 `docker compose up --no-build` 会使用本次拉取的镜像。核心部署
+镜像和 agent runtime 镜像都支持多架构 Buildx push；本地 `build` 未指定单架构时仍只加载第一个目标平台，
+这是 Docker 本地镜像存储的限制。
 
 `k8s deploy --sync-images` 是显式覆盖模式：全局 `--registry` / `--tag` 必须写在 `k8s` 前面，脚本把统一
 Registry 里的镜像名投影为 Helm `image.orchestrator` 与 `image.sandbox.*`。不传 `--sync-images` 时，Helm

@@ -134,6 +134,9 @@ backend/data/
 
 # Scripts, logs, docs (not for git)
 scripts/
+!deploy/scripts/
+deploy/scripts/*
+!deploy/scripts/build-push-amd64-images.sh
 logs/
 backend/scripts/*
 !backend/scripts/

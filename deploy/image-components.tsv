@@ -1,9 +1,9 @@
-# component	group	label	handler	image_env	default_image	dockerfile	context	target	env_keys	ci_family	build_contexts	helm_key
-backend	core	后端	standard	BACKEND_IMAGE	joysafeter-backend	deploy/docker/backend.Dockerfile	backend	-	BACKEND_FULL_IMAGE	container	-	-
-frontend	core	前端	standard	FRONTEND_IMAGE	joysafeter-frontend	deploy/docker/frontend.Dockerfile	frontend	-	FRONTEND_FULL_IMAGE	container	-	-
-orchestrator	core	Rust Orchestrator	orchestrator	ORCHESTRATOR_RS_IMAGE	joysafeter-orchestrator-rs	deploy/docker/orchestrator-rs-{0}.Dockerfile	.	-	ORCHESTRATOR_RS_FULL_IMAGE	orchestrator	-	image.orchestrator
-skillspector	core	SkillSpector	skillspector	SKILLSPECTOR_IMAGE	joysafeter-skillspector	deploy/docker/skillspector-service.Dockerfile	backend/joysafeter_skillspector	-	SKILLSPECTOR_FULL_IMAGE	container	skillspector=./.deps/SkillSpector	-
-claudecode	runtime	Claude Code 运行镜像	runtime	CLAUDECODE_IMAGE	joysafeter-claudecode	deploy/docker/runtime.Dockerfile	.	claudecode	JOYSAFETER_SANDBOX_IMAGE,JOYSAFETER_IMAGE_CLAUDE	container	-	image.sandbox.claude
-codex	runtime	Codex 运行镜像	runtime	CODEX_IMAGE	joysafeter-codex	deploy/docker/runtime.Dockerfile	.	codex	JOYSAFETER_IMAGE_CODEX	container	-	image.sandbox.codex
-native	runtime	Native 运行镜像	runtime	NATIVE_IMAGE	joysafeter-native	deploy/docker/runtime.Dockerfile	.	native	JOYSAFETER_IMAGE_NATIVE	container	-	image.sandbox.native
-pi	runtime	Pi 运行镜像	runtime	PI_IMAGE	joysafeter-pi	deploy/docker/runtime.Dockerfile	.	pi	JOYSAFETER_IMAGE_PI	container	-	image.sandbox.pi
+# component	group	label	handler	image_env	default_image	dockerfile	context	target	env_keys	ci_family	build_contexts	helm_key	profiles
+backend	core	后端	standard	BACKEND_IMAGE	joysafeter-backend	deploy/docker/backend.Dockerfile	backend	-	BACKEND_FULL_IMAGE	container	-	-	app
+frontend	core	前端	standard	FRONTEND_IMAGE	joysafeter-frontend	deploy/docker/frontend.Dockerfile	frontend	-	FRONTEND_FULL_IMAGE	container	-	-	app
+orchestrator	core	Rust Orchestrator	orchestrator	ORCHESTRATOR_RS_IMAGE	joysafeter-orchestrator-rs	deploy/docker/orchestrator-rs-{0}.Dockerfile	.	-	ORCHESTRATOR_RS_FULL_IMAGE	orchestrator	-	image.orchestrator	sandbox-plane,non-app
+skillspector	core	SkillSpector	skillspector	SKILLSPECTOR_IMAGE	joysafeter-skillspector	deploy/docker/skillspector-service.Dockerfile	backend/joysafeter_skillspector	-	SKILLSPECTOR_FULL_IMAGE	container	skillspector=./.deps/SkillSpector	-	non-app
+claudecode	runtime	Claude Code 运行镜像	runtime	CLAUDECODE_IMAGE	joysafeter-claudecode	deploy/docker/runtime.Dockerfile	.	claudecode	JOYSAFETER_SANDBOX_IMAGE,JOYSAFETER_IMAGE_CLAUDE	container	-	image.sandbox.claude	sandbox-plane,non-app
+codex	runtime	Codex 运行镜像	runtime	CODEX_IMAGE	joysafeter-codex	deploy/docker/runtime.Dockerfile	.	codex	JOYSAFETER_IMAGE_CODEX	container	-	image.sandbox.codex	sandbox-plane,non-app
+native	runtime	Native 运行镜像	runtime	NATIVE_IMAGE	joysafeter-native	deploy/docker/runtime.Dockerfile	.	native	JOYSAFETER_IMAGE_NATIVE	container	-	image.sandbox.native	sandbox-plane,non-app
+pi	runtime	Pi 运行镜像	runtime	PI_IMAGE	joysafeter-pi	deploy/docker/runtime.Dockerfile	.	pi	JOYSAFETER_IMAGE_PI	container	-	image.sandbox.pi	sandbox-plane,non-app
