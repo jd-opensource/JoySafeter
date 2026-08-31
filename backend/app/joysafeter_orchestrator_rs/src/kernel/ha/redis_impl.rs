@@ -47,6 +47,12 @@ const INBOX_MAXLEN: usize = 1000;
 /// Network-policy request stream max length (approximate trim).
 const NETWORK_POLICY_REQUEST_MAXLEN: usize = 1000;
 
+const REGISTER_BRIDGE_OWNERSHIP_SCRIPT: &str = r#"
+redis.call('SET', KEYS[1], ARGV[1], 'EX', ARGV[3])
+redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3])
+return 1
+"#;
+
 const REMOVE_BRIDGE_OWNERSHIP_SCRIPT: &str = r#"
 local owner = redis.call('GET', KEYS[1])
 local generation = redis.call('GET', KEYS[2])
@@ -76,8 +82,8 @@ fn bridge_registration_token(instance_id: &str, connection_id: Uuid) -> String {
 
 /// Keep the ownership and connection-generation keys in the same Redis Cluster
 /// slot. Redis hashes only the substring enclosed in `{...}`, so both keys use
-/// the sandbox ID as their shared hash tag. This is required by the Lua scripts
-/// and the atomic registration pipeline, which operate on both keys together.
+/// the sandbox ID as their shared hash tag. This is required by the Lua scripts,
+/// which operate on both keys atomically without Redis MULTI/EXEC transactions.
 fn bridge_owner_key(sandbox_id: Uuid) -> String {
     format!("{BRIDGE_KEY_PREFIX}{{{sandbox_id}}}:owner")
 }
@@ -167,21 +173,13 @@ impl BridgeStore for RedisBridgeStore {
                     let owner_key = bridge_owner_key(sandbox_db_id);
                     let generation_key = bridge_generation_key(sandbox_db_id);
                     let token = bridge_registration_token(&instance_id, connection_id);
-                    let result: redis::RedisResult<()> = redis::pipe()
-                        .atomic()
-                        .cmd("SET")
-                        .arg(&owner_key)
+                    let result = redis::Script::new(REGISTER_BRIDGE_OWNERSHIP_SCRIPT)
+                        .key(owner_key)
+                        .key(generation_key)
                         .arg(&instance_id)
-                        .arg("EX")
-                        .arg(BRIDGE_TTL_SECS)
-                        .ignore()
-                        .cmd("SET")
-                        .arg(&generation_key)
                         .arg(token)
-                        .arg("EX")
                         .arg(BRIDGE_TTL_SECS)
-                        .ignore()
-                        .query_async(&mut conn)
+                        .invoke_async::<i64>(&mut conn)
                         .await;
                     if let Err(e) = result {
                         warn!(
