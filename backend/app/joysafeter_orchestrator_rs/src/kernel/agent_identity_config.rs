@@ -5,11 +5,6 @@ pub enum AgentIdentityProviderKind {
 }
 
 impl AgentIdentityProviderKind {
-    pub fn from_env() -> anyhow::Result<Self> {
-        let value = std::env::var("AGENT_IDENTITY_PROVIDER").ok();
-        Self::parse(value.as_deref())
-    }
-
     pub fn parse(value: Option<&str>) -> anyhow::Result<Self> {
         match value
             .unwrap_or_default()
@@ -27,6 +22,15 @@ impl AgentIdentityProviderKind {
         if self == Self::Jd && !cfg!(feature = "jd-identity") {
             anyhow::bail!(
                 "AGENT_IDENTITY_PROVIDER=jd requires a binary built with the jd-identity feature"
+            );
+        }
+        Ok(self)
+    }
+
+    pub fn validate_runtime_policy(self, allowed_hosts: &[String]) -> anyhow::Result<Self> {
+        if self == Self::Jd && allowed_hosts.is_empty() {
+            anyhow::bail!(
+                "AGENT_IDENTITY_PROVIDER=jd requires AGENT_IDENTITY_ALLOWED_HOSTS to contain at least one trusted host"
             );
         }
         Ok(self)
@@ -74,6 +78,21 @@ mod tests {
                 "{value}: {error}"
             );
         }
+    }
+
+    #[test]
+    fn jd_provider_requires_an_explicit_identity_injection_allowlist() {
+        let error = AgentIdentityProviderKind::Jd
+            .validate_runtime_policy(&[])
+            .unwrap_err();
+
+        assert!(error.to_string().contains("AGENT_IDENTITY_ALLOWED_HOSTS"));
+        AgentIdentityProviderKind::Jd
+            .validate_runtime_policy(&["crm.example.com".to_string()])
+            .unwrap();
+        AgentIdentityProviderKind::None
+            .validate_runtime_policy(&[])
+            .unwrap();
     }
 
     #[cfg(not(feature = "jd-identity"))]

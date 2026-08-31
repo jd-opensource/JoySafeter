@@ -65,6 +65,7 @@ pub trait ProviderFactory: Send + Sync {
 pub trait IdentityProviderFactory: Send + Sync {
     fn build(
         &self,
+        config: &JoySafeterConfig,
         redis: Option<&redis::Client>,
     ) -> anyhow::Result<Arc<dyn AgentIdentityProvider>>;
 }
@@ -74,11 +75,15 @@ pub struct ProductionIdentityProviderFactory;
 impl IdentityProviderFactory for ProductionIdentityProviderFactory {
     fn build(
         &self,
+        config: &JoySafeterConfig,
         redis: Option<&redis::Client>,
     ) -> anyhow::Result<Arc<dyn AgentIdentityProvider>> {
         use crate::kernel::agent_identity_config::AgentIdentityProviderKind;
 
-        match AgentIdentityProviderKind::from_env()?.validate_feature_availability()? {
+        match AgentIdentityProviderKind::parse(Some(&config.agent_identity_provider))?
+            .validate_feature_availability()?
+            .validate_runtime_policy(&config.agent_identity_allowed_hosts)?
+        {
             AgentIdentityProviderKind::None => Ok(Arc::new(
                 crate::kernel::agent_identity_provider::NoopAgentIdentityProvider,
             )),

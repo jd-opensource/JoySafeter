@@ -356,6 +356,7 @@ kubectl scale deployment joysafeter-orchestrator -n joysafeter-prod --replicas=5
 | `orchestrator.storage.local.path` | `/data/files` | local 后端路径；启用 persistence 时挂 PVC |
 | `orchestrator.storage.oss.bucket/endpoint/region` | 空/空/空 | OSS 非敏感参数；region 为空时不注入环境变量 |
 | `orchestrator.storage.s3.bucket/endpoint/region` | 空/空/空 | S3 非敏感参数；region 允许为空字符串 |
+| `agentIdentity.provider` | `none` | 设为 `jd` 时，Helm 发布前强制要求 `baseUrl`、非空 `allowedHosts`、`clientId`、`platformId`；`clientSecret` 仍由 `externalSecret` 提供 |
 | `envoy.socketHostDir` | `/data/joysafeter/envoy-sockets` | Envoy UDS hostPath |
 | `envoy.runAsUser/runAsGroup` | `101/101` | Envoy 进程身份；初始化容器据此设置 socket 根目录所有权 |
 | `egress.allowedHosts` | [见 values.yaml] | Envoy 出站白名单 |

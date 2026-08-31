@@ -1,10 +1,81 @@
+import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 
 pytestmark = pytest.mark.no_db
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+CHART = REPO_ROOT / "deploy/helm/joysafeter-orchestrator"
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "expected_error"),
+    [
+        ("baseUrl", "", "agentIdentity.baseUrl is required"),
+        ("allowedHosts", [], "agentIdentity.allowedHosts must contain at least one host"),
+        ("allowedHosts", ["  "], "agentIdentity.allowedHosts must not contain empty hosts"),
+        ("clientId", "", "agentIdentity.clientId is required"),
+        ("platformId", "", "agentIdentity.platformId is required"),
+    ],
+)
+def test_helm_rejects_incomplete_jd_identity_configuration(
+    tmp_path: Path,
+    field: str,
+    value: str | list[str],
+    expected_error: str,
+) -> None:
+    identity_values: dict[str, str | list[str]] = {
+        "provider": "jd",
+        "baseUrl": "https://identity.example.com",
+        "allowedHosts": ["crm.example.com"],
+        "clientId": "client-id",
+        "platformId": "platform-id",
+    }
+    identity_values[field] = value
+    values_file = tmp_path / "identity-values.yaml"
+    values_file.write_text(yaml.safe_dump({"agentIdentity": identity_values}))
+    command = [
+        "helm",
+        "template",
+        "identity-contract",
+        str(CHART),
+        "--values",
+        str(values_file),
+    ]
+
+    result = subprocess.run(command, capture_output=True, text=True, check=False)
+
+    assert result.returncode != 0
+    assert expected_error in result.stderr
+
+
+def test_helm_accepts_complete_jd_identity_configuration(tmp_path: Path) -> None:
+    values_file = tmp_path / "identity-values.yaml"
+    values_file.write_text(
+        yaml.safe_dump(
+            {
+                "agentIdentity": {
+                    "provider": "jd",
+                    "baseUrl": "https://identity.example.com",
+                    "allowedHosts": ["crm.example.com"],
+                    "clientId": "client-id",
+                    "platformId": "platform-id",
+                }
+            }
+        )
+    )
+
+    result = subprocess.run(
+        ["helm", "template", "identity-contract", str(CHART), "--values", str(values_file)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert 'AGENT_IDENTITY_ALLOWED_HOSTS: "crm.example.com"' in result.stdout
 
 
 def test_sandbox_pods_receive_chart_image_pull_secrets() -> None:

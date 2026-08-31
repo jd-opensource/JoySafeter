@@ -224,7 +224,30 @@ assert_contains "$helm_call" 'image.sandbox.native=registry.example.test/joysafe
 assert_contains "$helm_call" 'image.sandbox.pi=registry.example.test/joysafeter/joysafeter-pi:runtime-v1'
 
 : > "$HELM_CALLS_FILE"
-kubernetes_kubectl() { return 0; }
+KUBECTL_CALLS_FILE="$TEST_TMP/kubectl-calls"
+export KUBECTL_CALLS_FILE
+kubernetes_kubectl() {
+    printf '%s\n' "$*" >> "$KUBECTL_CALLS_FILE"
+    return 0
+}
+run_kubernetes_command deploy --values "$DEPLOY_DIR/helm/joysafeter-orchestrator/values-pre.yaml"
+assert_contains "$(cat "$KUBECTL_CALLS_FILE")" 'get secret joysafeter-secrets-pre -n joysafeter'
+
+: > "$HELM_CALLS_FILE"
+: > "$KUBECTL_CALLS_FILE"
+kubernetes_kubectl() {
+    if [[ "$*" == *'get deployment joysafeter-orchestrator'*'jsonpath='* ]]; then
+        printf '%s\n' 'joysafeter-secrets-existing'
+        return 0
+    fi
+    printf '%s\n' "$*" >> "$KUBECTL_CALLS_FILE"
+    return 0
+}
+run_kubernetes_command deploy --reuse-values
+assert_contains "$(cat "$KUBECTL_CALLS_FILE")" 'get secret joysafeter-secrets-existing -n joysafeter'
+
+: > "$HELM_CALLS_FILE"
+: > "$KUBECTL_CALLS_FILE"
 run_kubernetes_command deploy --sync-images --reuse-values
 helm_call="$(cat "$HELM_CALLS_FILE")"
 assert_contains "$helm_call" 'upgrade'

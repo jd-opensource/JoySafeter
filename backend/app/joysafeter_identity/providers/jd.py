@@ -33,16 +33,6 @@ def _capture_headers_map(request: Any | None, *, cookie_name: str, identity_toke
     return captured
 
 
-def validate_configuration() -> None:
-    missing = [
-        name
-        for name in ("AGENT_IDENTITY_BASE_URL", "AGENT_IDENTITY_ALLOWED_HOSTS")
-        if not os.environ.get(name, "").strip()
-    ]
-    if missing:
-        raise RuntimeError("AGENT_IDENTITY_PROVIDER=jd requires configuration: " + ", ".join(missing))
-
-
 def capture_credential(
     request: Any | None,
     identity_auth_code: str | None,

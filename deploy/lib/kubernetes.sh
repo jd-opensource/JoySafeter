@@ -79,9 +79,42 @@ kubernetes_component_image_overrides() {
     done < <(image_component_source_registry)
 }
 
+kubernetes_external_secret_name() {
+    local values_file=${1:-}
+    local context=${2:-}
+    local namespace=${3:-joysafeter}
+    local reuse_values=${4:-false}
+    local configured=""
+
+    if [ -n "$values_file" ]; then
+        configured="$(awk '
+            /^externalSecret:[[:space:]]*/ {
+                sub(/^externalSecret:[[:space:]]*/, "")
+                sub(/[[:space:]]+#.*$/, "")
+                gsub(/^[[:space:]"'\'' ]+|[[:space:]"'\'' ]+$/, "")
+                print
+                exit
+            }
+        ' "$values_file")"
+    fi
+
+    if [ -z "$configured" ] && [ "$reuse_values" = true ]; then
+        configured="$(
+            kubernetes_kubectl "$context" get deployment joysafeter-orchestrator \
+                -n "$namespace" \
+                -o 'jsonpath={.spec.template.spec.containers[?(@.name=="orchestrator")].envFrom[*].secretRef.name}' \
+                2>/dev/null || true
+        )"
+        configured="${configured%% *}"
+    fi
+
+    printf '%s\n' "${configured:-joysafeter-secrets}"
+}
+
 kubernetes_deploy() {
     local namespace=$1 release=$2 context=$3 mode=$4 replicas=$5 values_file=$6 dry_run=$7 timeout=$8 sync_images=$9 reuse_values=${10}
     local chart_dir="$SCRIPT_DIR/helm/joysafeter-orchestrator"
+    local external_secret
     local -a helm_args=()
 
     case "$mode" in
@@ -117,9 +150,10 @@ kubernetes_deploy() {
     fi
 
     check_command kubectl || return 1
-    if ! kubernetes_kubectl "$context" get secret joysafeter-secrets -n "$namespace" >/dev/null 2>&1; then
-        log_error "namespace '$namespace' 中不存在 Secret 'joysafeter-secrets'"
-        log_error "请先运行: $0 k8s secrets --namespace $namespace --from-env"
+    external_secret="$(kubernetes_external_secret_name "$values_file" "$context" "$namespace" "$reuse_values")"
+    if ! kubernetes_kubectl "$context" get secret "$external_secret" -n "$namespace" >/dev/null 2>&1; then
+        log_error "namespace '$namespace' 中不存在 Secret '$external_secret'"
+        log_error "请先创建该 Secret，或让 values 中的 externalSecret 指向已存在的 Secret"
         return 1
     fi
 

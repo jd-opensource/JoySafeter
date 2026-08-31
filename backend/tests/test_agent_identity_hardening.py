@@ -212,14 +212,29 @@ async def test_disabled_identity_cleanup_has_no_jd_side_effects(
     jd_cleanup.assert_not_awaited()
 
 
-def test_enabled_identity_requires_complete_api_configuration(
+def test_enabled_identity_api_startup_ignores_orchestrator_runtime_configuration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("AGENT_IDENTITY_PROVIDER", "jd")
     monkeypatch.delenv("AGENT_IDENTITY_BASE_URL", raising=False)
     monkeypatch.delenv("AGENT_IDENTITY_ALLOWED_HOSTS", raising=False)
+    monkeypatch.setenv("JOYSAFETER_VAULT_ENCRYPTION_KEY", TEST_KEY)
+    monkeypatch.setenv("JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING", json.dumps({TEST_KEY_ID: TEST_KEY}))
+    monkeypatch.setenv("JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID", TEST_KEY_ID)
+    monkeypatch.setenv("AGENT_IDENTITY_CONTEXT_TTL_SECONDS", "300")
 
-    with pytest.raises(RuntimeError, match="AGENT_IDENTITY_BASE_URL"):
+    validate_agent_identity_configuration()
+
+
+def test_enabled_identity_api_startup_requires_capture_encryption_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("AGENT_IDENTITY_PROVIDER", "jd")
+    monkeypatch.delenv("JOYSAFETER_VAULT_ENCRYPTION_KEY", raising=False)
+    monkeypatch.delenv("JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING", raising=False)
+    monkeypatch.delenv("JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID", raising=False)
+
+    with pytest.raises(RuntimeError, match="credential encryption"):
         validate_agent_identity_configuration()
 
 

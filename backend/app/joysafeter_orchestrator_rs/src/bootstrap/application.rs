@@ -118,7 +118,9 @@ impl OrchestratorApplication {
         };
 
         // Initialize Agent Identity Provider (pluggable, feature-gated)
-        let identity_provider = dependencies.identity_factory.build(redis_client.as_ref())?;
+        let identity_provider = dependencies
+            .identity_factory
+            .build(&config, redis_client.as_ref())?;
 
         // Initialize runtime config (hot-reloadable)
         let runtime_config = Arc::new(runtime_config::RuntimeConfig::from_config(&config));

@@ -21,10 +21,7 @@ from app.joysafeter_identity.config import (
     AgentIdentityProvider,
     resolve_agent_identity_provider,
 )
-from app.joysafeter_identity.service import (
-    capture_identity_credential,
-    validate_provider_configuration,
-)
+from app.joysafeter_identity.service import capture_identity_credential
 from app.joysafeter_infrastructure.task_identity.material_adapter import TaskIdentityMaterialConfigurationError
 from app.joysafeter_shared.common.joysafeter_auth.context import JoySafeterAuthContext
 
@@ -59,7 +56,6 @@ def validate_agent_identity_configuration() -> None:
     provider = resolve_agent_identity_provider()
     if provider is AgentIdentityProvider.NONE:
         return
-    validate_provider_configuration()
     try:
         compose_task_identity_material_adapter(
             os.environ.get("JOYSAFETER_VAULT_ENCRYPTION_KEY", ""),

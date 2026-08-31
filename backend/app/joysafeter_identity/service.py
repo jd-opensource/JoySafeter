@@ -10,18 +10,6 @@ from app.joysafeter_identity.types import CapturedIdentityCredential
 from app.joysafeter_shared.ids import AgentId
 
 
-def validate_provider_configuration() -> None:
-    provider = resolve_agent_identity_provider()
-    if provider is AgentIdentityProvider.NONE:
-        return
-    if provider is AgentIdentityProvider.JD:
-        from app.joysafeter_identity.providers import jd
-
-        jd.validate_configuration()
-        return
-    raise AssertionError(f"unsupported agent identity provider: {provider}")
-
-
 def capture_identity_credential(
     request: Any | None,
     identity_auth_code: str | None,

@@ -1,4 +1,4 @@
-{{- $agentIdentityProvider := default "none" .Values.agentIdentity.provider -}}
+{{- $agentIdentityProvider := default "none" .Values.agentIdentity.provider | lower -}}
 {{- $storage := .Values.orchestrator.storage | default dict -}}
 {{- $storageBackend := default "local" $storage.backend | lower -}}
 {{- if not (has $storageBackend (list "local" "s3" "oss")) -}}
@@ -6,6 +6,25 @@
 {{- end -}}
 {{- if not (has $agentIdentityProvider (list "none" "jd")) -}}
 {{- fail "agentIdentity.provider must be one of: none, jd" -}}
+{{- end }}
+{{- if eq $agentIdentityProvider "jd" -}}
+{{- if empty (trim (default "" .Values.agentIdentity.baseUrl)) -}}
+{{- fail "agentIdentity.baseUrl is required when agentIdentity.provider=jd" -}}
+{{- end -}}
+{{- if eq (len (default (list) .Values.agentIdentity.allowedHosts)) 0 -}}
+{{- fail "agentIdentity.allowedHosts must contain at least one host when agentIdentity.provider=jd" -}}
+{{- end -}}
+{{- range .Values.agentIdentity.allowedHosts -}}
+{{- if empty (trim .) -}}
+{{- fail "agentIdentity.allowedHosts must not contain empty hosts when agentIdentity.provider=jd" -}}
+{{- end -}}
+{{- end -}}
+{{- if empty (trim (default "" .Values.agentIdentity.clientId)) -}}
+{{- fail "agentIdentity.clientId is required when agentIdentity.provider=jd" -}}
+{{- end -}}
+{{- if empty (trim (default "" .Values.agentIdentity.platformId)) -}}
+{{- fail "agentIdentity.platformId is required when agentIdentity.provider=jd" -}}
+{{- end -}}
 {{- end }}
 apiVersion: v1
 kind: ConfigMap

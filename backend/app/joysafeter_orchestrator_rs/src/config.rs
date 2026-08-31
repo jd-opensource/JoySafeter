@@ -144,6 +144,8 @@ pub struct JoySafeterConfig {
     /// Envoy-side key injection path from sending credentials to arbitrary
     /// user-controlled base URLs.
     pub llm_egress_allowed_hosts: Vec<String>,
+    /// Selected task-identity provider, captured once during bootstrap config loading.
+    pub agent_identity_provider: String,
     /// Hosts eligible for task-scoped identity injection. The identity domain
     /// receives this parsed policy from bootstrap and never reads process env.
     pub agent_identity_allowed_hosts: Vec<String>,
@@ -339,6 +341,7 @@ impl JoySafeterConfig {
             ),
             envoy_health_failure_threshold: env_u64("JOYSAFETER_ENVOY_HEALTH_FAILURE_THRESHOLD", 3),
             llm_egress_allowed_hosts: env_list("JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS"),
+            agent_identity_provider: env_str("AGENT_IDENTITY_PROVIDER", "none"),
             agent_identity_allowed_hosts: env_list("AGENT_IDENTITY_ALLOWED_HOSTS"),
 
             image_builder_enabled: env_bool("JOYSAFETER_IMAGE_BUILDER_ENABLED", false),
@@ -425,6 +428,11 @@ impl JoySafeterConfig {
     }
 
     pub fn validate(&self) -> anyhow::Result<()> {
+        crate::kernel::agent_identity_config::AgentIdentityProviderKind::parse(Some(
+            &self.agent_identity_provider,
+        ))?
+        .validate_feature_availability()?
+        .validate_runtime_policy(&self.agent_identity_allowed_hosts)?;
         if self.runner_admission_ttl_seconds == 0 {
             anyhow::bail!("JOYSAFETER_RUNNER_ADMISSION_TTL_SECONDS must be greater than zero");
         }
@@ -891,6 +899,20 @@ mod tests {
             .validate()
             .expect_err("zero runner admission TTL must be rejected");
         assert!(error.to_string().contains("RUNNER_ADMISSION_TTL_SECONDS"));
+    }
+
+    #[cfg(feature = "jd-identity")]
+    #[test]
+    fn jd_identity_requires_injection_hosts_during_config_validation() {
+        let mut cfg = JoySafeterConfig::from_env();
+        cfg.agent_identity_provider = "jd".to_string();
+        cfg.agent_identity_allowed_hosts.clear();
+
+        let error = cfg
+            .validate()
+            .expect_err("JD identity must fail before runtime composition without trusted hosts");
+
+        assert!(error.to_string().contains("AGENT_IDENTITY_ALLOWED_HOSTS"));
     }
 
     #[test]
