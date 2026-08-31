@@ -7,7 +7,6 @@
 # =============================================================================
 
 # ── 全局 ──
-namespace: joysafeter
 environment: production   # test / production
 timezone: Asia/Shanghai
 
@@ -261,7 +260,7 @@ networkPolicy:
   type: cilium   # cilium (CiliumNetworkPolicy) / standard (K8s NetworkPolicy)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# xDS 生产告警（依赖 Prometheus Operator 与 kube-state-metrics）
+# 生产告警（依赖 Prometheus Operator；xDS 节点数量告警还依赖 kube-state-metrics）
 # ═══════════════════════════════════════════════════════════════════════════════
 
 monitoring:
@@ -276,3 +275,12 @@ monitoring:
     applyTimeoutSeconds: 30
     degradedInventoryFor: 30s
     envoyNodeMismatchFor: 2m
+  runnerAlerts:
+    enabled: false
+    additionalLabels: {}
+    setupFailureWindow: 5m
+    setupFailureFor: 5m
+    reconnectRejectWindow: 10m
+    reconnectRejectFor: 2m
+    staleResultWindow: 10m
+    staleResultFor: 5m

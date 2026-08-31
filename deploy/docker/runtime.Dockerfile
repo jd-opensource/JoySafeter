@@ -2,7 +2,29 @@ ARG RUST_IMAGE="public.ecr.aws/docker/library/rust:1-bookworm"
 ARG BASE_IMAGE_REGISTRY="public.ecr.aws/docker/library/"
 FROM ${RUST_IMAGE} AS runner-builder
 
-RUN apt-get update \
+ARG APT_MIRROR_BASE="http://mirrors.ustc.edu.cn"
+
+ARG CARGO_REGISTRIES_CRATES_IO_INDEX="sparse+https://rsproxy.cn/index/"
+ENV CARGO_HTTP_TIMEOUT=600 \
+    CARGO_HTTP_MULTIPLEXING=false \
+    CARGO_NET_RETRY=10
+
+RUN mkdir -p /usr/local/cargo \
+    && printf '%s\n' \
+        '[source.crates-io]' \
+        'replace-with = "runtime-mirror"' \
+        '[source.runtime-mirror]' \
+        "registry = \"${CARGO_REGISTRIES_CRATES_IO_INDEX}\"" \
+        > /usr/local/cargo/config.toml
+
+RUN for sources in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
+        [ -f "$sources" ] || continue; \
+        sed -i \
+            -e "s|https*://deb.debian.org/debian-security|${APT_MIRROR_BASE}/debian-security|g" \
+            -e "s|https*://deb.debian.org/debian|${APT_MIRROR_BASE}/debian|g" \
+            "$sources"; \
+    done \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         ca-certificates \
         libssl-dev \
@@ -16,20 +38,26 @@ COPY shared ./shared
 COPY sandbox-runner ./sandbox-runner
 
 WORKDIR /src/sandbox-runner
-RUN cargo build --release -p joysafeter-runner
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/src/sandbox-runner/target \
+    cargo build --release -p joysafeter-runner \
+    && cp target/release/joysafeter-runner /tmp/joysafeter-runner
 
 FROM ${BASE_IMAGE_REGISTRY}ubuntu:22.04 AS runtime-base
+
+ARG APT_MIRROR_BASE="http://mirrors.ustc.edu.cn"
 
 ARG DEBIAN_FRONTEND=noninteractive
 
 RUN arch="$(dpkg --print-architecture)" \
     && case "$arch" in \
         amd64) \
-            sed -i 's|http://archive.ubuntu.com/ubuntu|http://mirrors.ustc.edu.cn/ubuntu|g' /etc/apt/sources.list; \
-            sed -i 's|http://security.ubuntu.com/ubuntu|http://mirrors.ustc.edu.cn/ubuntu|g' /etc/apt/sources.list \
+            sed -i "s|http://archive.ubuntu.com/ubuntu|${APT_MIRROR_BASE}/ubuntu|g" /etc/apt/sources.list; \
+            sed -i "s|http://security.ubuntu.com/ubuntu|${APT_MIRROR_BASE}/ubuntu|g" /etc/apt/sources.list \
             ;; \
         arm64) \
-            sed -i 's|http://ports.ubuntu.com/ubuntu-ports|http://mirrors.ustc.edu.cn/ubuntu-ports|g' /etc/apt/sources.list \
+            sed -i "s|http://ports.ubuntu.com/ubuntu-ports|${APT_MIRROR_BASE}/ubuntu-ports|g" /etc/apt/sources.list \
             ;; \
         *) \
             echo "unsupported runtime architecture: $arch" >&2; \
@@ -72,7 +100,7 @@ WORKDIR /workspace
 
 FROM runtime-base AS runtime-with-runner
 
-COPY --from=runner-builder /src/sandbox-runner/target/release/joysafeter-runner /usr/local/bin/joysafeter-runner
+COPY --from=runner-builder /tmp/joysafeter-runner /usr/local/bin/joysafeter-runner
 COPY deploy/docker/runtime-credentials.sh /usr/local/lib/joysafeter/runtime-credentials.sh
 RUN chmod +x /usr/local/bin/joysafeter-runner \
     && chmod 755 /usr/local/lib/joysafeter/runtime-credentials.sh

@@ -36,7 +36,6 @@
 # 部署: helm install joysafeter-pre . -f values-pre.yaml -n joysafeter-pre
 # =============================================================================
 
-namespace: joysafeter-pre
 environment: pre
 
 # 引用手工创建的 Secret (不在此写明文)

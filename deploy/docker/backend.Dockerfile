@@ -6,9 +6,19 @@ ARG BASE_IMAGE_REGISTRY="public.ecr.aws/docker/library/"
 ARG PYTHON_VERSION=3.12-slim
 FROM ${BASE_IMAGE_REGISTRY}python:${PYTHON_VERSION} AS base
 
+ARG APT_MIRROR_BASE="http://mirrors.ustc.edu.cn"
+
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
+RUN for sources in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
+        [ -f "$sources" ] || continue; \
+        sed -i \
+            -e "s|https*://deb.debian.org/debian-security|${APT_MIRROR_BASE}/debian-security|g" \
+            -e "s|https*://deb.debian.org/debian|${APT_MIRROR_BASE}/debian|g" \
+            "$sources"; \
+    done \
+    && apt-get update \
+    && apt-get install -y \
     build-essential \
     curl \
     && rm -rf /var/lib/apt/lists/*
@@ -33,7 +43,8 @@ COPY . .
 # 生产运行阶段
 FROM base AS runner
 
-RUN apt-get update && apt-get install -y \
+RUN apt-get update \
+    && apt-get install -y \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 

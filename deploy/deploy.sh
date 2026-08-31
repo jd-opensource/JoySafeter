@@ -49,6 +49,8 @@ USE_BUILDX="${USE_BUILDX:-true}"
 #                         默认 docker.m.daocloud.io （DaoCloud 国内 CDN）
 BASE_IMAGE_REGISTRY="${BASE_IMAGE_REGISTRY:-public.ecr.aws/docker/library/}"
 DOCKER_MIRROR="${DOCKER_MIRROR:-docker.m.daocloud.io}"
+APT_MIRROR_BASE="${APT_MIRROR_BASE:-http://mirrors.ustc.edu.cn}"
+ALPINE_MIRROR_BASE="${ALPINE_MIRROR_BASE:-https://mirrors.ustc.edu.cn/alpine}"
 # BuildKit builder 镜像（multiarch builder 启动 buildx_buildkit_multiarch0 容器时使用）。
 # 留空则使用 buildx 默认的 docker.io/moby/buildkit:buildx-stable-1。
 # 无法访问 docker.io 的网络下，设为可达的 mirror，例如：
@@ -59,6 +61,7 @@ NO_CACHE="${NO_CACHE:-false}"
 # pip/uv 镜像源配置（默认使用清华大学镜像源）
 PIP_INDEX_URL="${PIP_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}"
 UV_INDEX_URL="${UV_INDEX_URL:-https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple}"
+CARGO_REGISTRIES_CRATES_IO_INDEX="${CARGO_REGISTRIES_CRATES_IO_INDEX:-sparse+https://rsproxy.cn/index/}"
 # Rust 镜像从 BASE_IMAGE_REGISTRY 派生
 RUST_IMAGE="${RUST_IMAGE:-${BASE_IMAGE_REGISTRY}rust:1-bookworm}"
 RUNTIME_IMAGE="${RUNTIME_IMAGE:-${BASE_IMAGE_REGISTRY}debian:bookworm-slim}"
@@ -76,6 +79,8 @@ source "$SCRIPT_DIR/lib/compose.sh"
 source "$SCRIPT_DIR/lib/development.sh"
 # shellcheck source=lib/images.sh
 source "$SCRIPT_DIR/lib/images.sh"
+# shellcheck source=lib/verification.sh
+source "$SCRIPT_DIR/lib/verification.sh"
 # shellcheck source=lib/kubernetes.sh
 source "$SCRIPT_DIR/lib/kubernetes.sh"
 show_usage() {
@@ -85,6 +90,7 @@ show_usage() {
 命令:
   doctor             本地部署环境预检（不启动容器）
   local              本地 Docker Compose 一键部署（自动按 Docker CPU 架构选择平台）
+  verify             验证本地服务、orchestrator 健康/指标和全部 runtime 镜像
   dev                宿主机运行 API/Worker/Orchestrator/Frontend，依赖使用容器
   build              构建核心部署镜像（backend, frontend, orchestrator-rs, skillspector）
   push               构建并推送多架构镜像到仓库
@@ -120,9 +126,13 @@ $(print_image_component_environment)
   BUILD_PLATFORMS        目标平台架构（默认: linux/amd64,linux/arm64）
   PIP_INDEX_URL          pip 镜像源（默认: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple）
   UV_INDEX_URL           uv 镜像源（默认: https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple）
+  CARGO_REGISTRIES_CRATES_IO_INDEX
+                         runtime Runner 构建使用的 Cargo sparse index
   RUST_IMAGE             Rust 编译镜像（默认: 从 BASE_IMAGE_REGISTRY 派生）
   BASE_IMAGE_REGISTRY    官方库镜像前缀（默认: public.ecr.aws/docker/library/）
   DOCKER_MIRROR          第三方镜像代理前缀（默认: docker.m.daocloud.io）
+  APT_MIRROR_BASE        Debian/Ubuntu 软件源根地址（默认: http://mirrors.ustc.edu.cn）
+  ALPINE_MIRROR_BASE     Alpine 软件源根地址（默认: https://mirrors.ustc.edu.cn/alpine）
   BUILDKIT_IMAGE         BuildKit builder 镜像（默认: 空=用 buildx 默认 docker.io/moby/buildkit）
   SKILLSPECTOR_SOURCE_PATH SkillSpector 源码路径（local 默认: ../.deps/SkillSpector）
   SKILLSPECTOR_REPO_URL    SkillSpector 缺失时克隆的仓库地址
@@ -331,7 +341,7 @@ main() {
                 PLAIN_IMAGE=true
                 shift
                 ;;
-            doctor|local|dev|build|push|pull|registry|down|logs|restart|status|k8s)
+            doctor|local|dev|build|push|pull|registry|verify|down|logs|restart|status|k8s)
                 COMMAND="$1"
                 shift
                 ;;
@@ -361,7 +371,7 @@ main() {
     fi
 
     case "$COMMAND" in
-        doctor|local|build|push|pull|down|logs|restart|status)
+        doctor|local|build|push|pull|verify|down|logs|restart|status)
             check_command docker || exit 1
             check_docker_running
             if [ -n "$ARCH_LIST_STR" ]; then
@@ -404,6 +414,9 @@ main() {
             ;;
         (registry)
             print_image_component_registry "$REGISTRY_FAMILY" "$REGISTRY_FORMAT"
+            ;;
+        (verify)
+            run_local_verification
             ;;
         (down)
             if [ "${#SERVICE_ARGS[@]}" -eq 0 ]; then

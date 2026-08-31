@@ -7,7 +7,7 @@ kubernetes_usage() {
 命令:
   deploy              Helm 安装或升级
   uninstall           Helm 卸载
-  verify              验证 Deployment、Envoy 和 readiness
+  verify              验证 Deployment、Envoy、健康/指标契约和 xDS authority
   scale REPLICAS      扩缩 orchestrator
   status              查看 orchestrator 与 Envoy 状态
   secrets             创建或更新 joysafeter-secrets
@@ -28,6 +28,7 @@ deploy 选项:
 
 verify 选项:
   --since DURATION    日志检查窗口（默认: 5m）
+  --runtime-images    创建临时 Pod 验证四个 runtime 镜像可启动并自动清理
 
 secrets 选项:
   --from-env          从当前环境读取 DATABASE_URL、REDIS_URL 和密钥
@@ -160,9 +161,81 @@ kubernetes_scale() {
     kubernetes_kubectl "$context" rollout status deployment/joysafeter-orchestrator -n "$namespace" --timeout="$timeout"
 }
 
+kubernetes_pod_http_get() {
+    local context=$1 namespace=$2 pod=$3 path=$4
+    kubernetes_kubectl "$context" exec -n "$namespace" "$pod" -- \
+        curl -fsS --max-time 5 "http://127.0.0.1:9091$path"
+}
+
+kubernetes_pod_http_body() {
+    local context=$1 namespace=$2 pod=$3 path=$4
+    kubernetes_kubectl "$context" exec -n "$namespace" "$pod" -- \
+        curl -sS --max-time 5 "http://127.0.0.1:9091$path"
+}
+
+kubernetes_runtime_config_key() {
+    case "$1" in
+        claudecode) printf '%s\n' JOYSAFETER_IMAGE_CLAUDE ;;
+        codex) printf '%s\n' JOYSAFETER_IMAGE_CODEX ;;
+        native) printf '%s\n' JOYSAFETER_IMAGE_NATIVE ;;
+        pi) printf '%s\n' JOYSAFETER_IMAGE_PI ;;
+        *) return 1 ;;
+    esac
+}
+
+kubernetes_runtime_image_inventory() {
+    local namespace=$1 context=$2 record component group config_key image
+    while IFS= read -r record; do
+        IFS='|' read -r component group _ <<< "$record"
+        [ "$group" = runtime ] || continue
+        config_key="$(kubernetes_runtime_config_key "$component")" || return 1
+        image="$(kubernetes_kubectl "$context" get configmap joysafeter-orchestrator-config \
+            -n "$namespace" -o "go-template={{ index .data \"$config_key\" }}")" || return 1
+        printf '%s|%s\n' "$component" "$image"
+    done < <(image_component_source_registry)
+}
+
+kubernetes_verify_runtime_images() {
+    local namespace=$1 context=$2 timeout=$3 inventory component image pod failures=0
+    if ! inventory="$(kubernetes_runtime_image_inventory "$namespace" "$context")"; then
+        log_error "无法读取 Kubernetes Runtime 镜像库存"
+        return 1
+    fi
+    if [ -z "$inventory" ]; then
+        log_error "Kubernetes Runtime 镜像库存为空"
+        return 1
+    fi
+    while IFS='|' read -r component image; do
+        if [ -z "$image" ]; then
+            log_error "Kubernetes runtime 镜像配置为空: $component"
+            failures=$((failures + 1))
+            continue
+        fi
+        pod="joysafeter-image-check-${component}-$$"
+        kubernetes_kubectl "$context" delete pod "$pod" -n "$namespace" \
+            --ignore-not-found --wait=false >/dev/null 2>&1 || true
+        if kubernetes_kubectl "$context" run "$pod" -n "$namespace" \
+            --image="$image" --image-pull-policy=IfNotPresent --restart=Never \
+            --command -- /bin/sh -c 'exit 0' >/dev/null \
+            && kubernetes_kubectl "$context" wait -n "$namespace" \
+                --for=jsonpath='{.status.phase}'=Succeeded "pod/$pod" --timeout="$timeout" >/dev/null; then
+            log_success "Kubernetes runtime 镜像可启动: $component -> $image"
+        else
+            log_error "Kubernetes runtime 镜像验证失败: $component -> $image"
+            kubernetes_kubectl "$context" describe pod "$pod" -n "$namespace" >&2 || true
+            failures=$((failures + 1))
+        fi
+        kubernetes_kubectl "$context" delete pod "$pod" -n "$namespace" \
+            --ignore-not-found --wait=false >/dev/null 2>&1 || true
+    done <<< "$inventory"
+    [ "$failures" -eq 0 ]
+}
+
 kubernetes_verify() {
-    local namespace=$1 context=$2 since=$3 timeout=$4
-    local deployment_ready daemon_ready daemon_desired error_count pod health failures=0
+    local namespace=$1 context=$2 since=$3 timeout=$4 check_runtime_images=${5:-false}
+    local deployment_ready daemon_ready daemon_desired critical_count pod pods metrics xds_health orchestrator_logs
+    local xds_enabled_count=0 xds_ready_count=0 xds_health_ready_count=0
+    local authority_metrics="" active_envoy_nodes="" failures=0
 
     check_command kubectl || return 1
     kubernetes_kubectl "$context" rollout status deployment/joysafeter-orchestrator -n "$namespace" --timeout="$timeout" || failures=$((failures + 1))
@@ -174,16 +247,71 @@ kubernetes_verify() {
     printf 'orchestrator available replicas: %s\n' "${deployment_ready:-0}"
     printf 'envoy available/desired: %s/%s\n' "${daemon_ready:-0}" "${daemon_desired:-0}"
 
+    pods="$(kubernetes_kubectl "$context" get pods -n "$namespace" -l app=joysafeter-orchestrator -o jsonpath='{range .items[?(@.status.phase=="Running")]}{.metadata.name}{"\n"}{end}')"
+    if [ -z "$pods" ]; then
+        log_error "没有 Running orchestrator Pod"
+        failures=$((failures + 1))
+    fi
+
     while IFS= read -r pod; do
         [ -z "$pod" ] && continue
-        health="$(kubernetes_kubectl "$context" exec -n "$namespace" "$pod" -- sh -c 'curl -fsS http://localhost:9091/healthz/ready' 2>/dev/null || true)"
-        printf '%s readiness: %s\n' "$pod" "${health:-FAILED}"
-        [ -n "$health" ] || failures=$((failures + 1))
-    done < <(kubernetes_kubectl "$context" get pods -n "$namespace" -l app=joysafeter-orchestrator -o jsonpath='{range .items[?(@.status.phase=="Running")]}{.metadata.name}{"\n"}{end}')
+        if verify_orchestrator_http_contract kubernetes_pod_http_get skip \
+            "$context" "$namespace" "$pod"; then
+            log_success "$pod 健康与指标契约通过"
+        else
+            failures=$((failures + 1))
+            continue
+        fi
 
-    error_count="$(kubernetes_kubectl "$context" logs -n "$namespace" -l app=joysafeter-orchestrator --since="$since" 2>/dev/null | grep -ci error || true)"
-    printf 'orchestrator error lines (%s): %s\n' "$since" "${error_count:-0}"
-    [ "${error_count:-0}" -le 10 ] || failures=$((failures + 1))
+        metrics="$(kubernetes_pod_http_get "$context" "$namespace" "$pod" /metrics)"
+        if printf '%s\n' "$metrics" | grep -qxF 'joysafeter_xds_enabled 1'; then
+            xds_enabled_count=$((xds_enabled_count + 1))
+        fi
+        if printf '%s\n' "$metrics" | grep -qxF 'joysafeter_xds_authority_phase{phase="ready"} 1'; then
+            xds_ready_count=$((xds_ready_count + 1))
+            authority_metrics="$metrics"
+        fi
+        xds_health="$(kubernetes_pod_http_body "$context" "$namespace" "$pod" /healthz/xds 2>/dev/null || true)"
+        [ "$xds_health" = ready ] && xds_health_ready_count=$((xds_health_ready_count + 1))
+    done <<< "$pods"
+
+    if [ "$xds_enabled_count" -eq 0 ]; then
+        log_error "xDS control plane 未启用"
+        failures=$((failures + 1))
+    else
+        if [ "$xds_ready_count" -ne 1 ] || [ "$xds_health_ready_count" -ne 1 ]; then
+            log_error "xDS authority 必须恰好一个 Ready：metrics=$xds_ready_count health=$xds_health_ready_count"
+            failures=$((failures + 1))
+        else
+            log_success "xDS authority 唯一且 Ready"
+        fi
+    fi
+
+    if [ -n "$authority_metrics" ] && [[ "${daemon_ready:-}" =~ ^[0-9]+$ ]]; then
+        active_envoy_nodes="$(printf '%s\n' "$authority_metrics" | awk '$1 == "joysafeter_xds_active_envoy_nodes" {print $2; exit}')"
+        if [ "$active_envoy_nodes" != "$daemon_ready" ]; then
+            log_error "xDS active Envoy 节点与可用 DaemonSet Pod 不一致: ${active_envoy_nodes:-missing}/${daemon_ready}"
+            failures=$((failures + 1))
+        else
+            log_success "xDS active Envoy 节点数与 DaemonSet 一致: $daemon_ready"
+        fi
+    fi
+
+    if ! orchestrator_logs="$(kubernetes_kubectl "$context" logs -n "$namespace" \
+        -l app=joysafeter-orchestrator --since="$since" 2>/dev/null)"; then
+        log_error "无法读取 orchestrator 日志"
+        failures=$((failures + 1))
+    else
+        critical_count="$(printf '%s\n' "$orchestrator_logs" \
+            | grep -Eci 'panic|fatal|critical service exited' || true)"
+        printf 'orchestrator critical log lines (%s): %s\n' "$since" "${critical_count:-0}"
+        [ "${critical_count:-0}" -eq 0 ] || failures=$((failures + 1))
+    fi
+
+    if [ "$check_runtime_images" = true ]; then
+        kubernetes_verify_runtime_images "$namespace" "$context" "$timeout" \
+            || failures=$((failures + 1))
+    fi
 
     if [ "$failures" -ne 0 ]; then
         log_error "Kubernetes 验证失败: $failures 项"
@@ -247,6 +375,7 @@ run_kubernetes_command() {
     local dry_run=false
     local sync_images=false
     local reuse_values=false
+    local runtime_images=false
     local from_env=false
     local from_file=""
 
@@ -264,6 +393,7 @@ run_kubernetes_command() {
             --dry-run) dry_run=true; shift ;;
             --sync-images) sync_images=true; shift ;;
             --reuse-values) reuse_values=true; shift ;;
+            --runtime-images) runtime_images=true; shift ;;
             --from-env) from_env=true; shift ;;
             --from-file) from_file="$2"; shift 2 ;;
             *)
@@ -283,12 +413,16 @@ run_kubernetes_command() {
         log_error "--sync-images 和 --reuse-values 仅适用于 k8s deploy"
         return 1
     fi
+    if [ "$runtime_images" = true ] && [ "$action" != verify ]; then
+        log_error "--runtime-images 仅适用于 k8s verify"
+        return 1
+    fi
 
     case "$action" in
         help|-h|--help) kubernetes_usage ;;
         deploy) kubernetes_deploy "$namespace" "$release" "$context" "$mode" "$replicas" "$values_file" "$dry_run" "$timeout" "$sync_images" "$reuse_values" ;;
         uninstall) kubernetes_uninstall "$namespace" "$release" "$context" ;;
-        verify) kubernetes_verify "$namespace" "$context" "$since" "$timeout" ;;
+        verify) kubernetes_verify "$namespace" "$context" "$since" "$timeout" "$runtime_images" ;;
         scale)
             [ -n "$replicas" ] || { log_error "k8s scale 需要副本数"; return 1; }
             kubernetes_scale "$namespace" "$context" "$replicas" "$timeout"

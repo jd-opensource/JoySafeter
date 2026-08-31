@@ -35,7 +35,6 @@
 # 部署: helm install joysafeter-prod . -f values-prod.yaml -n joysafeter-prod
 # =============================================================================
 
-namespace: joysafeter-prod
 environment: production
 
 # 引用手工创建的 Secret (不在此写明文)

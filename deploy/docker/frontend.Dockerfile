@@ -5,7 +5,10 @@
 ARG BASE_IMAGE_REGISTRY="public.ecr.aws/docker/library/"
 ARG NODE_VERSION=20-alpine
 FROM ${BASE_IMAGE_REGISTRY}node:${NODE_VERSION} AS base
-RUN apk add --no-cache libc6-compat
+
+ARG ALPINE_MIRROR_BASE="https://mirrors.ustc.edu.cn/alpine"
+RUN sed -i "s|https*://dl-cdn.alpinelinux.org/alpine|${ALPINE_MIRROR_BASE}|g" /etc/apk/repositories \
+    && apk add --no-cache libc6-compat
 
 FROM base AS deps
 WORKDIR /app

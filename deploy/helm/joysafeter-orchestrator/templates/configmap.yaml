@@ -11,7 +11,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: joysafeter-orchestrator-config
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Release.Namespace }}
 data:
   # ── 基础 ──
   RUST_LOG: {{ .Values.orchestrator.logLevel | quote }}
@@ -65,7 +65,7 @@ data:
   # ── gRPC ──
   JOYSAFETER_GRPC_HOST: "0.0.0.0"
   JOYSAFETER_GRPC_PORT: {{ .Values.orchestrator.grpc.port | quote }}
-  JOYSAFETER_GRPC_PUBLIC_URL: "http://joysafeter-orchestrator.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.orchestrator.grpc.port }}"
+  JOYSAFETER_GRPC_PUBLIC_URL: "http://joysafeter-orchestrator.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.orchestrator.grpc.port }}"
   JOYSAFETER_GRPC_MAX_CONNECTIONS: {{ .Values.orchestrator.grpc.maxConnections | quote }}
   JOYSAFETER_GRPC_MAX_EXECUTIONS: {{ .Values.orchestrator.grpc.maxExecutions | quote }}
 
@@ -75,9 +75,9 @@ data:
 
   # ── Sandbox Provider ──
   JOYSAFETER_SANDBOX_PROVIDER: "k8s"
-  JOYSAFETER_K8S_NAMESPACE: {{ .Values.namespace | quote }}
+  JOYSAFETER_K8S_NAMESPACE: {{ .Release.Namespace | quote }}
   # sandbox 连回 orchestrator 的地址 (K8s Service FQDN)
-  JOYSAFETER_K8S_ORCHESTRATOR_URL: "http://joysafeter-orchestrator.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.orchestrator.grpc.port }}"
+  JOYSAFETER_K8S_ORCHESTRATOR_URL: "http://joysafeter-orchestrator.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.orchestrator.grpc.port }}"
   JOYSAFETER_K8S_IMAGE_PULL_SECRETS: {{ .Values.image.imagePullSecrets | toJson | quote }}
   JOYSAFETER_SANDBOX_IMAGE: {{ .Values.image.sandbox.claude | quote }}
   JOYSAFETER_IMAGE_CLAUDE: {{ .Values.image.sandbox.claude | quote }}
@@ -129,7 +129,7 @@ data:
   JOYSAFETER_ENVOY_ENABLED: "true"
   JOYSAFETER_ENVOY_XDS_MODE: {{ .Values.envoy.xdsMode | quote }}
   JOYSAFETER_ENVOY_SOCKET_HOST_DIR: {{ .Values.envoy.socketHostDir | quote }}
-  JOYSAFETER_ENVOY_GRPC_HOST: "joysafeter-orchestrator-xds.{{ .Values.namespace }}.svc.cluster.local"
+  JOYSAFETER_ENVOY_GRPC_HOST: "joysafeter-orchestrator-xds.{{ .Release.Namespace }}.svc.cluster.local"
   {{- end }}
 
   # ── 调度 ──

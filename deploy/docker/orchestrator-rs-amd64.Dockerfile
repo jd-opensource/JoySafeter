@@ -12,7 +12,17 @@ ARG TARGET=x86_64-unknown-linux-gnu
 
 FROM ${RUNTIME_IMAGE} AS runner
 
-RUN apt-get update && apt-get install -y \
+ARG APT_MIRROR_BASE="http://mirrors.ustc.edu.cn"
+
+RUN for sources in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
+        [ -f "$sources" ] || continue; \
+        sed -i \
+            -e "s|https*://deb.debian.org/debian-security|${APT_MIRROR_BASE}/debian-security|g" \
+            -e "s|https*://deb.debian.org/debian|${APT_MIRROR_BASE}/debian|g" \
+            "$sources"; \
+    done \
+    && apt-get update \
+    && apt-get install -y \
     ca-certificates \
     curl \
     && rm -rf /var/lib/apt/lists/*

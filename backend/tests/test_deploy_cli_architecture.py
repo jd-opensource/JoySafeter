@@ -114,8 +114,7 @@ def test_image_commands_share_one_component_registry_and_selector() -> None:
         [
             "bash",
             "-c",
-            f'source "{DEPLOY_DIR / "deploy.sh"}"; '
-            "select_image_group runtime; selected_image_components",
+            f'source "{DEPLOY_DIR / "deploy.sh"}"; select_image_group runtime; selected_image_components',
         ],
         cwd=REPO_ROOT,
         check=False,
@@ -187,13 +186,26 @@ def test_helm_chart_is_the_only_kubernetes_manifest_source() -> None:
     assert (DEPLOY_DIR / "helm/joysafeter-orchestrator/Chart.yaml").is_file()
 
 
+def test_helm_release_namespace_is_the_single_namespace_authority() -> None:
+    chart_dir = DEPLOY_DIR / "helm/joysafeter-orchestrator"
+    template_source = "\n".join(path.read_text() for path in (chart_dir / "templates").glob("*.yaml"))
+
+    assert ".Values.namespace" not in template_source
+    assert ".Release.Namespace" in template_source
+    for values_file in ("values.yaml", "values-pre.yaml", "values-prod.yaml"):
+        assert not any(line.startswith("namespace:") for line in (chart_dir / values_file).read_text().splitlines())
+
+
 def test_build_image_accepts_no_optional_build_arguments_on_macos_bash() -> None:
     result = subprocess.run(
         [
             "bash",
             "-c",
             f'source "{DEPLOY_DIR / "deploy.sh"}"; '
-            "docker() { printf 'docker %s\\n' \"$*\"; }; "
+            "docker() { "
+            'if [ "$1" = image ] && [ "$2" = inspect ]; then echo arm64; '
+            "else printf 'docker %s\\n' \"$*\"; fi; "
+            "}; "
             "USE_BUILDX=true; PUSH=false; NO_CACHE=false; PLAIN_IMAGE=false; "
             "PLATFORMS=linux/arm64; BASE_IMAGE_REGISTRY=; PIP_INDEX_URL=; UV_INDEX_URL=; "
             "build_image Test /tmp/Dockerfile /tmp test:latest",
@@ -216,12 +228,23 @@ def test_kubernetes_verify_uses_the_runtime_image_health_client() -> None:
             f'source "{DEPLOY_DIR / "deploy.sh"}"; '
             "check_command() { return 0; }; "
             "kubernetes_kubectl() { "
-            "case \"$*\" in "
+            'case "$*" in '
             "*'get deployment'*jsonpath*) echo 2 ;; "
             "*'get daemonset'*numberAvailable*) echo 1 ;; "
             "*'get daemonset'*desiredNumberScheduled*) echo 1 ;; "
             "*'get pods'*jsonpath*) echo pod-a ;; "
-            "*'exec '*curl*) echo ready ;; "
+            "*'127.0.0.1:9091/healthz/live'*) echo ok ;; "
+            "*'127.0.0.1:9091/healthz/ready'*) echo ok ;; "
+            "*'127.0.0.1:9091/healthz/xds'*) echo ready ;; "
+            "*'127.0.0.1:9091/metrics'*) printf '%s\\n' "
+            "'joysafeter_xds_enabled 1' "
+            "'joysafeter_xds_authority_phase{phase=\"ready\"} 1' "
+            "'joysafeter_xds_active_envoy_nodes 1' "
+            "'joysafeter_runner_setup_sent_total 0' "
+            "'joysafeter_runner_setup_results_total 0' "
+            "'joysafeter_runner_setup_failures_total 0' "
+            "'joysafeter_runner_reconnect_setup_total 0' "
+            "'joysafeter_runner_start_task_dispatched_total 0' ;; "
             "*'exec '*) return 127 ;; "
             "esac; }; "
             "kubernetes_verify test-ns '' 5m 1s",
@@ -233,7 +256,8 @@ def test_kubernetes_verify_uses_the_runtime_image_health_client() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "pod-a readiness: ready" in result.stdout
+    assert "pod-a 健康与指标契约通过" in result.stdout
+    assert "xDS authority 唯一且 Ready" in result.stdout
 
 
 def test_host_development_is_exposed_through_the_single_entrypoint() -> None:

@@ -3,7 +3,7 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: joysafeter-envoy
-  namespace: {{ .Values.namespace }}
+  namespace: {{ .Release.Namespace }}
 spec:
   selector:
     matchLabels:
@@ -143,7 +143,7 @@ spec:
                         "endpoint": {
                           "address": {
                             "socket_address": {
-                              "address": "joysafeter-orchestrator-xds.{{ .Values.namespace }}.svc.cluster.local",
+                              "address": "joysafeter-orchestrator-xds.{{ .Release.Namespace }}.svc.cluster.local",
                               "port_value": {{ .Values.orchestrator.xds.port }}
                             }
                           }

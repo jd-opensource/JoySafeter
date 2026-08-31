@@ -5,13 +5,23 @@ ARG RUNTIME_IMAGE=public.ecr.aws/docker/library/debian:bookworm-slim
 
 FROM ${RUST_IMAGE} AS builder
 
+ARG APT_MIRROR_BASE="http://mirrors.ustc.edu.cn"
+
 WORKDIR /src
 
 ENV CARGO_HTTP_TIMEOUT=600 \
     CARGO_HTTP_MULTIPLEXING=false \
     CARGO_NET_RETRY=10
 
-RUN apt-get update && apt-get install -y \
+RUN for sources in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
+        [ -f "$sources" ] || continue; \
+        sed -i \
+            -e "s|https*://deb.debian.org/debian-security|${APT_MIRROR_BASE}/debian-security|g" \
+            -e "s|https*://deb.debian.org/debian|${APT_MIRROR_BASE}/debian|g" \
+            "$sources"; \
+    done \
+    && apt-get update \
+    && apt-get install -y \
     protobuf-compiler \
     pkg-config \
     libssl-dev \
@@ -38,7 +48,17 @@ RUN cargo build --release --features jd-identity
 
 FROM ${RUNTIME_IMAGE} AS runner
 
-RUN apt-get update && apt-get install -y \
+ARG APT_MIRROR_BASE="http://mirrors.ustc.edu.cn"
+
+RUN for sources in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
+        [ -f "$sources" ] || continue; \
+        sed -i \
+            -e "s|https*://deb.debian.org/debian-security|${APT_MIRROR_BASE}/debian-security|g" \
+            -e "s|https*://deb.debian.org/debian|${APT_MIRROR_BASE}/debian|g" \
+            "$sources"; \
+    done \
+    && apt-get update \
+    && apt-get install -y \
     ca-certificates \
     curl \
     && rm -rf /var/lib/apt/lists/*

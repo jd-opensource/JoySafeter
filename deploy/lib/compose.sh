@@ -498,4 +498,46 @@ run_status() {
     compose_lifecycle ps "$@"
 }
 
+compose_local_http_get() {
+    local path=$1
+    compose_lifecycle exec -T orchestrator-rs \
+        curl -fsS --max-time 5 "http://127.0.0.1:9091$path"
+}
+
+run_local_verification() {
+    local running_services service failures=0
+    local required_services=(
+        joysafeter-envoy
+        skillspector
+        postgres
+        redis
+        api
+        orchestrator-rs
+        worker
+        frontend
+    )
+
+    validate_local_compose_config
+    running_services="$(compose_lifecycle ps --status running --services)"
+    for service in "${required_services[@]}"; do
+        if printf '%s\n' "$running_services" | grep -qxF "$service"; then
+            log_success "Compose 服务运行中: $service"
+        else
+            log_error "Compose 服务未运行: $service"
+            failures=$((failures + 1))
+        fi
+    done
+
+    verify_orchestrator_http_contract compose_local_http_get required \
+        || failures=$((failures + 1))
+    verify_local_runtime_images "$SCRIPT_DIR/.env" \
+        || failures=$((failures + 1))
+
+    if [ "$failures" -ne 0 ]; then
+        log_error "本地部署验证失败: $failures 个验证域未通过"
+        return 1
+    fi
+    log_success "本地部署验证通过"
+}
+
 # 初始化 Docker Buildx

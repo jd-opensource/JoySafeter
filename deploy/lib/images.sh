@@ -17,7 +17,7 @@ init_buildx() {
             create_opts+=(--driver-opt "image=$BUILDKIT_IMAGE")
         fi
 
-        if ! docker buildx ls | grep -q "multiarch"; then
+        if ! docker buildx inspect multiarch >/dev/null 2>&1; then
             log_info "创建 multiarch builder..."
             [ -n "$BUILDKIT_IMAGE" ] && log_info "使用 BuildKit 镜像: $BUILDKIT_IMAGE"
             docker buildx create "${create_opts[@]}" --use 2>/dev/null || \
@@ -95,6 +95,32 @@ convert_arch_to_platform() {
     esac
 }
 
+docker_arch_for_platform() {
+    case "$1" in
+        linux/amd64) printf '%s\n' amd64 ;;
+        linux/arm64) printf '%s\n' arm64 ;;
+        linux/arm/v7) printf '%s\n' arm ;;
+        *)
+            log_error "无法验证未知目标平台的镜像架构: $1"
+            return 1
+            ;;
+    esac
+}
+
+verify_local_image_platform() {
+    local image_name=$1 platform=$2 expected_arch actual_arch
+    expected_arch="$(docker_arch_for_platform "$platform")" || return 1
+    actual_arch="$(docker image inspect --format '{{.Architecture}}' "$image_name")" || {
+        log_error "无法检查构建镜像架构: $image_name"
+        return 1
+    }
+    if [ "$actual_arch" != "$expected_arch" ]; then
+        log_error "镜像架构不匹配: $image_name 实际=$actual_arch 期望=$expected_arch ($platform)"
+        return 1
+    fi
+    log_success "镜像架构已验证: $image_name -> $actual_arch"
+}
+
 # 构建镜像
 build_image() {
     local service=$1
@@ -114,6 +140,14 @@ build_image() {
     if [ -n "$BASE_IMAGE_REGISTRY" ]; then
         build_args+=("--build-arg" "BASE_IMAGE_REGISTRY=$BASE_IMAGE_REGISTRY")
         log_info "使用基础镜像源: $BASE_IMAGE_REGISTRY"
+    fi
+    if [ -n "$APT_MIRROR_BASE" ]; then
+        build_args+=("--build-arg" "APT_MIRROR_BASE=$APT_MIRROR_BASE")
+        log_info "使用 APT 软件源: $APT_MIRROR_BASE"
+    fi
+    if [ -n "$ALPINE_MIRROR_BASE" ]; then
+        build_args+=("--build-arg" "ALPINE_MIRROR_BASE=$ALPINE_MIRROR_BASE")
+        log_info "使用 Alpine 软件源: $ALPINE_MIRROR_BASE"
     fi
 
     # 添加 pip/uv 镜像源参数
@@ -275,6 +309,14 @@ build_image() {
             ${extra_build_args[@]+"${extra_build_args[@]}"} \
             -t "$image_name" \
             "$context"
+    fi
+
+    if [ "$PUSH" != true ] || [ "${PLAIN_IMAGE:-false}" = true ]; then
+        local loaded_platform="$PLATFORMS"
+        case "$loaded_platform" in
+            *,*) loaded_platform="${loaded_platform%%,*}" ;;
+        esac
+        verify_local_image_platform "$image_name" "$loaded_platform"
     fi
 
     log_success "$service 镜像构建完成: $image_name"
@@ -439,7 +481,8 @@ build_runtime_image() {
         "$PROJECT_ROOT" \
         "$image_name" \
         --target "$engine" \
-        --build-arg "RUST_IMAGE=$RUST_IMAGE"
+        --build-arg "RUST_IMAGE=$RUST_IMAGE" \
+        --build-arg "CARGO_REGISTRIES_CRATES_IO_INDEX=$CARGO_REGISTRIES_CRATES_IO_INDEX"
 }
 
 # 镜像组件的唯一声明源。CLI、Compose 镜像同步和 CI matrix 均从该文件读取。

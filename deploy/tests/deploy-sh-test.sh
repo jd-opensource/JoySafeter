@@ -31,6 +31,115 @@ assert_not_contains "$compose_source" '${JOYSAFETER_ENVOY_SOCKET_HOST_DIR:-/tmp/
 grep -Eq '^!scripts/credential_encryption_rotation\.py$' "$DEPLOY_DIR/../backend/.dockerignore" \
     || fail 'Backend image must include the credential canary initialization command'
 
+helm_values_source="$(cat "$DEPLOY_DIR/helm/joysafeter-orchestrator/values.yaml")"
+prometheus_rule_source="$(cat "$DEPLOY_DIR/helm/joysafeter-orchestrator/templates/prometheusrule.yaml")"
+images_capability_source="$(cat "$DEPLOY_DIR/lib/images.sh")"
+deploy_entrypoint_source="$(cat "$DEPLOY_DIR/deploy.sh")"
+runtime_dockerfile_source="$(cat "$DEPLOY_DIR/docker/runtime.Dockerfile")"
+backend_dockerfile_source="$(cat "$DEPLOY_DIR/docker/backend.Dockerfile")"
+frontend_dockerfile_source="$(cat "$DEPLOY_DIR/docker/frontend.Dockerfile")"
+orchestrator_amd64_dockerfile_source="$(cat "$DEPLOY_DIR/docker/orchestrator-rs-amd64.Dockerfile")"
+orchestrator_arm64_dockerfile_source="$(cat "$DEPLOY_DIR/docker/orchestrator-rs-arm64.Dockerfile")"
+orchestrator_source_dockerfile_source="$(cat "$DEPLOY_DIR/docker/orchestrator-rs.Dockerfile")"
+assert_not_contains "$images_capability_source" 'docker buildx ls | grep -q "multiarch"'
+assert_contains "$images_capability_source" 'docker buildx inspect multiarch'
+assert_contains "$deploy_entrypoint_source" 'APT_MIRROR_BASE="${APT_MIRROR_BASE:-http://mirrors.ustc.edu.cn}"'
+assert_contains "$deploy_entrypoint_source" 'ALPINE_MIRROR_BASE="${ALPINE_MIRROR_BASE:-https://mirrors.ustc.edu.cn/alpine}"'
+assert_contains "$images_capability_source" 'APT_MIRROR_BASE=$APT_MIRROR_BASE'
+assert_contains "$images_capability_source" 'ALPINE_MIRROR_BASE=$ALPINE_MIRROR_BASE'
+assert_contains "$frontend_dockerfile_source" 'ARG ALPINE_MIRROR_BASE='
+assert_contains "$frontend_dockerfile_source" '${ALPINE_MIRROR_BASE}'
+assert_contains "$runtime_dockerfile_source" 'ARG APT_MIRROR_BASE='
+assert_contains "$runtime_dockerfile_source" '${APT_MIRROR_BASE}/debian'
+assert_contains "$runtime_dockerfile_source" '${APT_MIRROR_BASE}/ubuntu'
+for debian_dockerfile_source in \
+    "$backend_dockerfile_source" \
+    "$orchestrator_amd64_dockerfile_source" \
+    "$orchestrator_arm64_dockerfile_source" \
+    "$orchestrator_source_dockerfile_source"; do
+    assert_contains "$debian_dockerfile_source" 'ARG APT_MIRROR_BASE='
+    assert_contains "$debian_dockerfile_source" '${APT_MIRROR_BASE}/debian'
+    assert_not_contains "$debian_dockerfile_source" 'RUN apt-get update && apt-get install'
+done
+assert_contains "$runtime_dockerfile_source" 'CARGO_REGISTRIES_CRATES_IO_INDEX'
+assert_contains "$runtime_dockerfile_source" '[source.crates-io]'
+assert_contains "$runtime_dockerfile_source" 'replace-with = "runtime-mirror"'
+assert_contains "$runtime_dockerfile_source" '--mount=type=cache,target=/usr/local/cargo/registry'
+assert_contains "$runtime_dockerfile_source" '--mount=type=cache,target=/usr/local/cargo/git'
+assert_contains "$helm_values_source" 'runnerAlerts:'
+assert_contains "$prometheus_rule_source" 'JoySafeterRunnerSetupFailures'
+assert_contains "$prometheus_rule_source" 'joysafeter_runner_setup_failures_total'
+assert_contains "$prometheus_rule_source" 'JoySafeterRunnerReconnectRejected'
+assert_contains "$prometheus_rule_source" 'joysafeter_runner_reconnect_setup_total{result="rejected"}'
+assert_contains "$prometheus_rule_source" 'JoySafeterRunnerStaleSetupResults'
+assert_contains "$prometheus_rule_source" 'joysafeter_runner_setup_stale_results_total'
+
+complete_metrics='joysafeter_xds_enabled 1
+joysafeter_runner_setup_sent_total 1
+joysafeter_runner_setup_results_total{result="applied"} 1
+joysafeter_runner_setup_failures_total{reason="ack_timeout"} 0
+joysafeter_runner_reconnect_setup_total{result="accepted"} 1
+joysafeter_runner_start_task_dispatched_total 1'
+verify_orchestrator_metrics_contract "$complete_metrics"
+if verify_orchestrator_metrics_contract 'joysafeter_xds_enabled 1' >/dev/null 2>&1; then
+    fail 'metrics verification must reject missing Runner lifecycle metrics'
+fi
+help_only_metrics='# HELP joysafeter_xds_enabled Whether xDS is enabled.
+# HELP joysafeter_runner_setup_sent_total Setup requests sent.
+# HELP joysafeter_runner_setup_results_total Setup results received.
+# HELP joysafeter_runner_setup_failures_total Setup failures.
+# HELP joysafeter_runner_reconnect_setup_total Reconnect setup proofs.
+# HELP joysafeter_runner_start_task_dispatched_total StartTask dispatches.'
+if verify_orchestrator_metrics_contract "$help_only_metrics" >/dev/null 2>&1; then
+    fail 'metrics verification must require metric samples, not HELP declarations'
+fi
+
+verification_fetch() {
+    case "$1" in
+        /healthz/live|/healthz/ready) printf 'ok\n' ;;
+        /healthz/xds) printf 'ready\n' ;;
+        /metrics) printf '%s\n' "$complete_metrics" ;;
+        *) return 1 ;;
+    esac
+}
+verify_orchestrator_http_contract verification_fetch required
+
+verification_fetch_with_context() {
+    [ "$1" = context-a ] || return 1
+    [ "$2" = namespace-a ] || return 1
+    [ "$3" = pod-a ] || return 1
+    verification_fetch "$4"
+}
+verify_orchestrator_http_contract \
+    verification_fetch_with_context required context-a namespace-a pod-a
+
+runtime_images="$(runtime_image_inventory "$TEST_TMP/nonexistent.env")"
+assert_contains "$runtime_images" 'claudecode|joysafeter-claudecode:latest'
+assert_contains "$runtime_images" 'codex|joysafeter-codex:latest'
+assert_contains "$runtime_images" 'native|joysafeter-native:latest'
+assert_contains "$runtime_images" 'pi|joysafeter-pi:latest'
+if (
+    runtime_image_inventory() { return 1; }
+    verify_local_runtime_images "$TEST_TMP/nonexistent.env" >/dev/null 2>&1
+); then
+    fail 'local runtime verification must propagate inventory lookup failures'
+fi
+
+docker() {
+    if [ "$1 $2 $3" = 'image inspect --format' ]; then
+        printf '%s\n' "${TEST_IMAGE_ARCH:-arm64}"
+        return 0
+    fi
+    return 1
+}
+TEST_IMAGE_ARCH=arm64
+verify_local_image_platform test-image:latest linux/arm64
+TEST_IMAGE_ARCH=amd64
+if verify_local_image_platform test-image:latest linux/arm64 >/dev/null 2>&1; then
+    fail 'local image verification must reject a mismatched target architecture'
+fi
+unset -f docker
+
 bundled_env="$TEST_TMP/bundled.env"
 cat > "$bundled_env" <<'EOF'
 POSTGRES_PASSWORD=current-secret
@@ -123,6 +232,83 @@ assert_contains "$helm_call" '--reset-then-reuse-values'
 assert_not_contains "$helm_call" '--reuse-values'
 assert_contains "$helm_call" 'image.orchestrator=registry.example.test/joysafeter/joysafeter-orchestrator-rs:runtime-v1'
 
+KUBE_READY_AUTHORITIES=1
+KUBE_XDS_ENABLED=1
+KUBE_LOGS_FAIL=false
+kubernetes_kubectl() {
+    local joined="$*" pod url ready_value=0
+    case "$joined" in
+        *'rollout status'*) return 0 ;;
+        *'get deployment joysafeter-orchestrator'*'availableReplicas'*) printf '2\n' ;;
+        *'get daemonset joysafeter-envoy'*'numberAvailable'*) printf '2\n' ;;
+        *'get daemonset joysafeter-envoy'*'desiredNumberScheduled'*) printf '2\n' ;;
+        *'get pods'*'status.phase'*) printf 'orchestrator-a\norchestrator-b\n' ;;
+        *' exec '*)
+            [[ "$joined" == *orchestrator-a* ]] && pod=orchestrator-a || pod=orchestrator-b
+            url="${!#}"
+            case "$url" in
+                */healthz/live|*/healthz/ready) printf 'ok\n' ;;
+                */healthz/xds)
+                    if [ "$KUBE_READY_AUTHORITIES" -gt 0 ] \
+                        && { [ "$pod" = orchestrator-a ] || [ "$KUBE_READY_AUTHORITIES" -eq 2 ]; }; then
+                        printf 'ready\n'
+                    else
+                        printf 'standby\n'
+                    fi
+                    ;;
+                */metrics)
+                    if [ "$KUBE_READY_AUTHORITIES" -gt 0 ] \
+                        && { [ "$pod" = orchestrator-a ] || [ "$KUBE_READY_AUTHORITIES" -eq 2 ]; }; then
+                        ready_value=1
+                    fi
+                    printf '%s\n' "${complete_metrics/joysafeter_xds_enabled 1/joysafeter_xds_enabled $KUBE_XDS_ENABLED}"
+                    printf 'joysafeter_xds_authority_phase{phase="ready"} %s\n' "$ready_value"
+                    printf 'joysafeter_xds_active_envoy_nodes 2\n'
+                    ;;
+                *) return 1 ;;
+            esac
+            ;;
+        *' logs '*) [ "$KUBE_LOGS_FAIL" = false ] ;;
+        *) return 1 ;;
+    esac
+}
+verify_output="$(kubernetes_verify verify-ns verify-context 10m 240s false 2>&1)"
+assert_contains "$verify_output" 'xDS authority 唯一且 Ready'
+assert_contains "$verify_output" 'xDS active Envoy 节点数与 DaemonSet 一致: 2'
+
+KUBE_READY_AUTHORITIES=2
+if verify_output="$(kubernetes_verify verify-ns verify-context 10m 240s false 2>&1)"; then
+    fail 'Kubernetes verification must reject multiple Ready xDS authorities'
+fi
+assert_contains "$verify_output" 'xDS authority 必须恰好一个 Ready'
+
+KUBE_READY_AUTHORITIES=0
+KUBE_XDS_ENABLED=0
+if verify_output="$(kubernetes_verify verify-ns verify-context 10m 240s false 2>&1)"; then
+    fail 'Kubernetes verification must reject a disabled xDS control plane'
+fi
+assert_contains "$verify_output" 'xDS control plane 未启用'
+
+KUBE_READY_AUTHORITIES=1
+KUBE_XDS_ENABLED=1
+KUBE_LOGS_FAIL=true
+if verify_output="$(kubernetes_verify verify-ns verify-context 10m 240s false 2>&1)"; then
+    fail 'Kubernetes verification must reject an unreadable orchestrator log stream'
+fi
+assert_contains "$verify_output" '无法读取 orchestrator 日志'
+KUBE_LOGS_FAIL=false
+
+kubernetes_runtime_image_inventory() { return 1; }
+if kubernetes_verify_runtime_images verify-ns verify-context 240s >/dev/null 2>&1; then
+    fail 'Kubernetes runtime verification must propagate inventory lookup failures'
+fi
+
+KUBE_VERIFY_ARGS_FILE="$TEST_TMP/kube-verify-args"
+export KUBE_VERIFY_ARGS_FILE
+kubernetes_verify() { printf '%s\n' "$*" > "$KUBE_VERIFY_ARGS_FILE"; }
+run_kubernetes_command verify --namespace verify-ns --context verify-context --since 10m --timeout 240s --runtime-images
+assert_contains "$(cat "$KUBE_VERIFY_ARGS_FILE")" 'verify-ns verify-context 10m 240s true'
+
 DOWN_ARGS_FILE="$TEST_TMP/down-args"
 export DOWN_ARGS_FILE
 check_docker_running() { return 0; }
@@ -134,6 +320,29 @@ if ! down_output="$(main down 2>&1)"; then
 fi
 [[ "$(cat "$DOWN_ARGS_FILE")" == "0" ]] \
     || fail 'down without service arguments must pass zero arguments to run_down'
+
+COMPOSE_VERIFY_CWD_FILE="$TEST_TMP/compose-verify-cwd"
+export COMPOSE_VERIFY_CWD_FILE
+(
+    validate_local_compose_config() { return 0; }
+    compose_local_env() {
+        pwd > "$COMPOSE_VERIFY_CWD_FILE"
+        printf '%s\n' \
+            joysafeter-envoy skillspector postgres redis api orchestrator-rs worker frontend
+    }
+    verify_orchestrator_http_contract() { return 0; }
+    verify_local_runtime_images() { return 0; }
+    run_local_verification >/dev/null
+)
+[[ "$(cat "$COMPOSE_VERIFY_CWD_FILE")" == "$DEPLOY_DIR" ]] \
+    || fail 'local verification must execute Compose from deploy/'
+
+VERIFY_CALLED_FILE="$TEST_TMP/verify-called"
+export VERIFY_CALLED_FILE
+run_local_verification() { printf 'called\n' > "$VERIFY_CALLED_FILE"; }
+main verify
+[[ "$(cat "$VERIFY_CALLED_FILE")" == "called" ]] \
+    || fail 'verify command must route through the local verification capability'
 
 : > "$COMPOSE_CALLS_FILE"
 COMPOSE_UP_RESULT=0
