@@ -198,6 +198,20 @@ def test_environment_reference_resolution_is_project_scoped_and_canonical():
     assert "environment.deleted_at IS NULL" in sql
 
 
+def test_legacy_session_reference_resolution_accepts_bare_uuid_as_an_id():
+    migration = _migration_module()
+    sql = migration.resolve_reference_sql(
+        "source.environment_ref",
+        "COALESCE(source.project_id, agent.project_id)",
+        accept_legacy_bare_uuid=True,
+    )
+
+    assert "environment.project_id IS NOT DISTINCT FROM COALESCE(source.project_id, agent.project_id)" in sql
+    assert "NULLIF(btrim(source.environment_ref), '') ~*" in sql
+    assert "environment.id::text = lower(NULLIF(btrim(source.environment_ref), ''))" in sql
+    assert "ELSE environment.name = NULLIF(btrim(source.environment_ref), '')" in sql
+
+
 def test_environment_link_migration_fails_closed_on_unresolved_references():
     migration = _migration_module()
 
@@ -375,6 +389,124 @@ def test_postgres_migration_materializes_environment_ids_and_rewrites_snapshots(
             row[0] for row in connection.execute("SELECT conname FROM pg_constraint WHERE contype = 'f'").fetchall()
         }
         assert set(_migration_module().ENVIRONMENT_FOREIGN_KEYS.values()) <= foreign_keys
+
+
+def test_postgres_migration_accepts_legacy_bare_uuid_session_reference(
+    environment_link_migration_database: MigrationDatabase,
+):
+    database = environment_link_migration_database
+    with psycopg.connect(database.dsn) as connection:
+        environment_id = _insert_environment(connection, name="legacy-session-environment")
+        agent_id = _insert_agent(connection, environment_ref=None)
+        session_id = uuid4()
+        connection.execute(
+            """
+            INSERT INTO joysafeter_sessions (id, agent_id, status, environment_ref)
+            VALUES (%s, %s, 'idle', %s)
+            """,
+            (session_id, agent_id, str(environment_id)),
+        )
+        connection.commit()
+
+    result = _upgrade_to(database.env, "head")
+
+    assert result.returncode == 0, result.stderr
+    with psycopg.connect(database.dsn) as connection:
+        assert (
+            connection.execute(
+                "SELECT environment_id FROM joysafeter_sessions WHERE id = %s",
+                (session_id,),
+            ).fetchone()[0]
+            == environment_id
+        )
+
+
+def test_postgres_migration_inherits_agent_project_for_unscoped_session_and_trigger(
+    environment_link_migration_database: MigrationDatabase,
+):
+    database = environment_link_migration_database
+    with psycopg.connect(database.dsn) as connection:
+        project_id = _insert_project(connection, suffix=uuid4().hex)
+        environment_id = _insert_environment(
+            connection,
+            name="project-environment",
+            project_id=project_id,
+        )
+        agent_id = _insert_agent(
+            connection,
+            environment_ref=None,
+            project_id=project_id,
+        )
+        session_id = uuid4()
+        trigger_id = uuid4()
+        environment_ref = f"env_{environment_id}"
+        connection.execute(
+            """
+            INSERT INTO joysafeter_sessions (id, agent_id, status, environment_ref)
+            VALUES (%s, %s, 'idle', %s)
+            """,
+            (session_id, agent_id, environment_ref),
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_triggers
+                (id, name, type, agent_id, prompt_template, environment_ref)
+            VALUES (%s, 'legacy-unscoped-trigger', 'webhook', %s, 'run', %s)
+            """,
+            (trigger_id, agent_id, environment_ref),
+        )
+        connection.commit()
+
+    result = _upgrade_to(database.env, "head")
+
+    assert result.returncode == 0, result.stderr
+    with psycopg.connect(database.dsn) as connection:
+        assert (
+            connection.execute(
+                "SELECT environment_id FROM joysafeter_sessions WHERE id = %s",
+                (session_id,),
+            ).fetchone()[0]
+            == environment_id
+        )
+        assert (
+            connection.execute(
+                "SELECT environment_id FROM joysafeter_triggers WHERE id = %s",
+                (trigger_id,),
+            ).fetchone()[0]
+            == environment_id
+        )
+
+
+def test_postgres_migration_rejects_legacy_session_reference_from_another_project(
+    environment_link_migration_database: MigrationDatabase,
+):
+    database = environment_link_migration_database
+    with psycopg.connect(database.dsn) as connection:
+        agent_project_id = _insert_project(connection, suffix=f"agent-{uuid4().hex}")
+        environment_project_id = _insert_project(connection, suffix=f"environment-{uuid4().hex}")
+        environment_id = _insert_environment(
+            connection,
+            name="cross-project-session-environment",
+            project_id=environment_project_id,
+        )
+        agent_id = _insert_agent(
+            connection,
+            environment_ref=None,
+            project_id=agent_project_id,
+        )
+        connection.execute(
+            """
+            INSERT INTO joysafeter_sessions (id, agent_id, status, environment_ref)
+            VALUES (%s, %s, 'idle', %s)
+            """,
+            (uuid4(), agent_id, str(environment_id)),
+        )
+        connection.commit()
+
+    result = _upgrade_to(database.env, "head")
+
+    assert result.returncode != 0
+    assert "joysafeter_sessions: 1 unresolved environment references" in result.stderr
 
 
 @pytest.mark.parametrize("invalid_kind", ["missing", "bare_uuid", "cross_project", "deleted"])

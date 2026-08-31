@@ -36,18 +36,36 @@ ENVIRONMENT_INDEXES = {
     "joysafeter_triggers": "ix_joysafeter_triggers_environment_id",
 }
 
+BARE_UUID_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
 
-def resolve_reference_sql(reference_expression: str, project_expression: str) -> str:
+
+def resolve_reference_sql(
+    reference_expression: str,
+    project_expression: str,
+    *,
+    accept_legacy_bare_uuid: bool = False,
+) -> str:
     normalized_reference = f"NULLIF(btrim({reference_expression}), '')"
+    if accept_legacy_bare_uuid:
+        reference_match = f"""
+              CASE
+                  WHEN {normalized_reference} ~* '{BARE_UUID_PATTERN}'
+                  THEN environment.id::text = lower({normalized_reference})
+                  ELSE environment.name = {normalized_reference}
+                    OR 'env_' || environment.id::text = {normalized_reference}
+              END
+        """.strip()
+    else:
+        reference_match = f"""
+              environment.name = {normalized_reference}
+              OR 'env_' || environment.id::text = {normalized_reference}
+        """.strip()
     return f"""
         SELECT environment.id
         FROM joysafeter_environments AS environment
         WHERE environment.project_id IS NOT DISTINCT FROM {project_expression}
           AND environment.deleted_at IS NULL
-          AND (
-              environment.name = {normalized_reference}
-              OR 'env_' || environment.id::text = {normalized_reference}
-          )
+          AND ({reference_match})
     """.strip()
 
 
@@ -74,8 +92,18 @@ def _non_empty(expression: str) -> str:
     return f"NULLIF(btrim({expression}), '')"
 
 
-def _resolution_failure_count_sql(*, source_sql: str, reference_expression: str, project_expression: str) -> str:
-    resolution_sql = resolve_reference_sql(reference_expression, project_expression)
+def _resolution_failure_count_sql(
+    *,
+    source_sql: str,
+    reference_expression: str,
+    project_expression: str,
+    accept_legacy_bare_uuid: bool = False,
+) -> str:
+    resolution_sql = resolve_reference_sql(
+        reference_expression,
+        project_expression,
+        accept_legacy_bare_uuid=accept_legacy_bare_uuid,
+    )
     return f"""
         SELECT count(*)
         FROM {source_sql}
@@ -84,8 +112,13 @@ def _resolution_failure_count_sql(*, source_sql: str, reference_expression: str,
     """.strip()
 
 
-def _resolved_environment_id(reference_expression: str, project_expression: str) -> str:
-    return f"({resolve_reference_sql(reference_expression, project_expression)})"
+def _resolved_environment_id(
+    reference_expression: str,
+    project_expression: str,
+    *,
+    accept_legacy_bare_uuid: bool = False,
+) -> str:
+    return f"({resolve_reference_sql(reference_expression, project_expression, accept_legacy_bare_uuid=accept_legacy_bare_uuid)})"
 
 
 def _preflight_and_populate_links() -> None:
@@ -118,13 +151,14 @@ def _preflight_and_populate_links() -> None:
         "COALESCE(NULLIF(btrim(source.environment_ref), ''), "
         "CASE WHEN agent.environment_id IS NULL THEN NULL ELSE 'env_' || agent.environment_id::text END)"
     )
+    trigger_project = "COALESCE(source.project_id, agent.project_id)"
     trigger_source = "joysafeter_triggers AS source JOIN joysafeter_agents AS agent ON agent.id = source.agent_id"
     trigger_failures = connection.execute(
         sa.text(
             _resolution_failure_count_sql(
                 source_sql=trigger_source,
                 reference_expression=trigger_reference,
-                project_expression="source.project_id",
+                project_expression=trigger_project,
             )
         )
     ).scalar_one()
@@ -135,7 +169,7 @@ def _preflight_and_populate_links() -> None:
         sa.text(
             f"""
             UPDATE joysafeter_triggers AS source
-            SET environment_id = {_resolved_environment_id(trigger_reference, "source.project_id")}
+            SET environment_id = {_resolved_environment_id(trigger_reference, trigger_project)}
             FROM joysafeter_agents AS agent
             WHERE agent.id = source.agent_id
               AND {_non_empty(trigger_reference)} IS NOT NULL
@@ -148,13 +182,15 @@ def _preflight_and_populate_links() -> None:
         "NULLIF(btrim(source.agent_snapshot->>'environment_ref'), ''), "
         "CASE WHEN agent.environment_id IS NULL THEN NULL ELSE 'env_' || agent.environment_id::text END)"
     )
+    session_project = "COALESCE(source.project_id, agent.project_id)"
     session_source = "joysafeter_sessions AS source JOIN joysafeter_agents AS agent ON agent.id = source.agent_id"
     session_failures = connection.execute(
         sa.text(
             _resolution_failure_count_sql(
                 source_sql=session_source,
                 reference_expression=session_reference,
-                project_expression="source.project_id",
+                project_expression=session_project,
+                accept_legacy_bare_uuid=True,
             )
         )
     ).scalar_one()
@@ -165,7 +201,13 @@ def _preflight_and_populate_links() -> None:
         sa.text(
             f"""
             UPDATE joysafeter_sessions AS source
-            SET environment_id = {_resolved_environment_id(session_reference, "source.project_id")}
+            SET environment_id = {
+                _resolved_environment_id(
+                    session_reference,
+                    session_project,
+                    accept_legacy_bare_uuid=True,
+                )
+            }
             FROM joysafeter_agents AS agent
             WHERE agent.id = source.agent_id
               AND {_non_empty(session_reference)} IS NOT NULL
