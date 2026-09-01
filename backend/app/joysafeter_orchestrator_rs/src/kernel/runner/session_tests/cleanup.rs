@@ -16,9 +16,12 @@ async fn sandbox_cleanup_exhausted_scheduling_task_marks_session_idle() {
                 .expect("move task back to scheduling for cleanup test");
 
             let config = JoySafeterConfig::from_env();
+            let event_bus = test_event_bus(pool.clone());
+            let mut events = event_bus.subscribe();
             RunnerCleanupService::new()
                 .cleanup_sandbox(
                     &pool,
+                    &event_bus,
                     sandbox_id,
                     Some(session_id),
                     false,
@@ -27,6 +30,18 @@ async fn sandbox_cleanup_exhausted_scheduling_task_marks_session_idle() {
                     &config,
                 )
                 .await;
+
+            let event = tokio::time::timeout(Duration::from_secs(1), events.recv())
+                .await
+                .expect("idle event must be broadcast without DB fallback")
+                .expect("event bus remains open");
+            assert_eq!(event.event_type, "session.status_idle");
+            assert_eq!(event.session_id, session_id);
+            assert_eq!(event.task_id, Some(task_id));
+            assert_eq!(event.sandbox_id, Some(sandbox_id));
+            assert!(event.db_persisted);
+            assert!(event.event_id.is_some());
+            assert!(event.session_seq.is_some());
 
             let task: (String, i32, Option<String>) =
                 sqlx::query_as("SELECT status, retry_count, error FROM joysafeter_tasks WHERE id = $1")
@@ -137,9 +152,11 @@ async fn sandbox_cleanup_does_not_idle_session_with_active_task_on_another_sandb
         .await;
 
         let config = JoySafeterConfig::from_env();
+        let event_bus = test_event_bus(pool.clone());
         RunnerCleanupService::new()
             .cleanup_sandbox(
                 &pool,
+                &event_bus,
                 stale_sandbox_id,
                 Some(session_id),
                 false,

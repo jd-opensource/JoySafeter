@@ -385,12 +385,36 @@ impl OrchestratorApplication {
         let memory_subscribers = Arc::new(kernel::memory_sync::MemoryStoreSubscribers::new());
         info!("MemoryStoreSubscribers initialized");
 
+        // Subscribe before starting recovery, controllers, or the scheduler so
+        // their first committed status event cannot be dropped from realtime fanout.
+        let mut subscriber_handles = Vec::new();
+        let session_state_sub = events::session_state::SessionStateSubscriber::new(
+            db_pool.clone(),
+            redis_client
+                .clone()
+                .expect("Redis is required for session state subscriber"),
+            config.instance_id.clone(),
+        );
+        subscriber_handles.push(session_state_sub.spawn(event_bus.subscribe()));
+        info!("SessionStateSubscriber started");
+
+        let session_broadcast_sub =
+            events::session_broadcast::SessionBroadcastSubscriber::new(session_broadcaster.clone());
+        subscriber_handles.push(session_broadcast_sub.spawn(event_bus.subscribe()));
+        info!("SessionBroadcastSubscriber started");
+
+        let task_broadcast_sub =
+            events::task_broadcast::TaskBroadcastSubscriber::new(bridge_store.clone());
+        subscriber_handles.push(task_broadcast_sub.spawn(event_bus.subscribe()));
+        info!("TaskBroadcastSubscriber started");
+
         // Task controller — startup recovery
         let task_controller = kernel::task_controller::TaskController::new(
             db_pool.clone(),
             queue.clone(),
             config.clone(),
             bridge_store.clone(),
+            event_bus.clone(),
         );
         task_controller.recover_on_startup().await?;
         info!("Startup recovery complete");
@@ -405,6 +429,7 @@ impl OrchestratorApplication {
             runtime_config.clone(),
             network_policy.clone(),
             identity_provider,
+            event_bus.clone(),
         );
 
         // Orphaned sandbox cleanup
@@ -489,34 +514,9 @@ impl OrchestratorApplication {
             sandbox_runtime.resolution,
             sandbox_runtime.identity_policy,
             config.clone(),
+            event_bus.clone(),
         );
         info!("Task scheduler started");
-
-        // Start event bus subscribers
-        let mut subscriber_handles = Vec::new();
-
-        // SessionStateSubscriber (PERSIST phase)
-        let session_state_sub = events::session_state::SessionStateSubscriber::new(
-            db_pool.clone(),
-            redis_client
-                .clone()
-                .expect("Redis is required for session state subscriber"),
-            config.instance_id.clone(),
-        );
-        subscriber_handles.push(session_state_sub.spawn(event_bus.subscribe()));
-        info!("SessionStateSubscriber started");
-
-        // SessionBroadcastSubscriber (BROADCAST phase)
-        let session_broadcast_sub =
-            events::session_broadcast::SessionBroadcastSubscriber::new(session_broadcaster.clone());
-        subscriber_handles.push(session_broadcast_sub.spawn(event_bus.subscribe()));
-        info!("SessionBroadcastSubscriber started");
-
-        // TaskBroadcastSubscriber (BROADCAST phase)
-        let task_broadcast_sub =
-            events::task_broadcast::TaskBroadcastSubscriber::new(bridge_store.clone());
-        subscriber_handles.push(task_broadcast_sub.spawn(event_bus.subscribe()));
-        info!("TaskBroadcastSubscriber started");
 
         if config.event_stream_enabled {
             info!(

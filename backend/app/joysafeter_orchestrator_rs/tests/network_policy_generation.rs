@@ -2,6 +2,7 @@ use std::env;
 
 use joysafeter_orchestrator::db::queries;
 use joysafeter_orchestrator::ids::{SandboxId, SandboxNetworkPolicyId};
+use joysafeter_orchestrator::kernel::network_policy::NetworkPolicyFailureStatus;
 use serde_json::json;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
@@ -298,7 +299,13 @@ async fn stale_failure_cannot_nack_a_newer_policy_generation() {
                 desired_policy_json: &desired,
                 rendered_summary_json: &rendered,
             },
-            "stale failure",
+            queries::NetworkPolicyFailureRecord {
+                status: NetworkPolicyFailureStatus::Nacked,
+                code: "delivery_nacked",
+                retryable: false,
+                message: "stale failure",
+                nack_reason: Some("stale failure"),
+            },
         )
         .await
         .expect("ignore stale policy failure"),
@@ -327,16 +334,23 @@ async fn stale_failure_cannot_nack_a_newer_policy_generation() {
                 desired_policy_json: &desired,
                 rendered_summary_json: &rendered,
             },
-            "current failure",
+            queries::NetworkPolicyFailureRecord {
+                status: NetworkPolicyFailureStatus::Nacked,
+                code: "delivery_nacked",
+                retryable: false,
+                message: "current failure",
+                nack_reason: Some("current failure"),
+            },
         )
         .await
         .expect("record current policy failure"),
         queries::NetworkPolicyFailureOutcome::Recorded
     );
-    let state: (String, String, i64, Option<String>) = sqlx::query_as(
+    let state: (String, String, i64, Option<String>, Option<String>, bool) = sqlx::query_as(
         r#"
         SELECT networking_status, networking_policy_hash,
-               networking_policy_version, networking_last_error
+               networking_policy_version, networking_last_error,
+               networking_last_error_code, networking_retryable
         FROM joysafeter_sandboxes
         WHERE id = $1
         "#,
@@ -352,6 +366,93 @@ async fn stale_failure_cannot_nack_a_newer_policy_generation() {
             "policy-b".to_string(),
             2,
             Some("current failure".to_string()),
+            Some("delivery_nacked".to_string()),
+            false,
+        )
+    );
+
+    delete_sandbox(&pool, sandbox_id).await;
+}
+
+#[tokio::test]
+async fn retryable_failure_is_failed_with_machine_readable_retry_metadata() {
+    let pool = test_pool().await;
+    let sandbox_id = create_sandbox(&pool).await;
+    let desired = json!({"networking": {"type": "limited"}});
+    let rendered = json!({"routes": []});
+    let generation = queries::prepare_generation(&pool, sandbox_id, "policy-timeout")
+        .await
+        .expect("prepare policy generation")
+        .into_generation();
+
+    assert_eq!(
+        queries::record_generation_failure(
+            &pool,
+            queries::UpsertNetworkPolicy {
+                id: SandboxNetworkPolicyId::new(),
+                sandbox_id,
+                session_id: None,
+                task_id: None,
+                generation: &generation,
+                desired_policy_json: &desired,
+                rendered_summary_json: &rendered,
+            },
+            queries::NetworkPolicyFailureRecord {
+                status: NetworkPolicyFailureStatus::Failed,
+                code: "delivery_timeout",
+                retryable: true,
+                message: "delivery timed out",
+                nack_reason: None,
+            },
+        )
+        .await
+        .expect("record retryable failure"),
+        queries::NetworkPolicyFailureOutcome::Recorded
+    );
+
+    let state: (String, Option<String>, bool, i32, bool) = sqlx::query_as(
+        r#"
+        SELECT networking_status, networking_last_error_code,
+               networking_retryable, networking_retry_count,
+               networking_next_retry_at IS NOT NULL
+        FROM joysafeter_sandboxes
+        WHERE id = $1
+        "#,
+    )
+    .bind(sandbox_id)
+    .fetch_one(&pool)
+    .await
+    .expect("load retry metadata");
+    assert_eq!(
+        state,
+        (
+            "failed".to_string(),
+            Some("delivery_timeout".to_string()),
+            true,
+            1,
+            true,
+        )
+    );
+
+    let policy: (String, Option<String>, bool, Option<String>) = sqlx::query_as(
+        r#"
+        SELECT status, error_code, retryable, last_nack_reason
+        FROM joysafeter_sandbox_network_policies
+        WHERE sandbox_id = $1 AND policy_version = $2
+        "#,
+    )
+    .bind(sandbox_id)
+    .bind(generation.policy_version)
+    .fetch_one(&pool)
+    .await
+    .expect("load policy failure metadata");
+    assert_eq!(
+        policy,
+        (
+            "failed".to_string(),
+            Some("delivery_timeout".to_string()),
+            true,
+            None,
         )
     );
 
@@ -388,7 +489,13 @@ async fn late_failure_cannot_replace_an_acknowledged_generation() {
                 desired_policy_json: &desired,
                 rendered_summary_json: &rendered,
             },
-            "late failure after ACK",
+            queries::NetworkPolicyFailureRecord {
+                status: NetworkPolicyFailureStatus::Failed,
+                code: "delivery_timeout",
+                retryable: true,
+                message: "late failure after ACK",
+                nack_reason: None,
+            },
         )
         .await
         .expect("ignore late policy failure"),
@@ -436,7 +543,13 @@ async fn recovery_quarantine_is_fenced_by_the_observed_generation() {
             sandbox_id,
             Some(&first.policy_hash),
             first.policy_version,
-            "late recovery failure",
+            queries::NetworkPolicyFailureRecord {
+                status: NetworkPolicyFailureStatus::Failed,
+                code: "recovery_state_invalid",
+                retryable: false,
+                message: "late recovery failure",
+                nack_reason: None,
+            },
         )
         .await
         .expect("fence late quarantine"),

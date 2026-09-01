@@ -425,10 +425,19 @@ async fn scheduling_retry_helpers_do_not_move_running_tasks_back_to_pending() {
             .expect("reset running task should be no-op");
         assert!(!reset_running);
 
-        let retry_running = increment_scheduling_retry(&pool, running_task_id, 0)
-            .await
-            .expect("retry running task should be no-op");
-        assert!(!retry_running);
+        let retry_running = retry_scheduling_task_and_reschedule_session(
+            &pool,
+            running_task_id,
+            0,
+            None,
+            0,
+            "runtime_retry",
+            "runtime retry",
+            &json!({"type": "sandbox_failed"}),
+        )
+        .await
+        .expect("retry running task should be no-op");
+        assert!(retry_running.is_none());
 
         let running_row: (String, i32) =
             sqlx::query_as("SELECT status, retry_count FROM joysafeter_tasks WHERE id = $1")
@@ -469,15 +478,29 @@ async fn running_retry_is_owner_epoch_fenced_and_clears_lease() {
         .await
         .expect("stamp owner lease");
 
-        let stale_retry = increment_running_retry(&pool, task_id, 0, Some(40))
-            .await
-            .expect("stale owner retry should be a clean CAS miss");
-        assert!(!stale_retry);
+        let stale_retry = retry_running_task_and_reschedule_session(
+            &pool,
+            task_id,
+            0,
+            Some(40),
+            None,
+            &json!({"type": "sandbox_failed"}),
+        )
+        .await
+        .expect("stale owner retry should be a clean CAS miss");
+        assert!(stale_retry.is_none());
 
-        let owned_retry = increment_running_retry(&pool, task_id, 0, Some(41))
-            .await
-            .expect("current owner retry should succeed");
-        assert!(owned_retry);
+        let owned_retry = retry_running_task_and_reschedule_session(
+            &pool,
+            task_id,
+            0,
+            Some(41),
+            None,
+            &json!({"type": "sandbox_failed"}),
+        )
+        .await
+        .expect("current owner retry should succeed");
+        assert!(owned_retry.is_some());
 
         let row: (
             String,
@@ -683,6 +706,266 @@ async fn lease_renewal_matches_task_id_and_owner_epoch_pair() {
 }
 
 #[tokio::test]
+async fn scheduling_retry_atomically_reschedules_task_session_event_and_sandbox() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (agent_id, session_id) = create_agent_and_session(&pool, "running").await;
+    let task_id = create_task(&pool, agent_id, session_id, "scheduling").await;
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+
+    let result = async {
+        create_sandbox(
+            &pool,
+            sandbox_id,
+            &format!("atomic-scheduling-retry-{sandbox_id}"),
+            "test",
+            "joysafeter/test:latest",
+            Some(session_id),
+            None,
+            None,
+            Some(&json!({})),
+        )
+        .await
+        .expect("create scheduling retry sandbox");
+        transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
+            .await
+            .expect("sandbox idle");
+        transition_sandbox_cas(&pool, sandbox_id, "idle", "running")
+            .await
+            .expect("sandbox running");
+        sqlx::query("UPDATE joysafeter_tasks SET sandbox_id = $2 WHERE id = $1")
+            .bind(task_id)
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await
+            .expect("bind scheduling task");
+        sqlx::query("UPDATE joysafeter_sandboxes SET last_task_id = $2 WHERE id = $1")
+            .bind(sandbox_id)
+            .bind(task_id)
+            .execute(&pool)
+            .await
+            .expect("bind scheduling sandbox");
+
+        let stop_reason = json!({"type": "sandbox_failed"});
+        let outcome = retry_scheduling_task_and_reschedule_session(
+            &pool,
+            task_id,
+            0,
+            Some(sandbox_id),
+            30,
+            "network_policy_timeout",
+            "refresh_networking exceeded 30s",
+            &stop_reason,
+        )
+        .await
+        .expect("atomic scheduling retry")
+        .expect("current scheduling generation must transition");
+        assert_eq!(outcome.session_id, Some(session_id));
+        assert_eq!(outcome.sandbox_id, Some(sandbox_id));
+        assert!(outcome.sandbox_released);
+        assert!(outcome.session_event.is_some());
+
+        let task: (
+            String,
+            i32,
+            Option<SandboxId>,
+            i32,
+            Option<String>,
+            Option<String>,
+            Option<chrono::DateTime<chrono::Utc>>,
+        ) = sqlx::query_as(
+            r#"
+            SELECT status, retry_count, sandbox_id, schedule_attempts,
+                   last_schedule_error_type, last_schedule_error, next_schedule_at
+            FROM joysafeter_tasks
+            WHERE id = $1
+            "#,
+        )
+        .bind(task_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load atomically retried scheduling task");
+        assert_eq!(task.0, "pending");
+        assert_eq!(task.1, 1);
+        assert_eq!(task.2, None);
+        assert_eq!(task.3, 1);
+        assert_eq!(task.4.as_deref(), Some("network_policy_timeout"));
+        assert_eq!(task.5.as_deref(), Some("refresh_networking exceeded 30s"));
+        assert!(task.6.is_some());
+
+        let sandbox: (String, Option<TaskId>) =
+            sqlx::query_as("SELECT status, last_task_id FROM joysafeter_sandboxes WHERE id = $1")
+                .bind(sandbox_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load released sandbox");
+        assert_eq!(sandbox.0, "idle");
+        assert_eq!(sandbox.1, None);
+
+        let session: (String, Option<serde_json::Value>) =
+            sqlx::query_as("SELECT status, stop_reason FROM joysafeter_sessions WHERE id = $1")
+                .bind(session_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load rescheduling session");
+        assert_eq!(session.0, "rescheduling");
+        assert_eq!(session.1, Some(stop_reason.clone()));
+
+        let event: (String, serde_json::Value, i64) = sqlx::query_as(
+            r#"
+            SELECT event_type, payload, seq
+            FROM joysafeter_session_events
+            WHERE session_id = $1
+            "#,
+        )
+        .bind(session_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load rescheduling event");
+        assert_eq!(event.0, "session.status_rescheduling");
+        assert_eq!(event.1["task_id"], task_id.to_string());
+        assert_eq!(event.1["stop_reason"], stop_reason);
+        assert_eq!(event.2, 1);
+
+        let stale = retry_scheduling_task_and_reschedule_session(
+            &pool,
+            task_id,
+            0,
+            Some(sandbox_id),
+            30,
+            "network_policy_timeout",
+            "refresh_networking exceeded 30s",
+            &json!({"type": "sandbox_failed"}),
+        )
+        .await
+        .expect("stale scheduling retry is a clean CAS miss");
+        assert!(stale.is_none());
+    }
+    .await;
+
+    let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+        .bind(sandbox_id)
+        .execute(&pool)
+        .await;
+    cleanup(&pool, agent_id, session_id).await;
+    result
+}
+
+#[tokio::test]
+async fn running_retry_rolls_back_when_rescheduling_event_cannot_be_persisted() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (agent_id, session_id) = create_agent_and_session(&pool, "running").await;
+    let task_id = create_task(&pool, agent_id, session_id, "running").await;
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+
+    let result = async {
+        create_sandbox(
+            &pool,
+            sandbox_id,
+            &format!("atomic-running-retry-{sandbox_id}"),
+            "test",
+            "joysafeter/test:latest",
+            Some(session_id),
+            None,
+            None,
+            Some(&json!({})),
+        )
+        .await
+        .expect("create running retry sandbox");
+        transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
+            .await
+            .expect("sandbox idle");
+        transition_sandbox_cas(&pool, sandbox_id, "idle", "running")
+            .await
+            .expect("sandbox running");
+        sqlx::query(
+            r#"
+            UPDATE joysafeter_tasks
+            SET sandbox_id = $2,
+                owner_instance_id = 'owner-a',
+                owner_epoch = 41,
+                lease_expires_at = NOW() + INTERVAL '60 seconds',
+                started_at = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(task_id)
+        .bind(sandbox_id)
+        .execute(&pool)
+        .await
+        .expect("bind running task");
+        sqlx::query("UPDATE joysafeter_sandboxes SET last_task_id = $2 WHERE id = $1")
+            .bind(sandbox_id)
+            .bind(task_id)
+            .execute(&pool)
+            .await
+            .expect("bind running sandbox");
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_session_events (id, session_id, event_type, payload, seq)
+            VALUES ($1, $2, 'test.sequence_max', '{}'::jsonb, $3)
+            "#,
+        )
+        .bind(EventId::from_uuid(Uuid::now_v7()))
+        .bind(session_id)
+        .bind(i64::MAX)
+        .execute(&pool)
+        .await
+        .expect("seed maximum event sequence");
+
+        let error = retry_running_task_and_reschedule_session(
+            &pool,
+            task_id,
+            0,
+            Some(41),
+            Some(sandbox_id),
+            &json!({"type": "sandbox_failed"}),
+        )
+        .await
+        .expect_err("event sequence overflow must abort the whole transition");
+        assert!(error.to_string().contains("out of range"));
+
+        let task: (String, i32, Option<SandboxId>, Option<i64>) = sqlx::query_as(
+            "SELECT status, retry_count, sandbox_id, owner_epoch FROM joysafeter_tasks WHERE id = $1",
+        )
+        .bind(task_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load task after rollback");
+        assert_eq!(task, ("running".to_string(), 0, Some(sandbox_id), Some(41)));
+
+        let sandbox: (String, Option<TaskId>) = sqlx::query_as(
+            "SELECT status, last_task_id FROM joysafeter_sandboxes WHERE id = $1",
+        )
+        .bind(sandbox_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load sandbox after rollback");
+        assert_eq!(sandbox, ("running".to_string(), Some(task_id)));
+
+        let session: (String, Option<serde_json::Value>) = sqlx::query_as(
+            "SELECT status, stop_reason FROM joysafeter_sessions WHERE id = $1",
+        )
+        .bind(session_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load session after rollback");
+        assert_eq!(session, ("running".to_string(), None));
+    }
+    .await;
+
+    let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+        .bind(sandbox_id)
+        .execute(&pool)
+        .await;
+    cleanup(&pool, agent_id, session_id).await;
+    result
+}
+
+#[tokio::test]
 async fn complete_sandbox_task_returns_running_sandbox_to_idle() {
     let Some(pool) = test_pool().await else {
         return;
@@ -718,7 +1001,7 @@ async fn complete_sandbox_task_returns_running_sandbox_to_idle() {
             .await
             .expect("set sandbox last task");
 
-        let completed = complete_sandbox_task(&pool, sandbox_id)
+        let completed = complete_sandbox_task(&pool, sandbox_id, task_id)
             .await
             .expect("complete running sandbox");
         assert!(completed);
@@ -734,6 +1017,392 @@ async fn complete_sandbox_task_returns_running_sandbox_to_idle() {
         assert_eq!(sandbox.0, "idle");
         assert_eq!(sandbox.1, None);
         assert!(sandbox.2.is_some());
+    }
+    .await;
+
+    let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+        .bind(sandbox_id)
+        .execute(&pool)
+        .await;
+    cleanup(&pool, agent_id, session_id).await;
+    result
+}
+
+#[tokio::test]
+async fn stale_task_completion_cannot_release_sandbox_reassigned_to_new_task() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (agent_id, session_id) = create_agent_and_session(&pool, "running").await;
+    let stale_task_id = create_task(&pool, agent_id, session_id, "completed").await;
+    let current_task_id = create_task(&pool, agent_id, session_id, "running").await;
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+
+    let result = async {
+        create_sandbox(
+            &pool,
+            sandbox_id,
+            &format!("stale-completion-{sandbox_id}"),
+            "test",
+            "joysafeter/test:latest",
+            Some(session_id),
+            None,
+            None,
+            Some(&json!({})),
+        )
+        .await
+        .expect("create reassigned sandbox");
+        transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
+            .await
+            .expect("sandbox idle");
+        transition_sandbox_cas(&pool, sandbox_id, "idle", "running")
+            .await
+            .expect("sandbox running");
+        sqlx::query("UPDATE joysafeter_sandboxes SET last_task_id = $2 WHERE id = $1")
+            .bind(sandbox_id)
+            .bind(current_task_id)
+            .execute(&pool)
+            .await
+            .expect("bind current task");
+
+        assert!(!complete_sandbox_task(&pool, sandbox_id, stale_task_id)
+            .await
+            .expect("ignore stale completion"));
+
+        let sandbox: (String, Option<TaskId>) =
+            sqlx::query_as("SELECT status, last_task_id FROM joysafeter_sandboxes WHERE id = $1")
+                .bind(sandbox_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load sandbox after stale completion");
+        assert_eq!(sandbox, ("running".to_string(), Some(current_task_id)));
+    }
+    .await;
+
+    let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+        .bind(sandbox_id)
+        .execute(&pool)
+        .await;
+    cleanup(&pool, agent_id, session_id).await;
+    result
+}
+
+#[tokio::test]
+async fn running_terminal_transition_atomically_updates_task_sandbox_session_and_event() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (agent_id, session_id) = create_agent_and_session(&pool, "running").await;
+    let task_id = create_task(&pool, agent_id, session_id, "running").await;
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    let owner_epoch = 71_i64;
+
+    let result = async {
+        create_sandbox(
+            &pool,
+            sandbox_id,
+            &format!("atomic-terminal-{sandbox_id}"),
+            "test",
+            "joysafeter/test:latest",
+            Some(session_id),
+            None,
+            None,
+            Some(&json!({})),
+        )
+        .await
+        .expect("create terminal sandbox");
+        transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
+            .await
+            .expect("sandbox idle");
+        transition_sandbox_cas(&pool, sandbox_id, "idle", "running")
+            .await
+            .expect("sandbox running");
+        sqlx::query("UPDATE joysafeter_tasks SET sandbox_id = $2, owner_epoch = $3 WHERE id = $1")
+            .bind(task_id)
+            .bind(sandbox_id)
+            .bind(owner_epoch)
+            .execute(&pool)
+            .await
+            .expect("bind terminal task");
+        sqlx::query("UPDATE joysafeter_sandboxes SET last_task_id = $2 WHERE id = $1")
+            .bind(sandbox_id)
+            .bind(task_id)
+            .execute(&pool)
+            .await
+            .expect("bind terminal sandbox");
+
+        let stop_reason = json!({"type": "error", "message": "runner failed"});
+        let usage = json!({"input_tokens": 4, "output_tokens": 2});
+        let fallback_agent_message = json!({
+            "content": [{"type": "text", "text": "partial output"}],
+        });
+        let outcome = transition_running_task_terminal_and_idle_session(
+            &pool,
+            task_id,
+            Some(owner_epoch),
+            Some(sandbox_id),
+            "failed",
+            Some("partial output"),
+            Some("runner failed"),
+            Some(&usage),
+            Some(&fallback_agent_message),
+            &stop_reason,
+        )
+        .await
+        .expect("terminal transaction")
+        .expect("matching running task transitions");
+        assert!(outcome.sandbox_released);
+        assert_eq!(outcome.session_events.len(), 2);
+
+        let task: (String, String, Option<String>, Option<serde_json::Value>) = sqlx::query_as(
+            "SELECT status, output, error, usage FROM joysafeter_tasks WHERE id = $1",
+        )
+        .bind(task_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load terminal task");
+        assert_eq!(task.0, "failed");
+        assert_eq!(task.1, "partial output");
+        assert_eq!(task.2.as_deref(), Some("runner failed"));
+        assert_eq!(task.3, Some(usage));
+
+        let sandbox: (String, Option<TaskId>) =
+            sqlx::query_as("SELECT status, last_task_id FROM joysafeter_sandboxes WHERE id = $1")
+                .bind(sandbox_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load released sandbox");
+        assert_eq!(sandbox, ("idle".to_string(), None));
+
+        let session: (String, Option<serde_json::Value>, serde_json::Value) = sqlx::query_as(
+            "SELECT status, stop_reason, usage FROM joysafeter_sessions WHERE id = $1",
+        )
+        .bind(session_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load idle session");
+        assert_eq!(session.0, "idle");
+        assert_eq!(session.1, Some(stop_reason));
+        assert_eq!(session.2["input_tokens"], 4);
+        assert_eq!(session.2["output_tokens"], 2);
+
+        let events: Vec<(String, serde_json::Value, i64)> = sqlx::query_as(
+            r#"
+            SELECT event_type, payload, seq
+            FROM joysafeter_session_events
+            WHERE session_id = $1
+            ORDER BY seq ASC
+            "#,
+        )
+        .bind(session_id)
+        .fetch_all(&pool)
+        .await
+        .expect("load terminal session events");
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].0, "agent.message");
+        assert_eq!(events[0].1, fallback_agent_message);
+        assert_eq!(events[1].0, "session.status_idle");
+        assert!(events[0].2 < events[1].2);
+    }
+    .await;
+
+    let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+        .bind(sandbox_id)
+        .execute(&pool)
+        .await;
+    cleanup(&pool, agent_id, session_id).await;
+    result
+}
+
+#[tokio::test]
+async fn expired_lease_terminal_transition_fences_exact_observation() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (agent_id, session_id) = create_agent_and_session(&pool, "running").await;
+    let task_id = create_task(&pool, agent_id, session_id, "running").await;
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    let owner_epoch = 91_i64;
+
+    let result = async {
+        create_sandbox(
+            &pool,
+            sandbox_id,
+            &format!("expired-lease-terminal-{sandbox_id}"),
+            "test",
+            "joysafeter/test:latest",
+            Some(session_id),
+            None,
+            None,
+            Some(&json!({})),
+        )
+        .await
+        .expect("create expired lease sandbox");
+        transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
+            .await
+            .expect("sandbox idle");
+        transition_sandbox_cas(&pool, sandbox_id, "idle", "running")
+            .await
+            .expect("sandbox running");
+        sqlx::query(
+            r#"
+            UPDATE joysafeter_tasks
+            SET sandbox_id = $2,
+                owner_epoch = $3,
+                retry_count = max_retries,
+                lease_expires_at = NOW() - INTERVAL '1 second'
+            WHERE id = $1
+            "#,
+        )
+        .bind(task_id)
+        .bind(sandbox_id)
+        .bind(owner_epoch)
+        .execute(&pool)
+        .await
+        .expect("bind expired task generation");
+        sqlx::query("UPDATE joysafeter_sandboxes SET last_task_id = $2 WHERE id = $1")
+            .bind(sandbox_id)
+            .bind(task_id)
+            .execute(&pool)
+            .await
+            .expect("bind expired task sandbox");
+
+        let stop_reason = json!({"type": "error", "message": "task ownership lease expired"});
+        assert!(transition_expired_running_task_terminal_and_idle_session(
+            &pool,
+            task_id,
+            1,
+            Some(owner_epoch),
+            Some(sandbox_id),
+            "task ownership lease expired",
+            &stop_reason,
+        )
+        .await
+        .expect("stale retry observation is rejected")
+        .is_none());
+
+        let retry_count: i32 =
+            sqlx::query_scalar("SELECT retry_count FROM joysafeter_tasks WHERE id = $1")
+                .bind(task_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load current retry count");
+        let outcome = transition_expired_running_task_terminal_and_idle_session(
+            &pool,
+            task_id,
+            retry_count,
+            Some(owner_epoch),
+            Some(sandbox_id),
+            "task ownership lease expired",
+            &stop_reason,
+        )
+        .await
+        .expect("matching expired generation transitions")
+        .expect("matching expired generation exists");
+        assert!(outcome.sandbox_released);
+        assert_eq!(outcome.session_events.len(), 1);
+
+        let state: (String, String, Option<TaskId>) = sqlx::query_as(
+            r#"
+            SELECT task.status, sandbox.status, sandbox.last_task_id
+            FROM joysafeter_tasks task
+            JOIN joysafeter_sandboxes sandbox ON sandbox.id = $2
+            WHERE task.id = $1
+            "#,
+        )
+        .bind(task_id)
+        .bind(sandbox_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load expired terminal state");
+        assert_eq!(state, ("failed".to_string(), "idle".to_string(), None));
+    }
+    .await;
+
+    let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+        .bind(sandbox_id)
+        .execute(&pool)
+        .await;
+    cleanup(&pool, agent_id, session_id).await;
+    result
+}
+
+#[tokio::test]
+async fn scheduling_terminal_transition_atomically_updates_task_sandbox_session_and_event() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (agent_id, session_id) = create_agent_and_session(&pool, "rescheduling").await;
+    let task_id = create_task(&pool, agent_id, session_id, "scheduling").await;
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+
+    let result = async {
+        create_sandbox(
+            &pool,
+            sandbox_id,
+            &format!("atomic-scheduling-terminal-{sandbox_id}"),
+            "test",
+            "joysafeter/test:latest",
+            Some(session_id),
+            None,
+            None,
+            Some(&json!({})),
+        )
+        .await
+        .expect("create scheduling terminal sandbox");
+        transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
+            .await
+            .expect("sandbox idle");
+        transition_sandbox_cas(&pool, sandbox_id, "idle", "running")
+            .await
+            .expect("sandbox running");
+        sqlx::query("UPDATE joysafeter_tasks SET sandbox_id = $2 WHERE id = $1")
+            .bind(task_id)
+            .bind(sandbox_id)
+            .execute(&pool)
+            .await
+            .expect("bind scheduling task");
+        sqlx::query("UPDATE joysafeter_sandboxes SET last_task_id = $2 WHERE id = $1")
+            .bind(sandbox_id)
+            .bind(task_id)
+            .execute(&pool)
+            .await
+            .expect("bind scheduling sandbox");
+
+        let stop_reason = json!({"type": "error", "message": "networking failed"});
+        let outcome = transition_scheduling_task_terminal_and_idle_session(
+            &pool,
+            task_id,
+            0,
+            Some(sandbox_id),
+            "failed",
+            "networking failed",
+            &stop_reason,
+        )
+        .await
+        .expect("scheduling terminal transaction")
+        .expect("matching scheduling task transitions");
+        assert!(outcome.sandbox_released);
+        assert_eq!(outcome.session_events.len(), 1);
+
+        let task: (String, Option<String>) =
+            sqlx::query_as("SELECT status, error FROM joysafeter_tasks WHERE id = $1")
+                .bind(task_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load scheduling terminal task");
+        assert_eq!(
+            task,
+            ("failed".to_string(), Some("networking failed".to_string()))
+        );
+
+        let sandbox: (String, Option<TaskId>) =
+            sqlx::query_as("SELECT status, last_task_id FROM joysafeter_sandboxes WHERE id = $1")
+                .bind(sandbox_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load scheduling terminal sandbox");
+        assert_eq!(sandbox, ("idle".to_string(), None));
     }
     .await;
 
@@ -778,7 +1447,7 @@ async fn complete_sandbox_task_does_not_resurrect_error_sandbox() {
             .await
             .expect("set errored sandbox last task");
 
-        let completed = complete_sandbox_task(&pool, sandbox_id)
+        let completed = complete_sandbox_task(&pool, sandbox_id, task_id)
             .await
             .expect("complete errored sandbox");
         assert!(!completed);
@@ -807,6 +1476,89 @@ async fn complete_sandbox_task_does_not_resurrect_error_sandbox() {
         .execute(&pool)
         .await;
     cleanup(&pool, agent_id, session_id).await;
+    result
+}
+
+#[tokio::test]
+async fn destroyed_sandbox_and_residual_cleanup_work_commit_together() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+
+    let result = async {
+        create_sandbox(
+            &pool,
+            sandbox_id,
+            &format!("cleanup-work-{sandbox_id}"),
+            "k8s",
+            "joysafeter/test:latest",
+            None,
+            None,
+            None,
+            Some(&json!({})),
+        )
+        .await
+        .expect("create cleanup-work sandbox");
+        assert!(
+            transition_sandbox_cas(&pool, sandbox_id, "creating", "provisioning")
+                .await
+                .expect("move cleanup-work sandbox to provisioning")
+        );
+        assert!(
+            transition_sandbox_cas(&pool, sandbox_id, "provisioning", "stopping")
+                .await
+                .expect("claim sandbox destroy")
+        );
+
+        assert!(destroy_sandbox_if_status_and_external_id_with_cleanup(
+            &pool,
+            sandbox_id,
+            "stopping",
+            Some(&format!("cleanup-work-{sandbox_id}")),
+            Some(NewSandboxCleanupWork {
+                provider: "k8s",
+                resource_kind: "envoy_socket_directory",
+                resource_name: &sandbox_id.to_string(),
+                resource_path: &format!("/sockets/{sandbox_id}"),
+                node_name: Some("node-a"),
+                last_error: "permission denied",
+            }),
+        )
+        .await
+        .expect("finalize sandbox and enqueue cleanup"));
+
+        let state: String =
+            sqlx::query_scalar("SELECT status FROM joysafeter_sandboxes WHERE id = $1")
+                .bind(sandbox_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load destroyed sandbox");
+        assert_eq!(state, "destroyed");
+
+        let work: (String, String, String, Option<String>, i32) = sqlx::query_as(
+            r#"
+            SELECT status, resource_kind, resource_path, node_name, attempt_count
+            FROM joysafeter_sandbox_cleanup_work
+            WHERE sandbox_id = $1
+            "#,
+        )
+        .bind(sandbox_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load residual cleanup work");
+        assert_eq!(work.0, "pending");
+        assert_eq!(work.1, "envoy_socket_directory");
+        assert_eq!(work.2, format!("/sockets/{sandbox_id}"));
+        assert_eq!(work.3.as_deref(), Some("node-a"));
+        assert_eq!(work.4, 0);
+    }
+    .await;
+
+    let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+        .bind(sandbox_id)
+        .execute(&pool)
+        .await;
     result
 }
 

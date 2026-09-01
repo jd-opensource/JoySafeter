@@ -5,6 +5,7 @@ use crate::ids::SandboxId;
 use crate::xds::authority::RecoveryAuthorityGuard;
 
 use super::envoy_model::validate_egress_policy;
+use super::error::NetworkPolicyApplyError;
 use super::material::NetworkPolicyMaterialResolver;
 use super::ports::{
     NetworkPolicyRecoveryEntry, NetworkPolicyRecoveryFailure, NetworkPolicyRuntime,
@@ -37,7 +38,10 @@ pub async fn recover_as_authority(
                 sandbox.id,
                 sandbox.networking_policy_hash.as_deref(),
                 sandbox.networking_policy_version,
-                "live sandbox carries network-policy state for a non-limited network mode",
+                NetworkPolicyApplyError::RecoveryStateInvalid(
+                    "live sandbox carries network-policy state for a non-limited network mode"
+                        .to_string(),
+                ),
             )
             .await?;
             continue;
@@ -48,7 +52,9 @@ pub async fn recover_as_authority(
                 sandbox.id,
                 None,
                 sandbox.networking_policy_version,
-                "live limited-networking sandbox has no persisted policy hash",
+                NetworkPolicyApplyError::RecoveryStateInvalid(
+                    "live limited-networking sandbox has no persisted policy hash".to_string(),
+                ),
             )
             .await?;
             continue;
@@ -59,7 +65,10 @@ pub async fn recover_as_authority(
                 sandbox.id,
                 Some(policy_hash),
                 sandbox.networking_policy_version,
-                "live limited-networking sandbox has no valid persisted policy version",
+                NetworkPolicyApplyError::RecoveryStateInvalid(
+                    "live limited-networking sandbox has no valid persisted policy version"
+                        .to_string(),
+                ),
             )
             .await?;
             continue;
@@ -73,7 +82,7 @@ pub async fn recover_as_authority(
                     sandbox.id,
                     Some(policy_hash),
                     sandbox.networking_policy_version,
-                    &format!("failed to rebuild recovery material: {error:#}"),
+                    NetworkPolicyApplyError::MaterialUnavailable(format!("{error:#}")),
                 )
                 .await?;
                 continue;
@@ -85,7 +94,9 @@ pub async fn recover_as_authority(
                 sandbox.id,
                 Some(policy_hash),
                 sandbox.networking_policy_version,
-                "recovered desired policy does not match durable generation",
+                NetworkPolicyApplyError::RecoveryStateInvalid(
+                    "recovered desired policy does not match durable generation".to_string(),
+                ),
             )
             .await?;
             continue;
@@ -97,7 +108,7 @@ pub async fn recover_as_authority(
                 sandbox.id,
                 Some(policy_hash),
                 sandbox.networking_policy_version,
-                &format!("invalid recovered egress policy: {error:#}"),
+                NetworkPolicyApplyError::InvalidPolicy(format!("{error:#}")),
             )
             .await?;
             continue;
@@ -141,7 +152,7 @@ async fn persist_runtime_failure(
         failure.sandbox_id,
         Some(&failure.generation.policy_hash),
         failure.generation.policy_version,
-        &failure.reason,
+        failure.error,
     )
     .await
 }
@@ -151,14 +162,24 @@ async fn quarantine(
     sandbox_id: SandboxId,
     observed_policy_hash: Option<&str>,
     observed_policy_version: i64,
-    reason: &str,
+    error: NetworkPolicyApplyError,
 ) -> anyhow::Result<()> {
+    let Some(persistence) = error.persistence() else {
+        return Ok(());
+    };
+    let reason = error.to_string();
     match queries::quarantine_recovery_generation(
         pool,
         sandbox_id,
         observed_policy_hash,
         observed_policy_version,
-        reason,
+        queries::NetworkPolicyFailureRecord {
+            status: persistence.status,
+            code: error.code(),
+            retryable: persistence.retryable,
+            message: &reason,
+            nack_reason: persistence.nack_reason,
+        },
     )
     .await?
     {

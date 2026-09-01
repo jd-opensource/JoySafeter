@@ -7,7 +7,9 @@ use std::time::Duration;
 use crate::ids::SandboxId;
 
 use super::authority::{RecoveryAuthorityGuard, XdsAuthority};
-use super::delivery::{DeliveryAttempt, DeliveryOutcome, DeliveryRequest, DeliveryTarget};
+use super::delivery::{
+    DeliveryAttempt, DeliveryOutcome, DeliveryRequest, DeliveryTarget, DeliveryWaitError,
+};
 use super::delta::DeltaXdsServer;
 use super::inventory::{InstalledRecoveryInventory, RecoveryInventory};
 use super::metrics::{XdsMetrics, XdsMetricsSnapshot};
@@ -135,7 +137,7 @@ impl XdsControlPlane {
         &self,
         attempt: DeliveryAttempt,
         timeout: Duration,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), DeliveryWaitError> {
         let mut receiver = self.delta.delivery_notify();
         let deadline = tokio::time::Instant::now() + timeout;
         loop {
@@ -144,21 +146,28 @@ impl XdsControlPlane {
                 Some(DeliveryOutcome::Nacked {
                     resource_type,
                     reason,
-                }) => anyhow::bail!(
-                    "Envoy NACK'd {resource_type:?} xDS delivery for sandbox {}: {reason}",
-                    attempt.sandbox_id
-                ),
-                Some(DeliveryOutcome::Pending) | None => {}
+                }) => {
+                    return Err(DeliveryWaitError::Nacked {
+                        sandbox_id: attempt.sandbox_id,
+                        resource_type,
+                        reason,
+                    })
+                }
+                Some(DeliveryOutcome::Pending) => {}
+                None => {
+                    return Err(DeliveryWaitError::Superseded {
+                        sandbox_id: attempt.sandbox_id,
+                    })
+                }
             }
             if tokio::time::Instant::now() >= deadline
                 || tokio::time::timeout_at(deadline, receiver.changed())
                     .await
                     .is_err()
             {
-                anyhow::bail!(
-                    "timed out waiting for exact Envoy xDS delivery for sandbox {}",
-                    attempt.sandbox_id
-                );
+                return Err(DeliveryWaitError::TimedOut {
+                    sandbox_id: attempt.sandbox_id,
+                });
             }
         }
     }

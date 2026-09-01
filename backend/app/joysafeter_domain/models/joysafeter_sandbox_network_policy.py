@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -42,5 +42,7 @@ class JoySafeterSandboxNetworkPolicy(JoySafeterModel):
     status: Mapped[str] = mapped_column(Text, nullable=False, default="pending", server_default="pending")
     last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     last_nack_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error_code: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    retryable: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
     pushed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     acked_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -6,15 +6,17 @@ use std::time::Duration;
 use anyhow::Context;
 use serde_json::json;
 use tokio::sync::Mutex;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::ids::SandboxId;
 use crate::kernel::network_policy::envoy_model::{
     validate_egress_policy, ListenerKind, ListenerSpec, SandboxEgressPolicy,
 };
+use crate::kernel::network_policy::error::NetworkPolicyApplyError;
 use crate::kernel::network_policy::ports::{
-    NetworkPolicyApplyRequest, NetworkPolicyRecoveryEntry, NetworkPolicyRecoveryFailure,
-    NetworkPolicyRecoveryReport, NetworkPolicyRuntime,
+    NetworkPolicyApplyRequest, NetworkPolicyApplyTicket, NetworkPolicyPruneTicket,
+    NetworkPolicyRecoveryEntry, NetworkPolicyRecoveryFailure, NetworkPolicyRecoveryReport,
+    NetworkPolicyRemoveTicket, NetworkPolicyRuntime,
 };
 use crate::xds::authority::{RecoveryAuthorityGuard, XdsAuthority};
 use crate::xds::delivery::DeliveryRequest;
@@ -110,7 +112,7 @@ impl EnvoyPolicyEngine {
                     Err(error) => report.failed.push(NetworkPolicyRecoveryFailure {
                         sandbox_id: entry.sandbox_id,
                         generation: entry.generation,
-                        reason: format!("recovered policy delivery failed: {error:#}"),
+                        error,
                     }),
                 }
             }
@@ -160,13 +162,15 @@ impl EnvoyPolicyEngine {
                         .delivery
                         .wait_for_delivery(attempt, self.config.delivery_timeout)
                         .await;
-                    let result = match result {
-                        Ok(()) => {
-                            self.sockets
-                                .wait_for_socket_ready(installed_delivery.sandbox_id)
-                                .await
-                        }
-                        Err(error) => Err(error),
+                    let result: Result<(), NetworkPolicyApplyError> = match result {
+                        Ok(()) => self
+                            .sockets
+                            .wait_for_socket_ready(installed_delivery.sandbox_id)
+                            .await
+                            .map_err(|error| {
+                                NetworkPolicyApplyError::SocketNotReady(format!("{error:#}"))
+                            }),
+                        Err(error) => Err(error.into()),
                     };
                     match result {
                         Ok(()) => report.ready.push((
@@ -176,7 +180,7 @@ impl EnvoyPolicyEngine {
                         Err(error) => report.failed.push(NetworkPolicyRecoveryFailure {
                             sandbox_id: installed_delivery.sandbox_id,
                             generation: network_policy_generation(installed_delivery.generation),
-                            reason: format!("recovered policy delivery failed: {error:#}"),
+                            error,
                         }),
                     }
                 }
@@ -191,19 +195,52 @@ impl EnvoyPolicyEngine {
         &self,
         request: DeliveryRequest,
         policy: SandboxEgressPolicy,
-    ) -> anyhow::Result<()> {
-        let sandbox_id = request.sandbox_id;
-        validate_egress_policy(&sandbox_id, &policy)?;
-        self.sockets.prepare_socket_dir(sandbox_id).await?;
-        if self.config.write_debug_entries {
-            self.write_debug_entry(sandbox_id, &policy).await?;
-        }
+    ) -> Result<(), NetworkPolicyApplyError> {
+        self.prepare_policy(request.sandbox_id, &policy).await?;
+        let ticket = self.publish_policy(request, policy).await?;
+        self.settle_policy(ticket).await
+    }
 
+    pub async fn prepare_policy(
+        &self,
+        sandbox_id: SandboxId,
+        policy: &SandboxEgressPolicy,
+    ) -> Result<(), NetworkPolicyApplyError> {
+        validate_egress_policy(&sandbox_id, policy)
+            .map_err(|error| NetworkPolicyApplyError::InvalidPolicy(format!("{error:#}")))?;
+        self.sockets
+            .prepare_socket_dir(sandbox_id)
+            .await
+            .map_err(|error| {
+                NetworkPolicyApplyError::SocketPreparationFailed(format!("{error:#}"))
+            })?;
+        if self.config.write_debug_entries {
+            self.write_debug_entry(sandbox_id, policy)
+                .await
+                .map_err(|error| {
+                    NetworkPolicyApplyError::RuntimePreparationFailed(format!("{error:#}"))
+                })?;
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn publish_policy(
+        &self,
+        request: DeliveryRequest,
+        policy: SandboxEgressPolicy,
+    ) -> Result<NetworkPolicyApplyTicket, NetworkPolicyApplyError> {
+        let sandbox_id = request.sandbox_id;
+        validate_egress_policy(&sandbox_id, &policy)
+            .map_err(|error| NetworkPolicyApplyError::InvalidPolicy(format!("{error:#}")))?;
         let delivery_attempt = {
             let lock = self.sandbox_lock(sandbox_id).await;
             let guard = tokio::time::timeout(Duration::from_secs(5), lock.lock())
                 .await
-                .map_err(|_| anyhow::anyhow!("timed out acquiring Envoy sandbox apply lock"))?;
+                .map_err(|_| {
+                    NetworkPolicyApplyError::PublicationUnavailable(
+                        "timed out acquiring Envoy sandbox apply lock".to_string(),
+                    )
+                })?;
             let listener = ListenerSpec {
                 sandbox_id,
                 kind: ListenerKind::Http,
@@ -211,16 +248,21 @@ impl EnvoyPolicyEngine {
                 credentials: policy.credential_routes.clone(),
                 proxy_auth_token: policy.proxy_auth_token.clone(),
             };
+            let clusters = policy.clusters(&sandbox_id);
             let submission = tokio::time::timeout(
                 Duration::from_secs(10),
-                self.delivery.apply_sandbox_batch(
-                    request,
-                    policy.clusters(&sandbox_id),
-                    vec![listener],
-                ),
+                self.delivery
+                    .apply_sandbox_batch(request, clusters, vec![listener]),
             )
             .await
-            .map_err(|_| anyhow::anyhow!("timed out applying Envoy xDS update"))??;
+            .map_err(|_| {
+                NetworkPolicyApplyError::PublicationUnavailable(
+                    "timed out applying Envoy xDS update".to_string(),
+                )
+            })?
+            .map_err(|error| {
+                NetworkPolicyApplyError::PublicationUnavailable(format!("{error:#}"))
+            })?;
             let attempt = match submission {
                 DeliverySubmission::AlreadyCurrent => None,
                 DeliverySubmission::Await(attempt) => Some(attempt),
@@ -229,61 +271,160 @@ impl EnvoyPolicyEngine {
             self.cleanup_lock(sandbox_id, &lock).await;
             attempt
         };
-        if let Some(attempt) = delivery_attempt {
+        Ok(match delivery_attempt {
+            Some(attempt) => {
+                NetworkPolicyApplyTicket::pending(sandbox_id, attempt.attempt_id.as_u64())
+            }
+            None => NetworkPolicyApplyTicket::completed(sandbox_id),
+        })
+    }
+
+    pub(crate) async fn settle_policy(
+        &self,
+        ticket: NetworkPolicyApplyTicket,
+    ) -> Result<(), NetworkPolicyApplyError> {
+        if let Some(attempt_id) = ticket.delivery_attempt_id() {
             self.delivery
-                .wait_for_delivery(attempt, self.config.delivery_timeout)
-                .await?;
+                .wait_for_delivery(
+                    crate::xds::delivery::DeliveryAttempt {
+                        sandbox_id: ticket.sandbox_id(),
+                        attempt_id: crate::xds::delivery::DeliveryAttemptId::from_raw(attempt_id),
+                    },
+                    self.config.delivery_timeout,
+                )
+                .await
+                .map_err(NetworkPolicyApplyError::from)?;
         }
-        self.sockets.wait_for_socket_ready(sandbox_id).await?;
-        info!(%sandbox_id, "Envoy policy delivered and socket ready");
+        self.sockets
+            .wait_for_socket_ready(ticket.sandbox_id())
+            .await
+            .map_err(|error| NetworkPolicyApplyError::SocketNotReady(format!("{error:#}")))?;
+        info!(sandbox_id = %ticket.sandbox_id(), "Envoy policy delivered and socket ready");
         Ok(())
     }
 
-    pub async fn remove(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
+    pub(crate) async fn publish_remove(
+        &self,
+        sandbox_id: SandboxId,
+    ) -> anyhow::Result<NetworkPolicyRemoveTicket> {
         let lock = self.sandbox_lock(sandbox_id).await;
         let guard = tokio::time::timeout(Duration::from_secs(5), lock.lock())
             .await
             .map_err(|_| anyhow::anyhow!("timed out acquiring Envoy sandbox apply lock"))?;
-        let result = self.remove_unlocked(sandbox_id).await;
+        let submission = self.delivery.remove_sandbox_batch(sandbox_id).await;
         drop(guard);
         self.cleanup_lock(sandbox_id, &lock).await;
-        result
+        Ok(match submission? {
+            DeliverySubmission::Await(attempt) => {
+                NetworkPolicyRemoveTicket::pending(sandbox_id, attempt.attempt_id.as_u64())
+            }
+            DeliverySubmission::AlreadyCurrent => NetworkPolicyRemoveTicket::completed(sandbox_id),
+        })
     }
 
-    async fn remove_unlocked(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
-        match self.delivery.remove_sandbox_batch(sandbox_id).await? {
-            DeliverySubmission::Await(attempt) => {
-                self.delivery
-                    .wait_for_delivery(attempt, self.config.delivery_timeout)
-                    .await
-                    .with_context(|| {
-                        format!("Envoy did not ACK xDS removal for sandbox {sandbox_id}")
-                    })?;
-                self.delivery.retire_sandbox_delivery(sandbox_id).await;
-            }
-            DeliverySubmission::AlreadyCurrent => {
-                self.delivery.retire_sandbox_delivery(sandbox_id).await;
-            }
+    pub(crate) async fn settle_remove(
+        &self,
+        ticket: NetworkPolicyRemoveTicket,
+    ) -> anyhow::Result<()> {
+        if let Some(attempt_id) = ticket.delivery_attempt_id() {
+            self.delivery
+                .wait_for_delivery(
+                    crate::xds::delivery::DeliveryAttempt {
+                        sandbox_id: ticket.sandbox_id(),
+                        attempt_id: crate::xds::delivery::DeliveryAttemptId::from_raw(attempt_id),
+                    },
+                    self.config.delivery_timeout,
+                )
+                .await
+                .with_context(|| {
+                    format!(
+                        "Envoy did not ACK xDS removal for sandbox {}",
+                        ticket.sandbox_id()
+                    )
+                })?;
         }
-        self.sockets.remove_socket_dir(sandbox_id).await;
+        self.delivery
+            .retire_sandbox_delivery(ticket.sandbox_id())
+            .await;
+        self.sockets.remove_socket_dir(ticket.sandbox_id()).await;
         if self.config.write_debug_entries {
             let entry = PathBuf::from(&self.config.config_dir)
                 .join("sandboxes")
-                .join(format!("{}.json", sandbox_id.as_uuid()));
+                .join(format!("{}.json", ticket.sandbox_id().as_uuid()));
             let _ = tokio::fs::remove_file(entry).await;
         }
-        debug!(%sandbox_id, "Removed sandbox Envoy policy");
+        debug!(sandbox_id = %ticket.sandbox_id(), "Removed sandbox Envoy policy");
         Ok(())
     }
 
-    pub async fn prune(&self, live_sandbox_ids: &HashSet<SandboxId>) -> anyhow::Result<usize> {
+    pub async fn remove(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
+        let ticket = self.publish_remove(sandbox_id).await?;
+        self.settle_remove(ticket).await
+    }
+
+    pub(crate) async fn publish_prune(
+        &self,
+        live_sandbox_ids: &HashSet<SandboxId>,
+    ) -> anyhow::Result<NetworkPolicyPruneTicket> {
         let configured = self.delivery.configured_sandbox_ids().await;
         let mut stale: Vec<_> = configured.difference(live_sandbox_ids).copied().collect();
         stale.sort_by_key(|sandbox_id| sandbox_id.as_uuid());
+        let mut cleanup_sandbox_ids = Vec::with_capacity(stale.len());
+        let mut failures = Vec::new();
         for sandbox_id in &stale {
-            self.remove(*sandbox_id).await?;
+            let lock = self.sandbox_lock(*sandbox_id).await;
+            let guard = tokio::time::timeout(Duration::from_secs(5), lock.lock())
+                .await
+                .map_err(|_| anyhow::anyhow!("timed out acquiring Envoy sandbox prune lock"))?;
+            let result = self.delivery.remove_sandbox_batch(*sandbox_id).await;
+            if result.is_ok() {
+                self.delivery.retire_sandbox_delivery(*sandbox_id).await;
+            }
+            drop(guard);
+            self.cleanup_lock(*sandbox_id, &lock).await;
+            match result {
+                Ok(_) => cleanup_sandbox_ids.push(*sandbox_id),
+                Err(error) => {
+                    warn!(sandbox_id = %sandbox_id, %error, "Failed to prune stale xDS sandbox inventory");
+                    failures.push(format!("{sandbox_id}: {error:#}"));
+                }
+            }
         }
-        Ok(stale.len())
+        Ok(NetworkPolicyPruneTicket::published(
+            stale.len(),
+            cleanup_sandbox_ids,
+            failures,
+        ))
+    }
+
+    pub(crate) async fn settle_prune(
+        &self,
+        ticket: NetworkPolicyPruneTicket,
+    ) -> anyhow::Result<usize> {
+        for sandbox_id in ticket.cleanup_sandbox_ids() {
+            self.sockets.remove_socket_dir(*sandbox_id).await;
+            if self.config.write_debug_entries {
+                let entry = PathBuf::from(&self.config.config_dir)
+                    .join("sandboxes")
+                    .join(format!("{}.json", sandbox_id.as_uuid()));
+                let _ = tokio::fs::remove_file(entry).await;
+            }
+            debug!(%sandbox_id, "Removed stale sandbox Envoy policy artifacts");
+        }
+        if !ticket.publication_failures().is_empty() {
+            anyhow::bail!(
+                "failed to prune {} of {} stale xDS sandboxes: {}",
+                ticket.publication_failures().len(),
+                ticket.stale(),
+                ticket.publication_failures().join("; ")
+            );
+        }
+        Ok(ticket.removed())
+    }
+
+    pub async fn prune(&self, live_sandbox_ids: &HashSet<SandboxId>) -> anyhow::Result<usize> {
+        let ticket = self.publish_prune(live_sandbox_ids).await?;
+        self.settle_prune(ticket).await
     }
 
     async fn write_debug_entry(
@@ -325,8 +466,15 @@ impl NetworkPolicyRuntime for EnvoyNetworkPolicyRuntime {
         self.engine.initialize().await
     }
 
-    async fn prune(&self, live_sandbox_ids: &HashSet<SandboxId>) -> anyhow::Result<usize> {
-        self.engine.prune(live_sandbox_ids).await
+    async fn publish_prune(
+        &self,
+        live_sandbox_ids: &HashSet<SandboxId>,
+    ) -> anyhow::Result<NetworkPolicyPruneTicket> {
+        self.engine.publish_prune(live_sandbox_ids).await
+    }
+
+    async fn settle_prune(&self, ticket: NetworkPolicyPruneTicket) -> anyhow::Result<usize> {
+        self.engine.settle_prune(ticket).await
     }
 
     async fn recover(
@@ -342,11 +490,43 @@ impl NetworkPolicyRuntime for EnvoyNetworkPolicyRuntime {
         self.engine.recover(&guard, entries).await
     }
 
+    async fn prepare_apply(
+        &self,
+        request: &NetworkPolicyApplyRequest,
+        policy: &SandboxEgressPolicy,
+    ) -> Result<(), NetworkPolicyApplyError> {
+        self.engine.prepare_policy(request.sandbox_id, policy).await
+    }
+
+    async fn publish_apply(
+        &self,
+        request: NetworkPolicyApplyRequest,
+        policy: SandboxEgressPolicy,
+    ) -> Result<NetworkPolicyApplyTicket, NetworkPolicyApplyError> {
+        self.engine
+            .publish_policy(
+                DeliveryRequest {
+                    authority_epoch: request.authority_epoch,
+                    sandbox_id: request.sandbox_id,
+                    generation: delivery_generation(&request.generation),
+                },
+                policy,
+            )
+            .await
+    }
+
+    async fn settle_apply(
+        &self,
+        ticket: NetworkPolicyApplyTicket,
+    ) -> Result<(), NetworkPolicyApplyError> {
+        self.engine.settle_policy(ticket).await
+    }
+
     async fn apply(
         &self,
         request: NetworkPolicyApplyRequest,
         policy: SandboxEgressPolicy,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), NetworkPolicyApplyError> {
         self.engine
             .apply_policy(
                 DeliveryRequest {
@@ -362,16 +542,140 @@ impl NetworkPolicyRuntime for EnvoyNetworkPolicyRuntime {
     async fn remove(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
         self.engine.remove(sandbox_id).await
     }
+
+    async fn publish_remove(
+        &self,
+        sandbox_id: SandboxId,
+    ) -> anyhow::Result<NetworkPolicyRemoveTicket> {
+        self.engine.publish_remove(sandbox_id).await
+    }
+
+    async fn settle_remove(&self, ticket: NetworkPolicyRemoveTicket) -> anyhow::Result<()> {
+        self.engine.settle_remove(ticket).await
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
     use super::*;
+    use crate::kernel::network_policy::envoy_model::{ClusterSpec, ListenerSpec};
     use crate::kernel::network_policy::NetworkPolicyGeneration;
     use crate::sandbox::envoy::socket::EgressSocketConfig;
+    use crate::sandbox::envoy_delivery::{DeliverySubmission, EnvoyDelivery};
     use crate::sandbox::envoy_filesystem::FilesystemEnvoyDelivery;
     use crate::xds::control_plane::{NodeVisibility, XdsControlPlane};
+    use crate::xds::delivery::{DeliveryAttempt, DeliveryAttemptId};
     use crate::xds::model::DeliveryGeneration;
+    use tokio::sync::Notify;
+
+    struct NonAckingRemovalDelivery {
+        configured: Mutex<HashSet<SandboxId>>,
+        wait_calls: AtomicUsize,
+        retired: Mutex<HashSet<SandboxId>>,
+        removal_attempts: Mutex<Vec<SandboxId>>,
+        remove_errors: HashSet<SandboxId>,
+    }
+
+    struct BlockingApplyDelivery {
+        apply_calls: AtomicUsize,
+        wait_started: Notify,
+        release_wait: Notify,
+    }
+
+    #[async_trait::async_trait]
+    impl EnvoyDelivery for BlockingApplyDelivery {
+        async fn prepare_for_startup(&self) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn configured_sandbox_ids(&self) -> HashSet<SandboxId> {
+            HashSet::new()
+        }
+
+        async fn apply_sandbox_batch(
+            &self,
+            delivery: DeliveryRequest,
+            _clusters: Vec<ClusterSpec>,
+            _listeners: Vec<ListenerSpec>,
+        ) -> anyhow::Result<DeliverySubmission> {
+            let attempt_id = self.apply_calls.fetch_add(1, Ordering::SeqCst) + 1;
+            Ok(DeliverySubmission::Await(DeliveryAttempt {
+                sandbox_id: delivery.sandbox_id,
+                attempt_id: DeliveryAttemptId::from_raw(attempt_id as u64),
+            }))
+        }
+
+        async fn remove_sandbox_batch(
+            &self,
+            _sandbox_id: SandboxId,
+        ) -> anyhow::Result<DeliverySubmission> {
+            anyhow::bail!("remove is not part of this test")
+        }
+
+        async fn wait_for_delivery(
+            &self,
+            attempt: DeliveryAttempt,
+            _timeout: Duration,
+        ) -> Result<(), crate::xds::delivery::DeliveryWaitError> {
+            if attempt.attempt_id.as_u64() == 1 {
+                self.wait_started.notify_one();
+                self.release_wait.notified().await;
+            }
+            Ok(())
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl EnvoyDelivery for NonAckingRemovalDelivery {
+        async fn prepare_for_startup(&self) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn configured_sandbox_ids(&self) -> HashSet<SandboxId> {
+            self.configured.lock().await.clone()
+        }
+
+        async fn apply_sandbox_batch(
+            &self,
+            _delivery: DeliveryRequest,
+            _clusters: Vec<ClusterSpec>,
+            _listeners: Vec<ListenerSpec>,
+        ) -> anyhow::Result<DeliverySubmission> {
+            anyhow::bail!("apply is not part of this test")
+        }
+
+        async fn remove_sandbox_batch(
+            &self,
+            sandbox_id: SandboxId,
+        ) -> anyhow::Result<DeliverySubmission> {
+            self.removal_attempts.lock().await.push(sandbox_id);
+            if self.remove_errors.contains(&sandbox_id) {
+                anyhow::bail!("synthetic removal publication failure");
+            }
+            self.configured.lock().await.remove(&sandbox_id);
+            Ok(DeliverySubmission::Await(DeliveryAttempt {
+                sandbox_id,
+                attempt_id: DeliveryAttemptId::from_raw(1),
+            }))
+        }
+
+        async fn wait_for_delivery(
+            &self,
+            attempt: DeliveryAttempt,
+            _timeout: Duration,
+        ) -> Result<(), crate::xds::delivery::DeliveryWaitError> {
+            self.wait_calls.fetch_add(1, Ordering::SeqCst);
+            Err(crate::xds::delivery::DeliveryWaitError::TimedOut {
+                sandbox_id: attempt.sandbox_id,
+            })
+        }
+
+        async fn retire_sandbox_delivery(&self, sandbox_id: SandboxId) {
+            self.retired.lock().await.insert(sandbox_id);
+        }
+    }
 
     fn sockets() -> Arc<EgressSocketProvisioner> {
         Arc::new(EgressSocketProvisioner::new(
@@ -409,6 +713,47 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn slow_delivery_settlement_does_not_block_another_sandbox_publication() {
+        let delivery = Arc::new(BlockingApplyDelivery {
+            apply_calls: AtomicUsize::new(0),
+            wait_started: Notify::new(),
+            release_wait: Notify::new(),
+        });
+        let engine = Arc::new(EnvoyPolicyEngine::new(
+            delivery.clone(),
+            sockets(),
+            config("unused".to_string(), true),
+        ));
+        let first = SandboxId::new();
+        let second = SandboxId::new();
+        let first_ticket = engine
+            .publish_policy(request(first, 1), SandboxEgressPolicy::default())
+            .await
+            .expect("publish first policy");
+        let settling_engine = engine.clone();
+        let settling = tokio::spawn(async move {
+            settling_engine
+                .settle_policy(first_ticket)
+                .await
+                .expect("settle first policy")
+        });
+        tokio::time::timeout(Duration::from_millis(100), delivery.wait_started.notified())
+            .await
+            .expect("first settlement should wait for ACK");
+
+        tokio::time::timeout(
+            Duration::from_millis(100),
+            engine.publish_policy(request(second, 1), SandboxEgressPolicy::default()),
+        )
+        .await
+        .expect("second publication must not wait for first ACK")
+        .expect("publish second policy");
+
+        delivery.release_wait.notify_one();
+        settling.await.expect("join first settlement");
+    }
+
+    #[tokio::test]
     async fn authoritative_prune_removes_only_stale_delivery_inventory() {
         let directory = tempfile::tempdir().expect("tempdir");
         let delivery = Arc::new(FilesystemEnvoyDelivery::new(
@@ -440,6 +785,65 @@ mod tests {
             delivery.configured_sandbox_ids().await,
             HashSet::from([live])
         );
+    }
+
+    #[tokio::test]
+    async fn authoritative_prune_does_not_wait_for_stale_removal_ack() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let stale = SandboxId::new();
+        let delivery = Arc::new(NonAckingRemovalDelivery {
+            configured: Mutex::new(HashSet::from([stale])),
+            wait_calls: AtomicUsize::new(0),
+            retired: Mutex::new(HashSet::new()),
+            removal_attempts: Mutex::new(Vec::new()),
+            remove_errors: HashSet::new(),
+        });
+        let engine = EnvoyPolicyEngine::new(
+            delivery.clone(),
+            sockets(),
+            config(directory.path().to_string_lossy().into_owned(), true),
+        );
+
+        let removed = engine
+            .prune(&HashSet::new())
+            .await
+            .expect("stale inventory should be retired without waiting for Envoy");
+
+        assert_eq!(removed, 1);
+        assert_eq!(delivery.wait_calls.load(Ordering::SeqCst), 0);
+        assert!(delivery.retired.lock().await.contains(&stale));
+    }
+
+    #[tokio::test]
+    async fn authoritative_prune_continues_after_one_stale_removal_fails() {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let first = SandboxId::from_uuid(
+            uuid::Uuid::parse_str("00000000-0000-7000-8000-000000000001").expect("uuid"),
+        );
+        let second = SandboxId::from_uuid(
+            uuid::Uuid::parse_str("00000000-0000-7000-8000-000000000002").expect("uuid"),
+        );
+        let delivery = Arc::new(NonAckingRemovalDelivery {
+            configured: Mutex::new(HashSet::from([first, second])),
+            wait_calls: AtomicUsize::new(0),
+            retired: Mutex::new(HashSet::new()),
+            removal_attempts: Mutex::new(Vec::new()),
+            remove_errors: HashSet::from([first]),
+        });
+        let engine = EnvoyPolicyEngine::new(
+            delivery.clone(),
+            sockets(),
+            config(directory.path().to_string_lossy().into_owned(), true),
+        );
+
+        let error = engine
+            .prune(&HashSet::new())
+            .await
+            .expect_err("failed stale publications remain observable");
+
+        assert!(error.to_string().contains("1 of 2"));
+        assert_eq!(*delivery.removal_attempts.lock().await, vec![first, second]);
+        assert_eq!(*delivery.configured.lock().await, HashSet::from([first]));
     }
 
     #[tokio::test]

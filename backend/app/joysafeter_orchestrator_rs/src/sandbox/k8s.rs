@@ -696,8 +696,8 @@ impl SandboxProvider for K8sProvider {
         if outcome.runtime == SandboxRuntimeDeletion::Pending {
             anyhow::bail!("K8s sandbox pod deletion is still pending: {external_id}");
         }
-        if let Some(error) = outcome.residual_cleanup_error {
-            warn!(external_id, %error, "K8s sandbox runtime deleted with residual socket cleanup pending");
+        if let Some(cleanup) = outcome.residual_cleanup {
+            warn!(external_id, error = %cleanup.last_error, "K8s sandbox runtime deleted with residual socket cleanup pending");
         }
         Ok(())
     }
@@ -741,9 +741,32 @@ impl SandboxProvider for K8sProvider {
         {
             Ok(()) => Ok(SandboxDestroyOutcome::deleted()),
             Err(error) => Ok(SandboxDestroyOutcome::deleted_with_residual(
-                error.to_string(),
+                crate::sandbox::provider::SandboxResidualCleanup {
+                    resource_kind: "envoy_socket_directory".to_string(),
+                    resource_name: external_id.to_string(),
+                    resource_path: format!("/sockets/{external_id}"),
+                    node_name,
+                    last_error: error.to_string(),
+                },
             )),
         }
+    }
+
+    async fn retry_residual_cleanup(
+        &self,
+        cleanup: &crate::sandbox::provider::SandboxResidualCleanup,
+    ) -> anyhow::Result<()> {
+        if cleanup.resource_kind != "envoy_socket_directory" {
+            anyhow::bail!(
+                "unsupported K8s residual cleanup kind: {}",
+                cleanup.resource_kind
+            );
+        }
+        self.cleanup_egress_socket_dir_with_retry(
+            &cleanup.resource_name,
+            cleanup.node_name.as_deref(),
+        )
+        .await
     }
 
     async fn status(&self, external_id: &str) -> anyhow::Result<SandboxStatus> {

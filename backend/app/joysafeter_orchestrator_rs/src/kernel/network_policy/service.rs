@@ -120,7 +120,6 @@ impl NetworkPolicyService {
                 "task-scoped Agent Identity requires secure ephemeral delivery to the elected xDS authority"
             );
         }
-        let _application_lock = managed.authority.lock_application().await;
         let guard = managed
             .authority
             .mutation_guard()
@@ -166,8 +165,6 @@ impl NetworkPolicyService {
             .authority
             .mutation_guard()
             .ok_or_else(|| anyhow::anyhow!("local xDS authority is not ready"))?;
-        let _application_lock = managed.authority.lock_application().await;
-        guard.validate()?;
         super::application::reconcile_as_authority(
             &self.pool,
             managed.runtime.as_ref(),
@@ -194,19 +191,23 @@ impl NetworkPolicyService {
         guard: &MutationAuthorityGuard,
     ) -> anyhow::Result<usize> {
         let managed = self.require_managed("reconcile network-policy inventory")?;
-        if guard.validate().is_err() {
-            anyhow::bail!("xDS authority changed before inventory reconciliation");
-        }
-        let live_sandbox_ids = queries::load_recovery_inventory(&self.pool)
-            .await?
-            .into_iter()
-            .filter(sandbox_requires_limited_networking)
-            .map(|sandbox| sandbox.id)
-            .collect::<HashSet<_>>();
-        if guard.validate().is_err() {
-            anyhow::bail!("xDS authority changed before inventory pruning");
-        }
-        managed.runtime.prune(&live_sandbox_ids).await
+        let ticket = {
+            let _application_lock = guard.lock_application().await;
+            if guard.validate().is_err() {
+                anyhow::bail!("xDS authority changed before inventory reconciliation");
+            }
+            let live_sandbox_ids = queries::load_recovery_inventory(&self.pool)
+                .await?
+                .into_iter()
+                .filter(sandbox_requires_limited_networking)
+                .map(|sandbox| sandbox.id)
+                .collect::<HashSet<_>>();
+            if guard.validate().is_err() {
+                anyhow::bail!("xDS authority changed before inventory pruning");
+            }
+            managed.runtime.publish_prune(&live_sandbox_ids).await?
+        };
+        managed.runtime.settle_prune(ticket).await
     }
 
     pub async fn apply_request(
@@ -234,18 +235,22 @@ impl NetworkPolicyService {
                 .await?;
             }
             NetworkPolicyAction::Remove => {
-                if !queries::network_policy_removal_is_current(&self.pool, request.sandbox_id)
-                    .await?
-                {
-                    anyhow::bail!(
-                        "stale xDS remove request for live limited-networking sandbox {}",
-                        request.sandbox_id
-                    );
-                }
-                if guard.validate().is_err() {
-                    anyhow::bail!("xDS authority changed before networking removal");
-                }
-                managed.runtime.remove(request.sandbox_id).await?;
+                let ticket = {
+                    let _application_lock = guard.lock_application().await;
+                    if !queries::network_policy_removal_is_current(&self.pool, request.sandbox_id)
+                        .await?
+                    {
+                        anyhow::bail!(
+                            "stale xDS remove request for live limited-networking sandbox {}",
+                            request.sandbox_id
+                        );
+                    }
+                    if guard.validate().is_err() {
+                        anyhow::bail!("xDS authority changed before networking removal");
+                    }
+                    managed.runtime.publish_remove(request.sandbox_id).await?
+                };
+                managed.runtime.settle_remove(ticket).await?;
             }
         }
         Ok(())
@@ -260,7 +265,18 @@ impl NetworkPolicyService {
                 .publish(NetworkPolicyRequest::remove(sandbox_id))
                 .await?;
         } else {
-            managed.runtime.remove(sandbox_id).await?;
+            let guard = managed
+                .authority
+                .mutation_guard()
+                .ok_or_else(|| anyhow::anyhow!("local xDS authority is not ready"))?;
+            let ticket = {
+                let _application_lock = guard.lock_application().await;
+                guard.validate().map_err(|_| {
+                    anyhow::anyhow!("xDS authority changed before networking removal")
+                })?;
+                managed.runtime.publish_remove(sandbox_id).await?
+            };
+            managed.runtime.settle_remove(ticket).await?;
         }
         Ok(NetworkPolicyCapability::Managed)
     }
@@ -334,8 +350,18 @@ impl NetworkPolicyRuntime for TestNetworkPolicyRuntime {
         Ok(())
     }
 
-    async fn prune(&self, _live_sandbox_ids: &HashSet<SandboxId>) -> anyhow::Result<usize> {
-        Ok(0)
+    async fn publish_prune(
+        &self,
+        _live_sandbox_ids: &HashSet<SandboxId>,
+    ) -> anyhow::Result<super::ports::NetworkPolicyPruneTicket> {
+        Ok(super::ports::NetworkPolicyPruneTicket::completed(0))
+    }
+
+    async fn settle_prune(
+        &self,
+        ticket: super::ports::NetworkPolicyPruneTicket,
+    ) -> anyhow::Result<usize> {
+        Ok(ticket.removed())
     }
 
     async fn recover(
@@ -356,7 +382,7 @@ impl NetworkPolicyRuntime for TestNetworkPolicyRuntime {
         &self,
         _request: super::ports::NetworkPolicyApplyRequest,
         _policy: super::envoy_model::SandboxEgressPolicy,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), super::error::NetworkPolicyApplyError> {
         Ok(())
     }
 

@@ -301,14 +301,23 @@ impl SandboxProvisioningService {
                 )
                 .await
             {
-                if self
+                match self
                     .lifecycle
                     .cleanup_rejected_create(sandbox_id, &external_id, Some(&policy_generation))
-                    .await?
+                    .await
                 {
-                    return Err(error.context("failed to setup Envoy networking for new sandbox"));
+                    Ok(true) => {
+                        return Err(
+                            error.context("failed to setup Envoy networking for new sandbox")
+                        );
+                    }
+                    Ok(false) => {
+                        info!(sandbox_id = %sandbox_id, policy_version = policy_generation.policy_version, "Adopted concurrently ready network policy after stale apply result");
+                    }
+                    Err(cleanup_error) => {
+                        return Err(networking_failure_with_cleanup(error, cleanup_error));
+                    }
                 }
-                info!(sandbox_id = %sandbox_id, policy_version = policy_generation.policy_version, "Adopted concurrently ready network policy after stale apply result");
             }
         }
 
@@ -342,6 +351,15 @@ impl SandboxProvisioningService {
     }
 }
 
+fn networking_failure_with_cleanup(
+    networking_error: anyhow::Error,
+    cleanup_error: anyhow::Error,
+) -> anyhow::Error {
+    anyhow::anyhow!(
+        "failed to setup Envoy networking for new sandbox: {networking_error:#}; cleanup also failed: {cleanup_error:#}"
+    )
+}
+
 fn sandbox_failure_message(sandbox: &JoySafeterSandbox) -> Option<&str> {
     let config = sandbox.config.as_ref()?;
     config
@@ -354,4 +372,23 @@ fn sandbox_failure_message(sandbox: &JoySafeterSandbox) -> Option<&str> {
                 .and_then(serde_json::Value::as_str)
                 .filter(|message| !message.trim().is_empty())
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::networking_failure_with_cleanup;
+
+    #[test]
+    fn networking_failure_keeps_primary_cause_when_cleanup_also_fails() {
+        let error = networking_failure_with_cleanup(
+            anyhow::anyhow!("refresh_networking exceeded 30s"),
+            anyhow::anyhow!("runtime deletion is still pending"),
+        );
+        let message = format!("{error:#}");
+
+        assert!(message.contains("failed to setup Envoy networking for new sandbox"));
+        assert!(message.contains("refresh_networking exceeded 30s"));
+        assert!(message.contains("cleanup also failed"));
+        assert!(message.contains("runtime deletion is still pending"));
+    }
 }

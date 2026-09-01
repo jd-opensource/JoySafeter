@@ -176,28 +176,37 @@ pub enum SandboxRuntimeDeletion {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SandboxDestroyOutcome {
     pub runtime: SandboxRuntimeDeletion,
-    pub residual_cleanup_error: Option<String>,
+    pub residual_cleanup: Option<SandboxResidualCleanup>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SandboxResidualCleanup {
+    pub resource_kind: String,
+    pub resource_name: String,
+    pub resource_path: String,
+    pub node_name: Option<String>,
+    pub last_error: String,
 }
 
 impl SandboxDestroyOutcome {
     pub fn deleted() -> Self {
         Self {
             runtime: SandboxRuntimeDeletion::Deleted,
-            residual_cleanup_error: None,
+            residual_cleanup: None,
         }
     }
 
-    pub fn deleted_with_residual(error: impl Into<String>) -> Self {
+    pub fn deleted_with_residual(cleanup: SandboxResidualCleanup) -> Self {
         Self {
             runtime: SandboxRuntimeDeletion::Deleted,
-            residual_cleanup_error: Some(error.into()),
+            residual_cleanup: Some(cleanup),
         }
     }
 
     pub fn pending() -> Self {
         Self {
             runtime: SandboxRuntimeDeletion::Pending,
-            residual_cleanup_error: None,
+            residual_cleanup: None,
         }
     }
 
@@ -239,6 +248,14 @@ pub trait SandboxProvider: Send + Sync + 'static {
     ) -> anyhow::Result<SandboxDestroyOutcome> {
         self.destroy(external_id).await?;
         Ok(SandboxDestroyOutcome::deleted())
+    }
+
+    async fn retry_residual_cleanup(&self, cleanup: &SandboxResidualCleanup) -> anyhow::Result<()> {
+        anyhow::bail!(
+            "provider {} does not support residual cleanup kind {}",
+            self.provider_name(),
+            cleanup.resource_kind
+        )
     }
 
     /// Get the current status of a sandbox.

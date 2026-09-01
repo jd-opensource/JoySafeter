@@ -38,7 +38,7 @@ spec:
           mkdir -p /sockets
           chown 0:0 /sockets
           chmod 0750 /sockets
-          chown {{ .Values.envoy.runAsUser }}:{{ .Values.envoy.runAsGroup }} /sockets
+          chown -R {{ .Values.envoy.runAsUser }}:{{ .Values.envoy.runAsGroup }} /sockets
         securityContext:
           runAsUser: 0
           allowPrivilegeEscalation: false
@@ -58,6 +58,11 @@ spec:
         - |
           set -eu
           mkdir -p /sockets
+          if ! test -w /sockets; then
+            echo "Envoy socket root is not writable by uid=$(id -u) gid=$(id -g)" >&2
+            ls -ldn /sockets >&2
+            exit 1
+          fi
 
           cat > /tmp/bootstrap.json << BOOTSTRAP
           {

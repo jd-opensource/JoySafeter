@@ -192,6 +192,7 @@ impl RunnerSessionCoordinator {
                 if let Err(error) = failure_service
                     .eject_sandbox(
                         &pool,
+                        &event_bus,
                         sandbox_db_id,
                         verified.linked_session_id(),
                         failure,
@@ -269,6 +270,7 @@ impl RunnerSessionCoordinator {
                             if let Err(failure_error) = failure_service
                                 .eject_sandbox(
                                     &pool,
+                                    &event_bus,
                                     sandbox_db_id,
                                     linked_session_id,
                                     failure,
@@ -323,6 +325,7 @@ impl RunnerSessionCoordinator {
                         if let Err(failure_error) = failure_service
                             .eject_sandbox(
                                 &pool,
+                                &event_bus,
                                 sandbox_db_id,
                                 linked_session_id,
                                 super::failure::RunnerFailure::protocol_invalid(reason.clone()),
@@ -437,6 +440,7 @@ impl RunnerSessionCoordinator {
                 cleanup_service
                     .probe_and_cleanup(
                         &pool,
+                        &event_bus,
                         sandbox_db_id,
                         linked_session_id,
                         false,
@@ -450,6 +454,7 @@ impl RunnerSessionCoordinator {
                 cleanup_service
                     .cleanup_sandbox(
                         &pool,
+                        &event_bus,
                         sandbox_db_id,
                         linked_session_id,
                         session_exit == RunnerSessionExit::FailureEjected,

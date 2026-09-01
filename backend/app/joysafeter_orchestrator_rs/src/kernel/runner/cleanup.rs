@@ -7,9 +7,14 @@ use tracing::{error, info, warn};
 
 use crate::config::JoySafeterConfig;
 use crate::db::queries;
+use crate::events::bus::EventBus;
+use crate::events::envelope::EventEnvelope;
 use crate::ids::{SandboxId, SessionId};
 use crate::kernel::ha::BridgeStore;
 use crate::kernel::queue::TaskQueue;
+use crate::kernel::task_state::{
+    publish_failed_sandbox_task_events, publish_reset_sandbox_task_events,
+};
 
 use super::task_lifecycle::compute_retry_delay;
 
@@ -24,6 +29,7 @@ impl RunnerCleanupService {
     pub(crate) async fn cleanup_sandbox(
         &self,
         pool: &PgPool,
+        event_bus: &EventBus,
         sandbox_db_id: SandboxId,
         session_id: Option<SessionId>,
         failure_ejected: bool,
@@ -50,6 +56,7 @@ impl RunnerCleanupService {
         // Step 2: Remove bridge from registry (already done by caller)
 
         let failure_reason = "sandbox cleanup exceeded task retry limit";
+        let failed_stop_reason = json!({"type": "error", "message": failure_reason});
         let failed_tasks = match queries::fail_exhausted_sandbox_tasks_returning(
             pool,
             sandbox_db_id,
@@ -63,9 +70,16 @@ impl RunnerCleanupService {
                 Vec::new()
             }
         };
-        Self::persist_failed_tasks_idle(pool, &failed_tasks, failure_reason).await;
+        publish_failed_sandbox_task_events(
+            event_bus,
+            sandbox_db_id,
+            &failed_stop_reason,
+            &failed_tasks,
+        )
+        .await;
 
         // Step 3: Reset retryable scheduling tasks for this sandbox back to pending
+        let reset_stop_reason = json!({"type": "sandbox_failed"});
         let reset_tasks = match queries::reset_sandbox_tasks_to_pending_returning(
             pool,
             sandbox_db_id,
@@ -83,7 +97,13 @@ impl RunnerCleanupService {
                 Vec::new()
             }
         };
-        Self::persist_reset_tasks_rescheduling(pool, &reset_tasks).await;
+        publish_reset_sandbox_task_events(
+            event_bus,
+            sandbox_db_id,
+            &reset_stop_reason,
+            &reset_tasks,
+        )
+        .await;
 
         // Step 4: Drain sandbox wakeup queue. Task recovery is DB-driven.
         if let Some(q) = queue {
@@ -125,7 +145,7 @@ impl RunnerCleanupService {
                     // the next user.message will resolve a fresh sandbox.
                     let stop_reason = json!({"type": "sandbox_disconnected"});
                     let payload = json!({"stop_reason": stop_reason.clone()});
-                    let _ = queries::update_session_status_if_no_active_tasks_and_insert_event(
+                    match queries::update_session_status_if_no_active_tasks_and_insert_event(
                         pool,
                         sid,
                         "idle",
@@ -133,9 +153,21 @@ impl RunnerCleanupService {
                         "session.status_idle",
                         &payload,
                     )
-                    .await;
-
-                    info!(sandbox_id = %sandbox_db_id, session_id = %sid, status = "idle", "Step 7: Session status updated");
+                    .await
+                    {
+                        Ok(Some((event_id, seq))) => {
+                            let envelope = EventEnvelope::new(sid, "session.status_idle", payload)
+                                .with_sandbox(sandbox_db_id)
+                                .status_change(Some(stop_reason))
+                                .with_db_persisted(event_id, seq);
+                            event_bus.publish(envelope).await;
+                            info!(sandbox_id = %sandbox_db_id, session_id = %sid, status = "idle", "Step 7: Session status updated");
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            error!(sandbox_id = %sandbox_db_id, session_id = %sid, error = %error, "Failed to persist disconnected session idle status");
+                        }
+                    }
                 }
             }
         }
@@ -149,75 +181,12 @@ impl RunnerCleanupService {
         info!(sandbox_id = %sandbox_db_id, "Sandbox cleanup complete (9 steps)");
     }
 
-    async fn persist_failed_tasks_idle(
-        pool: &PgPool,
-        tasks: &[queries::FailedSandboxTask],
-        reason: &str,
-    ) {
-        for task in tasks {
-            let Some(session_id) = task.session_id else {
-                continue;
-            };
-            let stop_reason = json!({"type": "error", "message": reason});
-            let payload = json!({
-                "task_id": task.id.to_string(),
-                "stop_reason": stop_reason.clone()
-            });
-            if let Err(e) = queries::update_session_status_if_no_active_tasks_and_insert_event(
-                pool,
-                session_id,
-                "idle",
-                Some(&stop_reason),
-                "session.status_idle",
-                &payload,
-            )
-            .await
-            {
-                error!(
-                    task_id = %task.id,
-                    session_id = %session_id,
-                    error = %e,
-                    "Failed to persist exhausted cleanup task session idle status"
-                );
-            }
-        }
-    }
-
-    async fn persist_reset_tasks_rescheduling(pool: &PgPool, tasks: &[queries::ResetSandboxTask]) {
-        for task in tasks {
-            let Some(session_id) = task.session_id else {
-                continue;
-            };
-            let stop_reason = json!({"type": "sandbox_failed"});
-            let payload = json!({
-                "task_id": task.id.to_string(),
-                "stop_reason": stop_reason.clone()
-            });
-            if let Err(e) = queries::update_session_status_and_insert_event(
-                pool,
-                session_id,
-                "rescheduling",
-                Some(&stop_reason),
-                "session.status_rescheduling",
-                &payload,
-            )
-            .await
-            {
-                error!(
-                    task_id = %task.id,
-                    session_id = %session_id,
-                    error = %e,
-                    "Failed to persist cleanup task session rescheduling status"
-                );
-            }
-        }
-    }
-
     /// Probe container status and run grace period cleanup.
     /// 120s reconnect window with early checks at 5/10/15s.
     pub(crate) async fn probe_and_cleanup(
         &self,
         pool: &PgPool,
+        event_bus: &EventBus,
         sandbox_db_id: SandboxId,
         session_id: Option<SessionId>,
         failure_ejected: bool,
@@ -278,6 +247,7 @@ impl RunnerCleanupService {
         warn!(sandbox_id = %sandbox_db_id, "Grace period expired (120s), executing cleanup");
         self.cleanup_sandbox(
             pool,
+            event_bus,
             sandbox_db_id,
             session_id,
             failure_ejected,

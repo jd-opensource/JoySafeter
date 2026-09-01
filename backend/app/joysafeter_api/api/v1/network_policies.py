@@ -33,10 +33,16 @@ class NetworkPolicyStatusResponse(BaseModel):
     networking_policy_hash: Optional[str] = None
     networking_policy_version: int = 0
     networking_last_error: Optional[str] = None
+    networking_last_error_code: Optional[str] = None
+    networking_retryable: bool = False
+    networking_retry_count: int = 0
+    networking_next_retry_at: Optional[datetime] = None
     networking_ready_at: Optional[datetime] = None
     sandbox_updated_at: datetime
     latest_policy_status: Optional[str] = None
     latest_policy_error: Optional[str] = None
+    latest_policy_error_code: Optional[str] = None
+    latest_policy_retryable: Optional[bool] = None
     latest_policy_nack_reason: Optional[str] = None
     latest_policy_updated_at: Optional[datetime] = None
     rendered_summary: dict[str, Any] = Field(default_factory=dict)
@@ -62,10 +68,16 @@ def _row_to_response(row: Any) -> NetworkPolicyStatusResponse:
         networking_policy_hash=row.networking_policy_hash,
         networking_policy_version=row.networking_policy_version or 0,
         networking_last_error=row.networking_last_error,
+        networking_last_error_code=row.networking_last_error_code,
+        networking_retryable=row.networking_retryable,
+        networking_retry_count=row.networking_retry_count,
+        networking_next_retry_at=row.networking_next_retry_at,
         networking_ready_at=row.networking_ready_at,
         sandbox_updated_at=row.sandbox_updated_at,
         latest_policy_status=row.latest_policy_status,
         latest_policy_error=row.latest_policy_error,
+        latest_policy_error_code=row.latest_policy_error_code,
+        latest_policy_retryable=row.latest_policy_retryable,
         latest_policy_nack_reason=row.latest_policy_nack_reason,
         latest_policy_updated_at=row.latest_policy_updated_at,
         rendered_summary=row.rendered_summary or {},
@@ -78,6 +90,8 @@ def _latest_policy_subquery():
         JoySafeterSandboxNetworkPolicy.task_id.label("task_id"),
         JoySafeterSandboxNetworkPolicy.status.label("latest_policy_status"),
         JoySafeterSandboxNetworkPolicy.last_error.label("latest_policy_error"),
+        JoySafeterSandboxNetworkPolicy.error_code.label("latest_policy_error_code"),
+        JoySafeterSandboxNetworkPolicy.retryable.label("latest_policy_retryable"),
         JoySafeterSandboxNetworkPolicy.last_nack_reason.label("latest_policy_nack_reason"),
         JoySafeterSandboxNetworkPolicy.rendered_summary_json.label("rendered_summary"),
         JoySafeterSandboxNetworkPolicy.updated_at.label("latest_policy_updated_at"),
@@ -104,6 +118,10 @@ def _base_status_query(project_id: ProjectId | None = None):
         JoySafeterSandbox.networking_policy_hash,
         JoySafeterSandbox.networking_policy_version,
         JoySafeterSandbox.networking_last_error,
+        JoySafeterSandbox.networking_last_error_code,
+        JoySafeterSandbox.networking_retryable,
+        JoySafeterSandbox.networking_retry_count,
+        JoySafeterSandbox.networking_next_retry_at,
         JoySafeterSandbox.networking_ready_at,
         JoySafeterSandbox.updated_at.label("sandbox_updated_at"),
         latest_policy.c.latest_policy_status,

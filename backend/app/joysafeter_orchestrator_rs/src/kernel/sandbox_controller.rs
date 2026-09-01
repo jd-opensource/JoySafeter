@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::config::JoySafeterConfig;
 use crate::db::queries;
+use crate::events::bus::EventBus;
 use crate::ids::{SandboxId, TaskId};
 use crate::kernel::ha::BridgeStore;
 #[cfg(test)]
@@ -20,6 +21,10 @@ use crate::kernel::queue::TaskQueue;
 use crate::kernel::sandbox_resolver::SandboxPoolService;
 use crate::kernel::sandbox_resolver::{
     PoolSandboxProvisioner, SandboxLifecycleService, SandboxNetworkingService,
+};
+use crate::kernel::task_state::{
+    publish_failed_sandbox_task_events, publish_reset_sandbox_task_events, publish_retry_outcome,
+    publish_terminal_outcome,
 };
 use crate::runtime_config::RuntimeConfig;
 use crate::sandbox::provider::{SandboxProvider, StopSemantics};
@@ -37,6 +42,7 @@ const ORPHAN_PROVIDER_DB_INSERT_GRACE_SECS: i64 = 120;
 struct SandboxTaskRecovery {
     pool: PgPool,
     queue: TaskQueue,
+    event_bus: EventBus,
 }
 
 #[derive(Clone)]
@@ -56,6 +62,7 @@ struct ProvisioningSandboxMaintenance {
     pool: PgPool,
     bridge_store: Arc<dyn BridgeStore>,
     provider: Arc<dyn SandboxProvider>,
+    lifecycle: SandboxLifecycleService,
     task_recovery: SandboxTaskRecovery,
 }
 
@@ -97,6 +104,18 @@ impl SandboxController {
         config: JoySafeterConfig,
         runtime_config: Arc<RuntimeConfig>,
     ) -> Self {
+        let event_bus = EventBus::new(
+            pool.clone(),
+            &config,
+            runtime_config.clone(),
+            redis::Client::open(
+                config
+                    .redis_url
+                    .clone()
+                    .unwrap_or_else(|| "redis://127.0.0.1:1/".to_string()),
+            )
+            .expect("valid Redis URL"),
+        );
         let networking = SandboxNetworkingService::test_fixture(pool.clone());
         let lifecycle =
             SandboxLifecycleService::new(pool.clone(), provider.clone(), networking.clone());
@@ -119,6 +138,7 @@ impl SandboxController {
             lifecycle,
             pool_provisioner,
             Arc::new(tokio::sync::Notify::new()),
+            event_bus,
         )
     }
 
@@ -134,10 +154,12 @@ impl SandboxController {
         lifecycle: SandboxLifecycleService,
         pool_provisioner: Arc<dyn PoolSandboxProvisioner>,
         pool_replenish_notify: Arc<tokio::sync::Notify>,
+        event_bus: EventBus,
     ) -> Self {
         let task_recovery = SandboxTaskRecovery {
             pool: pool.clone(),
             queue,
+            event_bus,
         };
         let idle = IdleSandboxMaintenance {
             pool: pool.clone(),
@@ -154,6 +176,7 @@ impl SandboxController {
             pool: pool.clone(),
             bridge_store: bridge_store.clone(),
             provider: provider.clone(),
+            lifecycle: lifecycle.clone(),
             task_recovery: task_recovery.clone(),
         };
         let pool_maintenance = SandboxPoolMaintenance {
@@ -232,6 +255,7 @@ impl SandboxController {
         self.idle.networking = networking.clone();
         self.idle.lifecycle = lifecycle.clone();
         self.pool.lifecycle = lifecycle;
+        self.provisioning.lifecycle = self.idle.lifecycle.clone();
         self.orphan.networking = networking;
     }
 
@@ -308,6 +332,10 @@ impl SandboxController {
             }
             iteration += 1;
 
+            if let Err(e) = self.retry_residual_cleanup_work().await {
+                error!(error = %e, "Residual sandbox cleanup worker failed");
+            }
+
             if self.pool_enabled {
                 if let Err(e) = self.pool.manage_pool().await {
                     error!("Pool management error: {e}");
@@ -328,6 +356,54 @@ impl SandboxController {
                 }
             }
         }
+    }
+
+    async fn retry_residual_cleanup_work(&self) -> anyhow::Result<()> {
+        let claim_owner = &self.idle.config.instance_id;
+        let work = queries::claim_due_sandbox_cleanup_work(
+            &self.orphan.pool,
+            self.orphan.provider.provider_name(),
+            claim_owner,
+            60,
+            20,
+        )
+        .await?;
+
+        for item in work {
+            match self
+                .orphan
+                .provider
+                .retry_residual_cleanup(&item.residual_cleanup())
+                .await
+            {
+                Ok(()) => {
+                    if queries::complete_sandbox_cleanup_work(
+                        &self.orphan.pool,
+                        item.id,
+                        claim_owner,
+                    )
+                    .await?
+                    {
+                        info!(sandbox_id = %item.sandbox_id, resource_path = %item.resource_path, attempt = item.attempt_count, "Residual sandbox cleanup completed");
+                    }
+                }
+                Err(error) => {
+                    let message: String = error.to_string().chars().take(2000).collect();
+                    let backoff_seconds =
+                        queries::sandbox_cleanup_backoff_seconds(item.attempt_count);
+                    let _ = queries::retry_sandbox_cleanup_work(
+                        &self.orphan.pool,
+                        item.id,
+                        claim_owner,
+                        backoff_seconds,
+                        &message,
+                    )
+                    .await?;
+                    warn!(sandbox_id = %item.sandbox_id, resource_path = %item.resource_path, attempt = item.attempt_count, backoff_seconds, error = %message, "Residual sandbox cleanup remains pending");
+                }
+            }
+        }
+        Ok(())
     }
 
     pub async fn cleanup_orphaned(&self) -> anyhow::Result<usize> {
@@ -507,45 +583,57 @@ impl IdleSandboxMaintenance {
                             continue;
                         }
 
-                        // 4. Destroy container
-                        match self.provider.destroy_with_outcome(ext_id).await {
+                        // 4. Destroy container. Provider adapters normalize an
+                        // already-absent runtime to a successful deleted outcome.
+                        let residual_cleanup = match self
+                            .provider
+                            .destroy_with_outcome(ext_id)
+                            .await
+                        {
                             Ok(outcome) if outcome.runtime_deleted() => {
-                                if let Some(error) = outcome.residual_cleanup_error {
-                                    warn!(sandbox_id = %sandbox_id, external_id = ext_id, %error, "Bridge-health runtime deleted with residual cleanup pending");
+                                if let Some(cleanup) = outcome.residual_cleanup.as_ref() {
+                                    warn!(sandbox_id = %sandbox_id, external_id = ext_id, error = %cleanup.last_error, "Bridge-health runtime deleted with residual cleanup pending");
                                 }
+                                outcome.residual_cleanup
                             }
                             Ok(_) => {
                                 warn!(sandbox_id = %sandbox_id, external_id = ext_id, "Bridge-health runtime deletion is still pending");
                                 continue;
                             }
                             Err(e) => {
-                                let err = format!("{e}");
-                                if err.contains("No such container") || err.contains("404") {
-                                    // Idempotent destroy: the runtime is already absent.
-                                } else {
-                                    let _ = queries::restore_sandbox_after_passive_destroy_failure(
-                                        &self.pool,
-                                        sandbox_id,
-                                        &restore_status,
-                                        sandbox.external_id.as_deref(),
-                                    )
-                                    .await;
-                                    error!(sandbox_id = %sandbox_id, error = %err, "Failed to destroy bridge-health sandbox after DB recovery");
-                                    continue;
-                                }
+                                let _ = queries::restore_sandbox_after_passive_destroy_failure(
+                                    &self.pool,
+                                    sandbox_id,
+                                    &restore_status,
+                                    sandbox.external_id.as_deref(),
+                                )
+                                .await;
+                                error!(sandbox_id = %sandbox_id, error = %e, "Failed to destroy bridge-health sandbox after DB recovery");
+                                continue;
                             }
-                        }
+                        };
 
                         // 5. Teardown networking
                         let _ = self.teardown_networking(sandbox_id).await;
 
                         // 6. Mark destroyed in DB only if the cleanup still
                         // owns the isolated sandbox row.
-                        match queries::destroy_sandbox_if_status_and_external_id(
+                        let cleanup = residual_cleanup.as_ref().map(|cleanup| {
+                            queries::NewSandboxCleanupWork {
+                                provider: self.provider.provider_name(),
+                                resource_kind: &cleanup.resource_kind,
+                                resource_name: &cleanup.resource_name,
+                                resource_path: &cleanup.resource_path,
+                                node_name: cleanup.node_name.as_deref(),
+                                last_error: &cleanup.last_error,
+                            }
+                        });
+                        match queries::destroy_sandbox_if_status_and_external_id_with_cleanup(
                             &self.pool,
                             sandbox_id,
                             "stopping",
                             sandbox.external_id.as_deref(),
+                            cleanup,
                         )
                         .await
                         {
@@ -800,62 +888,39 @@ impl IdleSandboxMaintenance {
         }
 
         if stop_semantics == StopSemantics::Destructive {
-            if let Some(ref ext_id) = external_id {
-                if let Err(error) = self.provider.destroy(ext_id).await {
-                    let message = error.to_string();
-                    if !message.contains("No such container")
-                        && !message.contains("not running")
-                        && !message.contains("not found")
-                        && !message.contains("NotFound")
-                        && !message.contains("404")
-                    {
-                        warn!(sandbox_id = %sandbox_id, "Failed to destroy sandbox during reclaim: {error}");
-                        return;
-                    }
+            match self
+                .lifecycle
+                .finalize_claimed_destroy(
+                    sandbox_id,
+                    external_id.as_deref(),
+                    &current_status,
+                    "sandbox reclaim",
+                )
+                .await
+            {
+                Ok(true) => {
+                    info!(sandbox_id = %sandbox_id, graceful, was = %current_status, "Destroyed non-resumable sandbox")
+                }
+                Ok(false) => {
+                    warn!(sandbox_id = %sandbox_id, "Skipped sandbox reclaim because the DB claim changed")
+                }
+                Err(error) => {
+                    warn!(sandbox_id = %sandbox_id, %error, "Failed to destroy sandbox during reclaim")
                 }
             }
-            let _ = queries::destroy_sandbox_if_status_and_external_id(
-                &self.pool,
-                sandbox_id,
-                "stopping",
-                external_id.as_deref(),
-            )
-            .await;
-            let _ = self.teardown_networking(sandbox_id).await;
-            info!(sandbox_id = %sandbox_id, graceful, was = %current_status, "Destroyed non-resumable sandbox");
             return;
         }
 
         // Stop the resumable runtime.
         if let Some(ref ext_id) = external_id {
             if let Err(e) = self.provider.stop(ext_id).await {
-                // Check if "no such container" -- mark as stopped anyway
-                let err_str = format!("{e}");
-                if err_str.contains("No such container") || err_str.contains("not running") {
-                    if cleanup_claimed_stopping {
-                        let _ = queries::mark_sandbox_stopped_if_status_and_external_id(
-                            &self.pool,
-                            sandbox_id,
-                            "stopping",
-                            external_id.as_deref(),
-                        )
-                        .await;
-                    } else {
-                        let _ =
-                            queries::mark_sandbox_stopped_if_active(&self.pool, sandbox_id).await;
-                    }
-                } else {
-                    warn!(sandbox_id = %sandbox_id, "Failed to stop sandbox: {e}");
-                    // Only revert to idle on the graceful path; non-graceful
-                    // claims stay in stopping so force_stop_stuck can retry.
-                    if graceful {
-                        let _ = queries::transition_sandbox_cas(
-                            &self.pool, sandbox_id, "stopping", "idle",
-                        )
-                        .await;
-                    }
-                    return;
+                warn!(sandbox_id = %sandbox_id, "Failed to stop sandbox: {e}");
+                if graceful {
+                    let _ =
+                        queries::transition_sandbox_cas(&self.pool, sandbox_id, "stopping", "idle")
+                            .await;
                 }
+                return;
             }
         }
 
@@ -921,46 +986,45 @@ impl IdleSandboxMaintenance {
 
             // Remove the stale bridge before touching the provider runtime.
             let stop_semantics = self.provider.capabilities().stop_semantics;
+            if stop_semantics == StopSemantics::Destructive {
+                match self
+                    .lifecycle
+                    .finalize_claimed_destroy(
+                        sandbox_id,
+                        external_id.as_deref(),
+                        "stopping",
+                        "force-stop stuck sandbox",
+                    )
+                    .await
+                {
+                    Ok(true) => {}
+                    Ok(false) => {
+                        debug!(sandbox_id = %sandbox_id, "Skipped force-destroy because sandbox row changed")
+                    }
+                    Err(error) => warn!(sandbox_id = %sandbox_id, %error, "Force destroy failed"),
+                }
+                continue;
+            }
             let mut stop_succeeded = false;
             if let Some(ref ext_id) = external_id {
                 self.bridge_store.remove(ext_id);
-                let stop_result = if stop_semantics == StopSemantics::Resumable {
-                    self.provider.stop(ext_id).await
-                } else {
-                    self.provider.destroy(ext_id).await
-                };
-                match stop_result {
+                match self.provider.stop(ext_id).await {
                     Ok(_) => stop_succeeded = true,
                     Err(e) => {
-                        let err = format!("{e}");
-                        if err.contains("No such container") || err.contains("404") {
-                            stop_succeeded = true;
-                        } else {
-                            warn!(sandbox_id = %sandbox_id, "Force stop failed: {e}");
-                        }
+                        warn!(sandbox_id = %sandbox_id, "Force stop failed: {e}");
                     }
                 }
             } else {
                 stop_succeeded = true;
             }
             if stop_succeeded {
-                if stop_semantics == StopSemantics::Resumable {
-                    let _ = queries::mark_sandbox_stopped_if_status_and_external_id(
-                        &self.pool,
-                        sandbox_id,
-                        "stopping",
-                        external_id.as_deref(),
-                    )
-                    .await;
-                } else {
-                    let _ = queries::destroy_sandbox_if_status_and_external_id(
-                        &self.pool,
-                        sandbox_id,
-                        "stopping",
-                        external_id.as_deref(),
-                    )
-                    .await;
-                }
+                let _ = queries::mark_sandbox_stopped_if_status_and_external_id(
+                    &self.pool,
+                    sandbox_id,
+                    "stopping",
+                    external_id.as_deref(),
+                )
+                .await;
                 // Tear down networking after the runtime transition.
                 let _ = self.teardown_networking(sandbox_id).await;
             }
@@ -1162,47 +1226,35 @@ impl ProvisioningSandboxMaintenance {
             .await?;
 
         let stop_semantics = self.provider.capabilities().stop_semantics;
+        if stop_semantics == StopSemantics::Destructive {
+            return self
+                .lifecycle
+                .finalize_claimed_destroy(
+                    sandbox_id,
+                    external_id,
+                    "provisioning",
+                    "provisioning timeout",
+                )
+                .await;
+        }
         let mut stop_succeeded = external_id.is_none();
         if let Some(ext_id) = external_id {
-            let stop_result = if stop_semantics == StopSemantics::Resumable {
-                self.provider.stop(ext_id).await
-            } else {
-                self.provider.destroy(ext_id).await
-            };
-            match stop_result {
+            match self.provider.stop(ext_id).await {
                 Ok(_) => stop_succeeded = true,
                 Err(e) => {
-                    let err = format!("{e}");
-                    if err.contains("No such container")
-                        || err.contains("not running")
-                        || err.contains("404")
-                    {
-                        stop_succeeded = true;
-                    } else {
-                        warn!(sandbox_id = %sandbox_id, "Failed to stop provisioning sandbox: {e}");
-                    }
+                    warn!(sandbox_id = %sandbox_id, "Failed to stop provisioning sandbox: {e}");
                 }
             }
         }
 
         if stop_succeeded {
-            if stop_semantics == StopSemantics::Resumable {
-                let _ = queries::mark_sandbox_stopped_if_status_and_external_id(
-                    &self.pool,
-                    sandbox_id,
-                    "stopping",
-                    external_id,
-                )
-                .await?;
-            } else {
-                let _ = queries::destroy_sandbox_if_status_and_external_id(
-                    &self.pool,
-                    sandbox_id,
-                    "stopping",
-                    external_id,
-                )
-                .await?;
-            }
+            let _ = queries::mark_sandbox_stopped_if_status_and_external_id(
+                &self.pool,
+                sandbox_id,
+                "stopping",
+                external_id,
+            )
+            .await?;
         }
 
         Ok(stop_succeeded)
@@ -1213,13 +1265,28 @@ impl SandboxTaskRecovery {
     async fn requeue_scheduling_tasks(&self, sandbox_id: SandboxId) -> anyhow::Result<u64> {
         let _ = self.queue.drain(sandbox_id).await;
         let failure_reason = "sandbox provisioning failed after retry limit";
+        let failed_stop_reason = json!({"type": "error", "message": failure_reason});
         let failed_tasks =
             queries::fail_exhausted_sandbox_tasks_returning(&self.pool, sandbox_id, failure_reason)
                 .await?;
-        mark_failed_tasks_idle(&self.pool, &failed_tasks, failure_reason).await;
+        publish_failed_sandbox_task_events(
+            &self.event_bus,
+            sandbox_id,
+            &failed_stop_reason,
+            &failed_tasks,
+        )
+        .await;
 
         let reset_tasks =
             queries::reset_sandbox_tasks_to_pending_returning(&self.pool, sandbox_id).await?;
+        let reset_stop_reason = json!({"type": "sandbox_failed"});
+        publish_reset_sandbox_task_events(
+            &self.event_bus,
+            sandbox_id,
+            &reset_stop_reason,
+            &reset_tasks,
+        )
+        .await;
         for task in &reset_tasks {
             if let Err(e) = self.queue.push_to_global(task.id).await {
                 error!(sandbox_id = %sandbox_id, task_id = %task.id, "Failed to enqueue task after provisioning failure: {e}");
@@ -1228,7 +1295,6 @@ impl SandboxTaskRecovery {
         let count = reset_tasks.len() as u64;
         if count > 0 {
             warn!(sandbox_id = %sandbox_id, count, "Requeued scheduling tasks after provisioning failure");
-            mark_reset_tasks_rescheduling(&self.pool, &reset_tasks).await;
         }
         Ok(count)
     }
@@ -1240,42 +1306,54 @@ impl SandboxTaskRecovery {
     ) -> anyhow::Result<()> {
         let _ = self.queue.drain(sandbox_id).await;
 
+        let failed_stop_reason = json!({"type": "error", "message": failure_reason});
         let failed_scheduling =
             queries::fail_exhausted_sandbox_tasks_returning(&self.pool, sandbox_id, failure_reason)
                 .await?;
-        mark_failed_tasks_idle(&self.pool, &failed_scheduling, failure_reason).await;
+        publish_failed_sandbox_task_events(
+            &self.event_bus,
+            sandbox_id,
+            &failed_stop_reason,
+            &failed_scheduling,
+        )
+        .await;
 
         let reset_scheduling =
             queries::reset_sandbox_tasks_to_pending_returning(&self.pool, sandbox_id).await?;
+        let reset_stop_reason = json!({"type": "sandbox_failed"});
+        publish_reset_sandbox_task_events(
+            &self.event_bus,
+            sandbox_id,
+            &reset_stop_reason,
+            &reset_scheduling,
+        )
+        .await;
         for task in &reset_scheduling {
             notify_global_task_best_effort(self.queue.clone(), sandbox_id, task.id);
         }
-        if !reset_scheduling.is_empty() {
-            mark_reset_tasks_rescheduling(&self.pool, &reset_scheduling).await;
-        }
 
         let running_tasks = queries::find_running_tasks_for_sandbox(&self.pool, sandbox_id).await?;
-        let mut reset_running = Vec::new();
-        let mut failed_running = Vec::new();
+        let mut reset_running = 0usize;
         for task in running_tasks {
             if task.retry_count < task.max_retries {
-                match queries::increment_running_retry(
+                let stop_reason = json!({"type": "sandbox_failed"});
+                match queries::retry_running_task_and_reschedule_session(
                     &self.pool,
                     task.id,
                     task.retry_count,
                     task.owner_epoch,
+                    Some(sandbox_id),
+                    &stop_reason,
                 )
                 .await
                 {
-                    Ok(true) => {
+                    Ok(Some(outcome)) => {
+                        publish_retry_outcome(&self.event_bus, task.id, &stop_reason, &outcome)
+                            .await;
                         notify_global_task_best_effort(self.queue.clone(), sandbox_id, task.id);
-                        reset_running.push(queries::ResetSandboxTask {
-                            id: task.id,
-                            session_id: task.session_id,
-                            previous_retry_count: task.retry_count,
-                        });
+                        reset_running += 1;
                     }
-                    Ok(false) => {
+                    Ok(None) => {
                         warn!(sandbox_id = %sandbox_id, task_id = %task.id, "Missing runtime cleanup skipped running-task retry because task changed");
                     }
                     Err(e) => {
@@ -1283,21 +1361,23 @@ impl SandboxTaskRecovery {
                     }
                 }
             } else {
-                match queries::fail_running_task_for_sandbox(
+                let stop_reason = json!({"type": "error", "message": failure_reason});
+                match queries::transition_missing_runtime_task_terminal_and_idle_session(
                     &self.pool,
                     task.id,
-                    sandbox_id,
                     task.retry_count,
                     task.owner_epoch,
+                    sandbox_id,
                     failure_reason,
+                    &stop_reason,
                 )
                 .await
                 {
-                    Ok(true) => failed_running.push(queries::FailedSandboxTask {
-                        id: task.id,
-                        session_id: task.session_id,
-                    }),
-                    Ok(false) => {
+                    Ok(Some(outcome)) => {
+                        publish_terminal_outcome(&self.event_bus, task.id, &stop_reason, &outcome)
+                            .await;
+                    }
+                    Ok(None) => {
                         warn!(sandbox_id = %sandbox_id, task_id = %task.id, "Missing runtime cleanup skipped running-task failure because task changed");
                     }
                     Err(e) => {
@@ -1306,14 +1386,9 @@ impl SandboxTaskRecovery {
                 }
             }
         }
-        if !reset_running.is_empty() || !failed_running.is_empty() {
-            queries::complete_sandbox_task(&self.pool, sandbox_id).await?;
-        }
-        if !reset_running.is_empty() {
-            mark_reset_tasks_rescheduling(&self.pool, &reset_running).await;
-        }
-        if !failed_running.is_empty() {
-            mark_failed_tasks_idle(&self.pool, &failed_running, failure_reason).await;
+
+        if reset_running > 0 {
+            debug!(sandbox_id = %sandbox_id, count = reset_running, "Retried running tasks atomically after missing runtime cleanup");
         }
 
         Ok(())
@@ -1672,66 +1747,6 @@ fn notify_global_task_best_effort(queue: TaskQueue, sandbox_id: SandboxId, task_
             error!(sandbox_id = %sandbox_id, task_id = %task_id, "Failed to enqueue task after missing runtime cleanup: {e}");
         }
     });
-}
-
-async fn mark_failed_tasks_idle(pool: &PgPool, tasks: &[queries::FailedSandboxTask], reason: &str) {
-    for task in tasks {
-        let Some(session_id) = task.session_id else {
-            continue;
-        };
-        let stop_reason = json!({"type": "error", "message": reason});
-        let payload = json!({
-            "task_id": task.id.to_string(),
-            "stop_reason": stop_reason.clone()
-        });
-        if let Err(e) = queries::update_session_status_if_no_active_tasks_and_insert_event(
-            pool,
-            session_id,
-            "idle",
-            Some(&stop_reason),
-            "session.status_idle",
-            &payload,
-        )
-        .await
-        {
-            error!(
-                task_id = %task.id,
-                session_id = %session_id,
-                error = %e,
-                "Failed to persist exhausted sandbox task session idle status"
-            );
-        }
-    }
-}
-
-async fn mark_reset_tasks_rescheduling(pool: &PgPool, tasks: &[queries::ResetSandboxTask]) {
-    for task in tasks {
-        let Some(session_id) = task.session_id else {
-            continue;
-        };
-        let stop_reason = json!({"type": "sandbox_failed"});
-        let payload = json!({
-            "task_id": task.id.to_string(),
-            "stop_reason": stop_reason.clone()
-        });
-        if let Err(e) = queries::update_session_status_and_insert_event(
-            pool,
-            session_id,
-            "rescheduling",
-            Some(&stop_reason),
-            "session.status_rescheduling",
-            &payload,
-        )
-        .await
-        {
-            error!(
-                task_id = %task.id,
-                session_id = %session_id,
-                error = %e,
-                "Failed to persist sandbox reset session rescheduling status"
-            );
-        }
-    }
 }
 
 fn is_recent_uncommitted_provider_sandbox(
@@ -3903,8 +3918,6 @@ mod tests {
             assert_eq!(reset_tasks[0].id, task_id);
             assert_eq!(reset_tasks[0].session_id, Some(session_id));
 
-            mark_reset_tasks_rescheduling(&pool, &reset_tasks).await;
-
             let task: (String, i32, Option<SandboxId>) = sqlx::query_as(
                 "SELECT status, retry_count, sandbox_id FROM joysafeter_tasks WHERE id = $1",
             )
@@ -4058,8 +4071,6 @@ mod tests {
                 .await
                 .expect("reset retryable tasks");
             assert!(reset_tasks.is_empty());
-
-            mark_failed_tasks_idle(&pool, &failed_tasks, failure_reason).await;
 
             let task: (String, i32, Option<String>) = sqlx::query_as(
                 "SELECT status, retry_count, error FROM joysafeter_tasks WHERE id = $1",

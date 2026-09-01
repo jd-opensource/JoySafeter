@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use crate::ids::SandboxId;
 use crate::xds::authority::RecoveryAuthorityGuard;
 use crate::xds::control_plane::XdsControlPlane;
-use crate::xds::delivery::{DeliveryAttempt, DeliveryRequest};
+use crate::xds::delivery::{DeliveryAttempt, DeliveryRequest, DeliveryWaitError};
 use crate::xds::inventory::{InstalledRecoveryInventory, RecoveryInventory};
 use crate::xds::model::{DeliveryGeneration, ManagedXdsResource, ResourceOwner, ResourceType};
 
@@ -50,7 +50,7 @@ pub trait EnvoyDelivery: Send + Sync {
         &self,
         _attempt: DeliveryAttempt,
         _timeout: Duration,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), DeliveryWaitError> {
         Ok(())
     }
 
@@ -150,7 +150,7 @@ impl EnvoyDelivery for ControlPlaneEnvoyDelivery {
         &self,
         attempt: DeliveryAttempt,
         timeout: Duration,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), DeliveryWaitError> {
         self.control_plane.wait_for_delivery(attempt, timeout).await
     }
 
