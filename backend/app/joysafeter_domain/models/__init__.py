@@ -24,7 +24,10 @@ from .joysafeter_memory import (  # noqa: F401 — alembic discovery
 from .joysafeter_oauth_account import OAuthAccount
 from .joysafeter_organization import Member, Organization
 from .joysafeter_project import Project, ProjectMember
-from .joysafeter_sandbox import JoySafeterSandbox  # noqa: F401 — alembic discovery
+from .joysafeter_sandbox import (  # noqa: F401 — alembic discovery
+    JoySafeterSandbox,
+    JoySafeterSandboxCleanupWork,
+)
 from .joysafeter_sandbox_network_policy import JoySafeterSandboxNetworkPolicy  # noqa: F401 — alembic discovery
 from .joysafeter_security_audit_log import SecurityAuditLog
 from .joysafeter_session import JoySafeterSession, JoySafeterSessionEvent
@@ -68,6 +71,7 @@ __all__ = [
     "JoySafeterMemoryStore",
     "JoySafeterMemoryVersion",
     "JoySafeterSandbox",
+    "JoySafeterSandboxCleanupWork",
     "JoySafeterSandboxNetworkPolicy",
     "JoySafeterSession",
     "JoySafeterSessionCredentialGroup",

@@ -311,9 +311,12 @@ async fn authenticated_runner_failure_quarantines_runtime_and_reschedules_bound_
         .await
         .expect("insert scheduling task");
 
+        let event_bus = test_event_bus(pool.clone());
+        let mut events = event_bus.subscribe();
         crate::kernel::runner::failure::RunnerFailureService::new()
             .eject_sandbox(
                 &pool,
+                &event_bus,
                 sandbox_id,
                 Some(session_id),
                 crate::kernel::runner::failure::RunnerFailure::protocol_incompatible(
@@ -325,6 +328,18 @@ async fn authenticated_runner_failure_quarantines_runtime_and_reschedules_bound_
             )
             .await
             .expect("eject incompatible runner sandbox");
+
+        let event = tokio::time::timeout(Duration::from_secs(1), events.recv())
+            .await
+            .expect("rescheduling event must be broadcast without DB fallback")
+            .expect("event bus remains open");
+        assert_eq!(event.event_type, "session.status_rescheduling");
+        assert_eq!(event.session_id, session_id);
+        assert_eq!(event.task_id, Some(task_id));
+        assert_eq!(event.sandbox_id, Some(sandbox_id));
+        assert!(event.db_persisted);
+        assert!(event.event_id.is_some());
+        assert!(event.session_seq.is_some());
 
         let sandbox: (String, String, Option<String>) = sqlx::query_as(
             r#"

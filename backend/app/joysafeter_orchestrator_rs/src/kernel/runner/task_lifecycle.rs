@@ -14,6 +14,7 @@ use crate::grpc::proto::OrchestratorMessage;
 use crate::ids::{SandboxId, SessionId, TaskId};
 use crate::kernel::queue::TaskQueue;
 use crate::kernel::sandbox_bridge::SandboxBridge;
+use crate::kernel::task_state::{publish_retry_outcome, publish_terminal_outcome};
 
 /// Result of a single task execution.
 #[derive(Clone, Debug)]
@@ -137,37 +138,32 @@ pub(crate) async fn transition_running_task_and_emit_idle(
     event_bus: &EventBus,
     task_id: TaskId,
     expected_owner_epoch: Option<i64>,
-    session_id: Option<SessionId>,
+    _session_id: Option<SessionId>,
     sandbox_db_id: SandboxId,
     target_status: &str,
     error_message: Option<&str>,
     stop_reason: serde_json::Value,
     context: &str,
 ) -> bool {
-    match queries::transition_task_cas(
+    match queries::transition_running_task_terminal_and_idle_session(
         pool,
         task_id,
-        "running",
-        target_status,
-        error_message,
         expected_owner_epoch,
+        Some(sandbox_db_id),
+        target_status,
+        None,
+        error_message,
+        None,
+        None,
+        &stop_reason,
     )
     .await
     {
-        Ok(true) => {
-            emit_session_idle_status(
-                pool,
-                event_bus,
-                task_id,
-                session_id,
-                sandbox_db_id,
-                stop_reason,
-                context,
-            )
-            .await;
+        Ok(Some(outcome)) => {
+            publish_terminal_outcome(event_bus, task_id, &stop_reason, &outcome).await;
             true
         }
-        Ok(false) => {
+        Ok(None) => {
             warn!(
                 task_id = %task_id,
                 target_status = target_status,
@@ -253,64 +249,31 @@ pub(crate) async fn fail_pre_start_task(
     event_bus: &EventBus,
     task_id: TaskId,
     expected_owner_epoch: Option<i64>,
-    session_id: Option<SessionId>,
+    _session_id: Option<SessionId>,
     sandbox_db_id: SandboxId,
     reason: &str,
 ) {
-    let transitioned = match queries::transition_task_cas(
+    let stop_reason = json!({"type": "error", "message": reason});
+    match queries::transition_running_task_terminal_and_idle_session(
         pool,
         task_id,
-        "running",
-        "failed",
-        Some(reason),
         expected_owner_epoch,
+        Some(sandbox_db_id),
+        "failed",
+        None,
+        Some(reason),
+        None,
+        None,
+        &stop_reason,
     )
     .await
     {
-        Ok(value) => value,
+        Ok(Some(outcome)) => {
+            publish_terminal_outcome(event_bus, task_id, &stop_reason, &outcome).await;
+        }
+        Ok(None) => {}
         Err(e) => {
             error!(task_id = %task_id, error = %e, "Failed to mark pre-start task failed");
-            false
-        }
-    };
-
-    if !transitioned {
-        return;
-    }
-
-    let _ = queries::complete_sandbox_task(pool, sandbox_db_id).await;
-
-    if let Some(sid) = session_id {
-        let stop_reason = json!({"type": "error", "message": reason});
-        let payload = json!({"task_id": task_id.to_string(), "stop_reason": stop_reason.clone()});
-        match queries::update_session_status_if_no_active_tasks_and_insert_event(
-            pool,
-            sid,
-            "idle",
-            Some(&stop_reason),
-            "session.status_idle",
-            &payload,
-        )
-        .await
-        {
-            Ok(Some((event_id, seq))) => {
-                let envelope = EventEnvelope::new(sid, "session.status_idle", payload)
-                    .with_task(task_id)
-                    .with_sandbox(sandbox_db_id)
-                    .status_change(Some(stop_reason))
-                    .with_db_persisted(event_id, seq);
-                event_bus.publish(envelope).await;
-                event_bus.flush().await;
-            }
-            Ok(None) => {}
-            Err(e) => {
-                error!(
-                    task_id = %task_id,
-                    session_id = %sid,
-                    error = %e,
-                    "Failed to publish pre-start session idle status"
-                );
-            }
         }
     }
 }
@@ -383,51 +346,19 @@ pub(crate) async fn handle_dispatch_retryable_failure(
     let task_id = task.id;
 
     if task.retry_count < task.max_retries {
-        match queries::increment_running_retry(
+        let stop_reason = json!({"type": "sandbox_failed"});
+        match queries::retry_running_task_and_reschedule_session(
             pool,
             task_id,
             task.retry_count,
             expected_owner_epoch,
+            Some(sandbox_db_id),
+            &stop_reason,
         )
         .await
         {
-            Ok(true) => {
-                let _ = queries::complete_sandbox_task(pool, sandbox_db_id).await;
-                if let Some(sid) = session_id.or(task.session_id) {
-                    let stop_reason = json!({"type": "sandbox_failed"});
-                    let payload =
-                        json!({"task_id": task_id.to_string(), "stop_reason": stop_reason.clone()});
-                    match queries::update_session_status_and_insert_event(
-                        pool,
-                        sid,
-                        "rescheduling",
-                        Some(&stop_reason),
-                        "session.status_rescheduling",
-                        &payload,
-                    )
-                    .await
-                    {
-                        Ok(Some((event_id, seq))) => {
-                            let envelope =
-                                EventEnvelope::new(sid, "session.status_rescheduling", payload)
-                                    .with_task(task_id)
-                                    .with_sandbox(sandbox_db_id)
-                                    .status_change(Some(stop_reason))
-                                    .with_db_persisted(event_id, seq);
-                            event_bus.publish(envelope).await;
-                            event_bus.flush().await;
-                        }
-                        Ok(None) => {}
-                        Err(error) => {
-                            error!(
-                                task_id = %task_id,
-                                session_id = %sid,
-                                error = %error,
-                                "Failed to publish dispatch retry session rescheduling status"
-                            );
-                        }
-                    }
-                }
+            Ok(Some(outcome)) => {
+                publish_retry_outcome(event_bus, task_id, &stop_reason, &outcome).await;
                 if let Some(q) = queue {
                     if let Err(e) = q.push_to_global(task_id).await {
                         warn!(task_id = %task_id, error = %e, "Failed to re-enqueue task after dispatch retry");
@@ -440,7 +371,7 @@ pub(crate) async fn handle_dispatch_retryable_failure(
                     "Dispatch failure moved task back to pending"
                 );
             }
-            Ok(false) => {
+            Ok(None) => {
                 warn!(task_id = %task_id, "Dispatch failure retry skipped because task is no longer running or retry count changed");
             }
             Err(error) => {
@@ -448,64 +379,26 @@ pub(crate) async fn handle_dispatch_retryable_failure(
             }
         }
     } else {
-        match queries::transition_task_cas(
+        let stop_reason = json!({"type": "error", "message": reason});
+        if transition_running_task_and_emit_idle(
             pool,
+            event_bus,
             task_id,
-            "running",
+            expected_owner_epoch,
+            session_id.or(task.session_id),
+            sandbox_db_id,
             "failed",
             Some(reason),
-            expected_owner_epoch,
+            stop_reason,
+            "dispatch retries exhausted",
         )
         .await
         {
-            Ok(true) => {
-                let _ = queries::complete_sandbox_task(pool, sandbox_db_id).await;
-                if let Some(sid) = session_id.or(task.session_id) {
-                    let stop_reason = json!({"type": "error", "message": reason});
-                    let payload =
-                        json!({"task_id": task_id.to_string(), "stop_reason": stop_reason.clone()});
-                    match queries::update_session_status_if_no_active_tasks_and_insert_event(
-                        pool,
-                        sid,
-                        "idle",
-                        Some(&stop_reason),
-                        "session.status_idle",
-                        &payload,
-                    )
-                    .await
-                    {
-                        Ok(Some((event_id, seq))) => {
-                            let envelope = EventEnvelope::new(sid, "session.status_idle", payload)
-                                .with_task(task_id)
-                                .with_sandbox(sandbox_db_id)
-                                .status_change(Some(stop_reason))
-                                .with_db_persisted(event_id, seq);
-                            event_bus.publish(envelope).await;
-                            event_bus.flush().await;
-                        }
-                        Ok(None) => {}
-                        Err(error) => {
-                            error!(
-                                task_id = %task_id,
-                                session_id = %sid,
-                                error = %error,
-                                "Failed to publish dispatch failure session idle status"
-                            );
-                        }
-                    }
-                }
-                warn!(
-                    task_id = %task_id,
-                    max_retries = task.max_retries,
-                    "Dispatch failure exhausted retries: {reason}"
-                );
-            }
-            Ok(false) => {
-                warn!(task_id = %task_id, "Dispatch failure skipped because task is no longer running");
-            }
-            Err(error) => {
-                error!(task_id = %task_id, error = %error, "Failed to mark dispatch failure task failed");
-            }
+            warn!(
+                task_id = %task_id,
+                max_retries = task.max_retries,
+                "Dispatch failure exhausted retries: {reason}"
+            );
         }
     }
 }
@@ -540,36 +433,21 @@ pub(crate) async fn failover_or_fail_inline(
             .await
             .unwrap_or(false)
         {
-            match queries::transition_task_cas(
+            if transition_running_task_and_emit_idle(
                 pool,
+                event_bus,
                 task_id,
-                "running",
+                expected_owner_epoch,
+                Some(sid),
+                sandbox_db_id,
                 "completed",
                 None,
-                expected_owner_epoch,
+                serde_json::json!({"type":"end_turn"}),
+                "failover with agent output",
             )
             .await
             {
-                Ok(true) => {
-                    let _ = queries::complete_sandbox_task(pool, sandbox_db_id).await;
-                    emit_session_idle_status(
-                        pool,
-                        event_bus,
-                        task_id,
-                        Some(sid),
-                        sandbox_db_id,
-                        serde_json::json!({"type":"end_turn"}),
-                        "failover with agent output",
-                    )
-                    .await;
-                    info!(task_id = %task_id, "Failover: task had output, marking completed + session idle");
-                }
-                Ok(false) => {
-                    warn!(task_id = %task_id, "Failover agent-output completion skipped because task was no longer running");
-                }
-                Err(error) => {
-                    error!(task_id = %task_id, error = %error, "Failed to complete task after failover agent output");
-                }
+                info!(task_id = %task_id, "Failover: task had output, marking completed + session idle");
             }
             return;
         }

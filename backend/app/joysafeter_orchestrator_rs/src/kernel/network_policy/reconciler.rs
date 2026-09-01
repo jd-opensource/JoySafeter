@@ -50,25 +50,28 @@ impl NetworkPolicyReconciler {
             "Reconciling degraded sandbox networking"
         );
 
+        let mut repaired = 0usize;
         for sandbox in &degraded {
             match self.service.reconcile_as_authority(sandbox).await {
                 Ok(NetworkingReconcileOutcome::Refreshed { policy_hash }) => {
+                    repaired += 1;
                     info!(
                         sandbox_id = %sandbox.id,
                         policy_hash = %policy_hash,
                         "Reconciled degraded sandbox networking"
                     );
                 }
-                Ok(_) => {}
+                Ok(NetworkingReconcileOutcome::AlreadyReady { .. }) => repaired += 1,
+                Ok(NetworkingReconcileOutcome::NotLimited) => {}
                 Err(error) => {
                     warn!(
                         sandbox_id = %sandbox.id,
                         error = %error,
-                        "Failed to reconcile sandbox networking; will retry next tick"
+                        "Failed to reconcile sandbox networking according to durable retry policy"
                     );
                 }
             }
         }
-        Ok(degraded_count)
+        Ok(repaired)
     }
 }

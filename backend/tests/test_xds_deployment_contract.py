@@ -56,9 +56,7 @@ def test_network_policy_separates_sandbox_runner_and_envoy_xds_traffic() -> None
     assert ".Values.orchestrator.xds.port" not in sandbox_policy
     assert ".Values.orchestrator.xds.port" in envoy_policy
     assert "name: joysafeter-orchestrator-ingress" in policy
-    ingress_policy = policy.split(
-        "name: joysafeter-orchestrator-ingress", maxsplit=1
-    )[1]
+    ingress_policy = policy.split("name: joysafeter-orchestrator-ingress", maxsplit=1)[1]
     assert ".Values.orchestrator.grpc.port" in ingress_policy
     assert ".Values.orchestrator.xds.port" in ingress_policy
 
@@ -79,10 +77,7 @@ def test_compose_and_kubernetes_use_explicit_socket_storage_modes() -> None:
     daemonset = read("deploy/helm/joysafeter-orchestrator/templates/envoy-daemonset.yaml")
     k8s_provider = read("backend/app/joysafeter_orchestrator_rs/src/sandbox/k8s.rs")
 
-    volume_name = (
-        "${JOYSAFETER_ENVOY_SOCKET_VOLUME:-"
-        "${COMPOSE_PROJECT_NAME:-deploy}_joysafeter-sockets}"
-    )
+    volume_name = "${JOYSAFETER_ENVOY_SOCKET_VOLUME:-${COMPOSE_PROJECT_NAME:-deploy}_joysafeter-sockets}"
     assert 'JOYSAFETER_ENVOY_SOCKET_HOST_DIR: ""' in compose
     assert f"JOYSAFETER_ENVOY_SOCKET_VOLUME: {volume_name}" in compose
     assert f"name: {volume_name}" in compose
@@ -106,14 +101,13 @@ def test_kubernetes_envoy_owns_socket_root_for_lifecycle_cleanup() -> None:
     assert "runAsGroup: 101" in values
     assert "name: prepare-socket-root" in daemonset
     assert "chown 0:0 /sockets" in daemonset
-    assert "chown {{ .Values.envoy.runAsUser }}:{{ .Values.envoy.runAsGroup }} /sockets" in daemonset
+    assert "chown -R {{ .Values.envoy.runAsUser }}:{{ .Values.envoy.runAsGroup }} /sockets" in daemonset
     assert 'add: ["CHOWN"]' in daemonset
     root_chown = daemonset.index("chown 0:0 /sockets")
     chmod = daemonset.index("chmod 0750 /sockets")
-    envoy_chown = daemonset.index(
-        "chown {{ .Values.envoy.runAsUser }}:{{ .Values.envoy.runAsGroup }} /sockets"
-    )
+    envoy_chown = daemonset.index("chown -R {{ .Values.envoy.runAsUser }}:{{ .Values.envoy.runAsGroup }} /sockets")
     assert root_chown < chmod < envoy_chown
+    assert "test -w /sockets" in daemonset
     assert "runAsUser: {{ .Values.envoy.runAsUser }}" in daemonset
     assert "runAsGroup: {{ .Values.envoy.runAsGroup }}" in daemonset
 
@@ -134,12 +128,8 @@ def test_obsolete_envoy_grpc_port_bridge_is_removed() -> None:
 
 
 def test_xds_health_metrics_and_alerts_are_deployed_as_one_contract() -> None:
-    application = read(
-        "backend/app/joysafeter_orchestrator_rs/src/bootstrap/application.rs"
-    )
-    supervisor = read(
-        "backend/app/joysafeter_orchestrator_rs/src/bootstrap/supervisor.rs"
-    )
+    application = read("backend/app/joysafeter_orchestrator_rs/src/bootstrap/application.rs")
+    supervisor = read("backend/app/joysafeter_orchestrator_rs/src/bootstrap/supervisor.rs")
     values = read("deploy/helm/joysafeter-orchestrator/values.yaml")
     rule = read("deploy/helm/joysafeter-orchestrator/templates/prometheusrule.yaml")
 
@@ -166,3 +156,28 @@ def test_xds_health_metrics_and_alerts_are_deployed_as_one_contract() -> None:
 
     for forbidden_label in ["sandbox_id", "node_name", "resource_name", "policy_hash"]:
         assert forbidden_label not in rule
+
+
+def test_network_policy_authority_lock_covers_publication_only() -> None:
+    service = read("backend/app/joysafeter_orchestrator_rs/src/kernel/network_policy/service.rs")
+
+    credentials_path = service.split("pub async fn apply_with_credentials", maxsplit=1)[1].split(
+        "pub async fn reconcile", maxsplit=1
+    )[0]
+    assert "lock_application" not in credentials_path
+
+    inventory_path = service.split("pub async fn reconcile_inventory", maxsplit=1)[1].split(
+        "pub async fn apply_request", maxsplit=1
+    )[0]
+    assert "publish_prune" in inventory_path
+    assert "settle_prune" in inventory_path
+    assert inventory_path.index("lock_application") < inventory_path.index("publish_prune")
+    assert inventory_path.index("publish_prune") < inventory_path.index("settle_prune")
+
+    teardown_path = service.split("pub async fn teardown", maxsplit=1)[1].split("fn require_managed", maxsplit=1)[0]
+    assert "mutation_guard" in teardown_path
+    assert "lock_application" in teardown_path
+    assert "publish_remove" in teardown_path
+    assert "settle_remove" in teardown_path
+    assert teardown_path.index("lock_application") < teardown_path.index("publish_remove")
+    assert teardown_path.index("publish_remove") < teardown_path.index("settle_remove")

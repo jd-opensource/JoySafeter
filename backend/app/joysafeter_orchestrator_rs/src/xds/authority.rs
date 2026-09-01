@@ -364,4 +364,8 @@ impl MutationAuthorityGuard {
             })
         }
     }
+
+    pub(crate) async fn lock_application(&self) -> OwnedMutexGuard<()> {
+        self.authority.lock_application().await
+    }
 }

@@ -343,7 +343,7 @@ fn removal_supersedes_the_delivered_generation_with_a_new_attempt() {
     assert_ne!(removal.attempt_id, initial.attempt_id);
     assert_eq!(removal.sandbox_id, sandbox_id);
     assert_eq!(coordinator.outcome(initial), None);
-    assert_eq!(coordinator.outcome(removal), None);
+    assert_eq!(coordinator.outcome(removal), Some(DeliveryOutcome::Pending));
 }
 
 #[test]
@@ -382,7 +382,10 @@ fn suspended_delivery_rejects_old_node_and_can_retarget() {
     coordinator.suspend_current(sandbox_id);
 
     assert_eq!(coordinator.current_request(sandbox_id), Some(request));
-    assert_eq!(coordinator.outcome(old_attempt), None);
+    assert_eq!(
+        coordinator.outcome(old_attempt),
+        Some(DeliveryOutcome::Pending)
+    );
     let new_attempt = coordinator
         .retarget_current(sandbox_id, DeliveryTarget::Node("node-c".to_string()), 4)
         .expect("retarget current delivery")
@@ -428,5 +431,5 @@ fn coordinator_rejects_a_response_older_than_the_published_world_revision() {
             .expect("stale response is valid but irrelevant"),
         ReceiptOutcome::Stale
     );
-    assert_eq!(coordinator.outcome(attempt), None);
+    assert_eq!(coordinator.outcome(attempt), Some(DeliveryOutcome::Pending));
 }

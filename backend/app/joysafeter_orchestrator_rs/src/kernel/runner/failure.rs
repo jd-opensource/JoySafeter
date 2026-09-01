@@ -4,8 +4,13 @@ use tracing::{error, info, warn};
 
 use crate::config::JoySafeterConfig;
 use crate::db::queries;
+use crate::events::bus::EventBus;
+use crate::events::envelope::EventEnvelope;
 use crate::ids::{SandboxId, SessionId};
 use crate::kernel::queue::TaskQueue;
+use crate::kernel::task_state::{
+    publish_failed_sandbox_task_events, publish_reset_sandbox_task_events,
+};
 
 use super::task_lifecycle::compute_retry_delay;
 
@@ -71,6 +76,7 @@ impl RunnerFailureService {
     pub(crate) async fn eject_sandbox(
         &self,
         pool: &PgPool,
+        event_bus: &EventBus,
         sandbox_id: SandboxId,
         session_id: Option<SessionId>,
         failure: RunnerFailure,
@@ -89,11 +95,26 @@ impl RunnerFailureService {
             anyhow::bail!("sandbox {sandbox_id} changed state before Runner failure quarantine");
         };
         let failed_tasks = recovery.failed_tasks;
-        self.persist_failed_tasks_idle(pool, &failed_tasks, &failure)
-            .await;
         let reset_tasks = recovery.reset_tasks;
-        self.persist_reset_tasks_rescheduling(pool, &reset_tasks, &failure)
+        let reset_stop_reason = json!({
+            "type": "sandbox_failed",
+            "code": failure.code(),
+            "message": failure.message(),
+        });
+        let failed_stop_reason = json!({
+            "type": "error",
+            "code": failure.code(),
+            "message": failure.message(),
+        });
+        publish_reset_sandbox_task_events(event_bus, sandbox_id, &reset_stop_reason, &reset_tasks)
             .await;
+        publish_failed_sandbox_task_events(
+            event_bus,
+            sandbox_id,
+            &failed_stop_reason,
+            &failed_tasks,
+        )
+        .await;
 
         if let Some(queue) = queue {
             let _ = queue.drain(sandbox_id).await;
@@ -115,7 +136,7 @@ impl RunnerFailureService {
         }
 
         if reset_tasks.is_empty() && failed_tasks.is_empty() {
-            self.persist_unbound_session_failure(pool, session_id, &failure)
+            self.persist_unbound_session_failure(pool, event_bus, sandbox_id, session_id, &failure)
                 .await;
         }
 
@@ -133,77 +154,11 @@ impl RunnerFailureService {
         })
     }
 
-    async fn persist_failed_tasks_idle(
-        &self,
-        pool: &PgPool,
-        tasks: &[queries::FailedSandboxTask],
-        failure: &RunnerFailure,
-    ) {
-        for task in tasks {
-            let Some(session_id) = task.session_id else {
-                continue;
-            };
-            let stop_reason = json!({
-                "type": "error",
-                "code": failure.code(),
-                "message": failure.message(),
-            });
-            let payload = json!({
-                "task_id": task.id.to_string(),
-                "stop_reason": stop_reason.clone(),
-            });
-            if let Err(error) = queries::update_session_status_if_no_active_tasks_and_insert_event(
-                pool,
-                session_id,
-                "idle",
-                Some(&stop_reason),
-                "session.status_idle",
-                &payload,
-            )
-            .await
-            {
-                error!(task_id = %task.id, session_id = %session_id, error = %error, "Failed to persist Runner failure task outcome");
-            }
-        }
-    }
-
-    async fn persist_reset_tasks_rescheduling(
-        &self,
-        pool: &PgPool,
-        tasks: &[queries::ResetSandboxTask],
-        failure: &RunnerFailure,
-    ) {
-        for task in tasks {
-            let Some(session_id) = task.session_id else {
-                continue;
-            };
-            let stop_reason = json!({
-                "type": "sandbox_failed",
-                "code": failure.code(),
-                "message": failure.message(),
-            });
-            let payload = json!({
-                "task_id": task.id.to_string(),
-                "stop_reason": stop_reason.clone(),
-            });
-            if let Err(error) = queries::update_session_status_and_insert_event(
-                pool,
-                session_id,
-                "rescheduling",
-                Some(&stop_reason),
-                "session.status_rescheduling",
-                &payload,
-            )
-            .await
-            {
-                error!(task_id = %task.id, session_id = %session_id, error = %error, "Failed to persist Runner failure rescheduling status");
-            }
-        }
-    }
-
     async fn persist_unbound_session_failure(
         &self,
         pool: &PgPool,
+        event_bus: &EventBus,
+        sandbox_id: SandboxId,
         session_id: Option<SessionId>,
         failure: &RunnerFailure,
     ) {
@@ -216,7 +171,7 @@ impl RunnerFailureService {
             "message": failure.message(),
         });
         let payload = json!({"stop_reason": stop_reason.clone()});
-        if let Err(error) = queries::update_session_status_if_no_active_tasks_and_insert_event(
+        match queries::update_session_status_if_no_active_tasks_and_insert_event(
             pool,
             session_id,
             "idle",
@@ -226,7 +181,17 @@ impl RunnerFailureService {
         )
         .await
         {
-            error!(session_id = %session_id, error = %error, "Failed to persist unbound Runner failure");
+            Ok(Some((event_id, seq))) => {
+                let envelope = EventEnvelope::new(session_id, "session.status_idle", payload)
+                    .with_sandbox(sandbox_id)
+                    .status_change(Some(stop_reason))
+                    .with_db_persisted(event_id, seq);
+                event_bus.publish(envelope).await;
+            }
+            Ok(None) => {}
+            Err(error) => {
+                error!(session_id = %session_id, error = %error, "Failed to persist unbound Runner failure");
+            }
         }
     }
 }

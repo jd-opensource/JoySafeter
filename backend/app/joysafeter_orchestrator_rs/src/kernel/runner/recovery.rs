@@ -345,8 +345,6 @@ impl RunnerRecoveryService {
             .requires_action_pending
             .store(false, Ordering::Relaxed);
         bridge.reset_confirmation();
-        let _ = queries::complete_sandbox_task(pool, sandbox_db_id).await;
-
         match result {
             TaskResult::Completed => {
                 info!(task_id = %active_task_id, "Reconnected task completed");

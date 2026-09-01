@@ -134,7 +134,10 @@ impl EnvoyRuntime {
         request: DeliveryRequest,
         policy: SandboxEgressPolicy,
     ) -> anyhow::Result<()> {
-        self.policy.apply_policy(request, policy).await
+        self.policy
+            .apply_policy(request, policy)
+            .await
+            .map_err(Into::into)
     }
 
     pub async fn remove_sandbox(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {

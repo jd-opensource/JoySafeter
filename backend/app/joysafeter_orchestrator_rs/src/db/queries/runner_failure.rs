@@ -1,7 +1,9 @@
+use serde_json::json;
 use sqlx::PgPool;
 
 use crate::ids::SandboxId;
 
+use super::task::{persist_failed_task_sessions_in_tx, persist_reset_task_sessions_in_tx};
 use super::task::{FailedSandboxTask, ResetSandboxTask};
 
 #[derive(Debug, Clone)]
@@ -59,7 +61,7 @@ pub async fn quarantine_and_recover_runner_failure(
         return Ok(None);
     }
 
-    let failed_tasks = sqlx::query_as::<_, FailedSandboxTask>(
+    let failed_rows = sqlx::query_as::<_, (crate::ids::TaskId, Option<crate::ids::SessionId>)>(
         r#"
         UPDATE joysafeter_tasks
         SET status = 'failed',
@@ -80,8 +82,16 @@ pub async fn quarantine_and_recover_runner_failure(
     .bind(error_code)
     .fetch_all(&mut *transaction)
     .await?;
+    let mut failed_tasks = failed_rows
+        .into_iter()
+        .map(|(id, session_id)| FailedSandboxTask {
+            id,
+            session_id,
+            session_event: None,
+        })
+        .collect::<Vec<_>>();
 
-    let reset_tasks = sqlx::query_as::<_, ResetSandboxTask>(
+    let reset_rows = sqlx::query_as::<_, (crate::ids::TaskId, Option<crate::ids::SessionId>, i32)>(
         r#"
         UPDATE joysafeter_tasks
         SET status = 'pending',
@@ -102,6 +112,36 @@ pub async fn quarantine_and_recover_runner_failure(
     .bind(error_code)
     .bind(error_message)
     .fetch_all(&mut *transaction)
+    .await?;
+    let mut reset_tasks = reset_rows
+        .into_iter()
+        .map(|(id, session_id, previous_retry_count)| ResetSandboxTask {
+            id,
+            session_id,
+            previous_retry_count,
+            session_event: None,
+        })
+        .collect::<Vec<_>>();
+
+    persist_reset_task_sessions_in_tx(
+        &mut transaction,
+        &mut reset_tasks,
+        &json!({
+            "type": "sandbox_failed",
+            "code": error_code,
+            "message": error_message,
+        }),
+    )
+    .await?;
+    persist_failed_task_sessions_in_tx(
+        &mut transaction,
+        &mut failed_tasks,
+        &json!({
+            "type": "error",
+            "code": error_code,
+            "message": error_message,
+        }),
+    )
     .await?;
 
     transaction.commit().await?;

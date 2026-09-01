@@ -3,6 +3,7 @@ use std::sync::Arc;
 use crate::config::JoySafeterConfig;
 use crate::db::runner_auth_store::PostgresRunnerAuthStore;
 use crate::db::task_identity_store::PostgresTaskIdentityStore;
+use crate::events::bus::EventBus;
 use crate::kernel::agent_identity_provider::AgentIdentityProvider;
 use crate::kernel::credentials::access::CredentialMaterialAccessService;
 use crate::kernel::credentials::CredentialStore;
@@ -128,6 +129,7 @@ pub(super) fn build_sandbox_runtime_services(
     runtime_config: Arc<RuntimeConfig>,
     network_policy: NetworkPolicyService,
     identity_provider: Arc<dyn AgentIdentityProvider>,
+    event_bus: EventBus,
 ) -> SandboxRuntimeServices {
     let networking = SandboxNetworkingService::new(pool.clone(), network_policy.clone());
     let lifecycle =
@@ -180,6 +182,7 @@ pub(super) fn build_sandbox_runtime_services(
         lifecycle.clone(),
         Arc::new(pool_service.clone()),
         pool_replenish_notify.clone(),
+        event_bus,
     ));
     let resolution: Arc<dyn SandboxResolution> = Arc::new(
         SandboxResolver::new_with_services(

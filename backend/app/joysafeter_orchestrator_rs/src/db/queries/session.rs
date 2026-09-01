@@ -1,4 +1,4 @@
-use sqlx::PgPool;
+use sqlx::{PgPool, Postgres, Transaction};
 
 use crate::db::models::JoySafeterSession;
 use crate::ids::{AgentId, EnvironmentId, EventId, MemoryStoreId, ProjectId, SandboxId, SessionId};
@@ -52,8 +52,9 @@ pub async fn update_session_status_and_insert_event(
     event_type: &str,
     payload: &serde_json::Value,
 ) -> Result<Option<(EventId, i64)>, sqlx::Error> {
-    update_session_status_and_insert_event_inner(
-        pool,
+    let mut tx = pool.begin().await?;
+    let result = update_session_status_and_insert_event_in_tx(
+        &mut tx,
         session_id,
         new_status,
         stop_reason,
@@ -61,7 +62,9 @@ pub async fn update_session_status_and_insert_event(
         payload,
         false,
     )
-    .await
+    .await?;
+    tx.commit().await?;
+    Ok(result)
 }
 
 /// Atomically update a session status only when no active task remains.
@@ -78,8 +81,9 @@ pub async fn update_session_status_if_no_active_tasks_and_insert_event(
     event_type: &str,
     payload: &serde_json::Value,
 ) -> Result<Option<(EventId, i64)>, sqlx::Error> {
-    update_session_status_and_insert_event_inner(
-        pool,
+    let mut tx = pool.begin().await?;
+    let result = update_session_status_and_insert_event_in_tx(
+        &mut tx,
         session_id,
         new_status,
         stop_reason,
@@ -87,7 +91,9 @@ pub async fn update_session_status_if_no_active_tasks_and_insert_event(
         payload,
         true,
     )
-    .await
+    .await?;
+    tx.commit().await?;
+    Ok(result)
 }
 
 /// Build the atomic session status UPDATE. The trailing predicate makes the
@@ -120,8 +126,8 @@ pub(crate) fn build_session_status_update_sql(
     )
 }
 
-async fn update_session_status_and_insert_event_inner(
-    pool: &PgPool,
+pub(crate) async fn update_session_status_and_insert_event_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
     session_id: SessionId,
     new_status: &str,
     stop_reason: Option<&serde_json::Value>,
@@ -129,14 +135,40 @@ async fn update_session_status_and_insert_event_inner(
     payload: &serde_json::Value,
     require_no_active_tasks: bool,
 ) -> Result<Option<(EventId, i64)>, sqlx::Error> {
-    let mut tx = pool.begin().await?;
+    lock_session_event_sequence_in_tx(tx, session_id).await?;
+    update_session_status_and_insert_event_locked_in_tx(
+        tx,
+        session_id,
+        new_status,
+        stop_reason,
+        event_type,
+        payload,
+        require_no_active_tasks,
+    )
+    .await
+}
 
+pub(crate) async fn lock_session_event_sequence_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    session_id: SessionId,
+) -> Result<(), sqlx::Error> {
     let lock_key = i64::from_be_bytes(session_id.as_uuid().as_bytes()[8..16].try_into().unwrap());
     sqlx::query("SELECT pg_advisory_xact_lock($1)")
         .bind(lock_key)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
+    Ok(())
+}
 
+pub(crate) async fn update_session_status_and_insert_event_locked_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    session_id: SessionId,
+    new_status: &str,
+    stop_reason: Option<&serde_json::Value>,
+    event_type: &str,
+    payload: &serde_json::Value,
+    require_no_active_tasks: bool,
+) -> Result<Option<(EventId, i64)>, sqlx::Error> {
     let allowed_from = match new_status {
         "running" => "'idle','running','rescheduling'",
         "idle" => "'running','rescheduling'",
@@ -162,19 +194,29 @@ async fn update_session_status_and_insert_event_inner(
         .bind(session_id)
         .bind(new_status)
         .bind(stop_reason)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
 
     if update_result.rows_affected() == 0 {
-        tx.commit().await?;
         return Ok(None);
     }
 
+    insert_session_event_locked_in_tx(tx, session_id, event_type, payload)
+        .await
+        .map(Some)
+}
+
+pub(crate) async fn insert_session_event_locked_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    session_id: SessionId,
+    event_type: &str,
+    payload: &serde_json::Value,
+) -> Result<(EventId, i64), sqlx::Error> {
     let seq: i64 = sqlx::query_scalar(
         "SELECT COALESCE(MAX(seq), 0) + 1 FROM joysafeter_session_events WHERE session_id = $1",
     )
     .bind(session_id)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await?;
 
     let event_id = EventId::from_uuid(uuid::Uuid::now_v7());
@@ -190,11 +232,10 @@ async fn update_session_status_and_insert_event_inner(
     .bind(event_type)
     .bind(payload)
     .bind(seq)
-    .fetch_one(&mut *tx)
+    .fetch_one(&mut **tx)
     .await?;
 
-    tx.commit().await?;
-    Ok(Some(inserted))
+    Ok(inserted)
 }
 
 /// Update session sandbox reference.
@@ -220,8 +261,28 @@ pub async fn accumulate_session_usage(
     session_id: SessionId,
     usage: &serde_json::Value,
 ) -> Result<(), sqlx::Error> {
-    sqlx::query(
-        r#"
+    sqlx::query(ACCUMULATE_SESSION_USAGE_SQL)
+        .bind(session_id)
+        .bind(usage)
+        .execute(pool)
+        .await?;
+    Ok(())
+}
+
+pub(crate) async fn accumulate_session_usage_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    session_id: SessionId,
+    usage: &serde_json::Value,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(ACCUMULATE_SESSION_USAGE_SQL)
+        .bind(session_id)
+        .bind(usage)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
+const ACCUMULATE_SESSION_USAGE_SQL: &str = r#"
         UPDATE joysafeter_sessions
         SET usage = jsonb_build_object(
             'input_tokens', COALESCE((usage->>'input_tokens')::bigint, 0) + COALESCE(($2::jsonb->>'input_tokens')::bigint, 0),
@@ -258,14 +319,7 @@ pub async fn accumulate_session_usage(
         ),
             updated_at = NOW()
         WHERE id = $1
-        "#,
-    )
-    .bind(session_id)
-    .bind(usage)
-    .execute(pool)
-    .await?;
-    Ok(())
-}
+        "#;
 
 /// Create a new session record.
 pub async fn create_session(

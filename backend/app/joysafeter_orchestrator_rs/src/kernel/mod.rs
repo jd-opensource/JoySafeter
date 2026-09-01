@@ -34,4 +34,5 @@ pub mod session_broadcaster;
 pub mod task_controller;
 pub mod task_identity;
 pub mod task_runner;
+pub mod task_state;
 pub mod tool_policy;

@@ -36,10 +36,6 @@ impl SandboxNetworkCleanup for NetworkPolicyService {
     }
 }
 
-fn provider_runtime_is_absent(message: &str) -> bool {
-    message.contains("No such container") || message.contains("404")
-}
-
 pub(crate) async fn destroy_unpersisted_sandbox(
     provider: &Arc<dyn SandboxProvider>,
     network_cleanup: &dyn SandboxNetworkCleanup,
@@ -49,13 +45,12 @@ pub(crate) async fn destroy_unpersisted_sandbox(
 ) -> anyhow::Result<()> {
     let destroy_error = match provider.destroy_with_outcome(external_id).await {
         Ok(outcome) if outcome.runtime_deleted() => {
-            if let Some(error) = outcome.residual_cleanup_error {
-                warn!(sandbox_id = %sandbox_id, external_id, %error, "Provider runtime deleted with residual cleanup pending");
+            if let Some(cleanup) = outcome.residual_cleanup {
+                warn!(sandbox_id = %sandbox_id, external_id, error = %cleanup.last_error, "Provider runtime deleted with residual cleanup pending");
             }
             None
         }
         Ok(_) => Some("provider runtime deletion is still pending".to_string()),
-        Err(error) if provider_runtime_is_absent(&error.to_string()) => None,
         Err(error) => Some(error.to_string()),
     };
     let networking_error = network_cleanup
@@ -104,11 +99,13 @@ pub(crate) async fn finalize_claimed_sandbox_destroy(
     restore_status: &str,
     reason: &str,
 ) -> anyhow::Result<bool> {
+    let mut residual_cleanup = None;
     if let Some(ext_id) = external_id {
         match provider.destroy_with_outcome(ext_id).await {
             Ok(outcome) if outcome.runtime_deleted() => {
-                if let Some(error) = outcome.residual_cleanup_error {
-                    warn!(sandbox_id = %sandbox_id, external_id = ext_id, %error, "Provider runtime deleted with residual cleanup pending");
+                if let Some(cleanup) = outcome.residual_cleanup {
+                    warn!(sandbox_id = %sandbox_id, external_id = ext_id, error = %cleanup.last_error, "Provider runtime deleted with residual cleanup pending");
+                    residual_cleanup = Some(cleanup);
                 }
             }
             Ok(_) => {
@@ -118,29 +115,34 @@ pub(crate) async fn finalize_claimed_sandbox_destroy(
             }
             Err(err) => {
                 let message = err.to_string();
-                if provider_runtime_is_absent(&message) {
-                    // Idempotent destroy: the runtime is already absent.
-                } else {
-                    let _ = queries::restore_sandbox_after_passive_destroy_failure(
-                        pool,
-                        sandbox_id,
-                        restore_status,
-                        external_id,
-                    )
-                    .await;
-                    anyhow::bail!(
-                        "failed to destroy sandbox {sandbox_id} during {reason}: {message}"
-                    );
-                }
+                let _ = queries::restore_sandbox_after_passive_destroy_failure(
+                    pool,
+                    sandbox_id,
+                    restore_status,
+                    external_id,
+                )
+                .await;
+                anyhow::bail!("failed to destroy sandbox {sandbox_id} during {reason}: {message}");
             }
         }
     }
 
-    let destroyed = queries::destroy_sandbox_if_status_and_external_id(
+    let cleanup = residual_cleanup
+        .as_ref()
+        .map(|cleanup| queries::NewSandboxCleanupWork {
+            provider: provider.provider_name(),
+            resource_kind: &cleanup.resource_kind,
+            resource_name: &cleanup.resource_name,
+            resource_path: &cleanup.resource_path,
+            node_name: cleanup.node_name.as_deref(),
+            last_error: &cleanup.last_error,
+        });
+    let destroyed = queries::destroy_sandbox_if_status_and_external_id_with_cleanup(
         pool,
         sandbox_id,
         "stopping",
         external_id,
+        cleanup,
     )
     .await?;
     if destroyed {

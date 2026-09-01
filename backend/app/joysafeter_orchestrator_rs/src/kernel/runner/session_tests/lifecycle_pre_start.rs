@@ -246,7 +246,7 @@ async fn pre_start_failure_does_not_fail_pending_task_on_stale_observation() {
         .execute(&pool)
         .await
         .expect("simulate task already pending before stale pre-start failure");
-        queries::complete_sandbox_task(&pool, sandbox_id)
+        queries::complete_sandbox_task(&pool, sandbox_id, task_id)
             .await
             .expect("release sandbox for pending task");
 

@@ -6,6 +6,7 @@ use sqlx::PgPool;
 use super::envoy_model::{
     rendered_egress_policy_summary, validate_egress_policy, SandboxCredentials, SandboxEgressPolicy,
 };
+use super::error::NetworkPolicyApplyError;
 use super::material::NetworkPolicyMaterialResolver;
 use super::ports::{NetworkPolicyApplyRequest, NetworkPolicyRequestQueue, NetworkPolicyRuntime};
 use super::request::NetworkPolicyRequest;
@@ -164,9 +165,6 @@ async fn apply_generation_with_desired_as_authority(
     authority: &MutationAuthorityGuard,
 ) -> anyhow::Result<NetworkingReconcileOutcome> {
     let sandbox_id = sandbox.id;
-    if authority.validate().is_err() {
-        anyhow::bail!("xDS authority changed before policy application");
-    }
     if !matches!(
         sandbox.status.as_str(),
         "creating" | "provisioning" | "idle" | "running"
@@ -208,43 +206,92 @@ async fn apply_generation_with_desired_as_authority(
     }
 
     let policy = desired.render_for(sandbox_id);
-    validate_egress_policy(&sandbox_id, &policy)?;
     let rendered_summary = rendered_egress_policy_summary(&sandbox_id, &policy);
+    let desired_policy = serde_json::json!({
+        "fingerprint": sandbox
+            .config
+            .as_ref()
+            .and_then(|config| config.get("fingerprint"))
+            .cloned()
+            .unwrap_or_else(|| serde_json::json!({})),
+        "networking": networking,
+        "recorded_on": "failure",
+    });
     let policy_hash = desired.revision().to_string();
     if policy_hash != generation.policy_hash {
         anyhow::bail!("sandbox {sandbox_id} desired policy changed before authority application");
     }
 
-    if let Err(error) = apply_ephemeral(runtime, sandbox_id, generation, policy, authority).await {
-        let desired_policy = serde_json::json!({
-            "fingerprint": sandbox
-                .config
-                .as_ref()
-                .and_then(|config| config.get("fingerprint"))
-                .cloned()
-                .unwrap_or_else(|| serde_json::json!({})),
-            "networking": networking,
-            "recorded_on": "failure",
-        });
-        let reason = format!("{error:#}");
-        let _ = queries::record_generation_failure(
+    let request = NetworkPolicyApplyRequest {
+        authority_epoch: authority.epoch(),
+        sandbox_id,
+        generation: generation.clone(),
+    };
+    let application = async {
+        authority
+            .validate()
+            .map_err(|_| NetworkPolicyApplyError::AuthorityChanged)?;
+        validate_egress_policy(&sandbox_id, &policy)
+            .map_err(|error| NetworkPolicyApplyError::InvalidPolicy(format!("{error:#}")))?;
+        runtime.prepare_apply(&request, &policy).await?;
+        let ticket = {
+            let _application_lock = authority.lock_application().await;
+            authority
+                .validate()
+                .map_err(|_| NetworkPolicyApplyError::AuthorityChanged)?;
+            let current = queries::get_sandbox(pool, sandbox_id)
+                .await
+                .map_err(|error| NetworkPolicyApplyError::StateReadFailed(format!("{error:#}")))?
+                .ok_or_else(|| {
+                    NetworkPolicyApplyError::SandboxUnavailable(format!(
+                        "sandbox {sandbox_id} was not found"
+                    ))
+                })?;
+            if !matches!(
+                current.status.as_str(),
+                "creating" | "provisioning" | "idle" | "running"
+            ) {
+                return Err(NetworkPolicyApplyError::SandboxUnavailable(format!(
+                    "sandbox {sandbox_id} is not live for xDS publication (status={})",
+                    current.status
+                )));
+            }
+            if current.networking_policy_hash.as_deref() != Some(&generation.policy_hash)
+                || current.networking_policy_version != generation.policy_version
+            {
+                return Err(NetworkPolicyApplyError::GenerationSuperseded);
+            }
+            runtime.publish_apply(request, policy).await?
+        };
+        runtime.settle_apply(ticket).await
+    };
+    if let Err(error) = tokio::time::timeout(POLICY_APPLY_TIMEOUT, application)
+        .await
+        .unwrap_or(Err(NetworkPolicyApplyError::ApplyTimedOut))
+    {
+        persist_apply_failure(
             pool,
-            queries::UpsertNetworkPolicy {
-                id: SandboxNetworkPolicyId::new(),
-                sandbox_id,
-                session_id: sandbox.chat_session_id,
-                task_id: None,
-                generation,
-                desired_policy_json: &desired_policy,
-                rendered_summary_json: &rendered_summary,
-            },
-            &reason,
+            &sandbox,
+            generation,
+            &desired_policy,
+            &rendered_summary,
+            &error,
         )
-        .await;
-        return Err(error);
+        .await?;
+        return Err(error.into());
     }
     if authority.validate().is_err() {
-        anyhow::bail!("xDS authority changed before policy ACK persistence");
+        let error = NetworkPolicyApplyError::AuthorityChanged;
+        persist_apply_failure(
+            pool,
+            &sandbox,
+            generation,
+            &desired_policy,
+            &rendered_summary,
+            &error,
+        )
+        .await?;
+        return Err(error.into());
     }
     match queries::mark_generation_applied(pool, sandbox_id, generation).await? {
         queries::NetworkPolicyAckOutcome::Applied => {}
@@ -282,7 +329,6 @@ pub async fn ensure_ready(
             .context("failed to request xDS authority reconciliation")?;
         return wait_until_ready(pool, sandbox_id, generation, timeout).await;
     }
-    let _application_lock = authority.lock_application().await;
     let guard = authority
         .mutation_guard()
         .ok_or_else(|| anyhow::anyhow!("local xDS authority is not ready"))?;
@@ -336,8 +382,20 @@ pub async fn wait_until_ready(
             {
                 return Ok(queries::NetworkPolicyAckOutcome::AlreadyReady);
             }
-            "nacked" | "failed" => anyhow::bail!(
+            "nacked" => anyhow::bail!(
                 "xDS authority rejected sandbox {sandbox_id} policy: {}",
+                sandbox
+                    .networking_last_error
+                    .as_deref()
+                    .unwrap_or("unspecified error")
+            ),
+            "failed" => anyhow::bail!(
+                "network policy application failed for sandbox {sandbox_id} (code={}, retryable={}): {}",
+                sandbox
+                    .networking_last_error_code
+                    .as_deref()
+                    .unwrap_or("unknown"),
+                sandbox.networking_retryable,
                 sandbox
                     .networking_last_error
                     .as_deref()
@@ -353,6 +411,48 @@ pub async fn wait_until_ready(
         }
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
+}
+
+async fn persist_apply_failure(
+    pool: &PgPool,
+    sandbox: &JoySafeterSandbox,
+    generation: &NetworkPolicyGeneration,
+    desired_policy: &serde_json::Value,
+    rendered_summary: &serde_json::Value,
+    error: &NetworkPolicyApplyError,
+) -> anyhow::Result<()> {
+    let Some(persistence) = error.persistence() else {
+        return Ok(());
+    };
+    let reason = error.to_string();
+    queries::record_generation_failure(
+        pool,
+        queries::UpsertNetworkPolicy {
+            id: SandboxNetworkPolicyId::new(),
+            sandbox_id: sandbox.id,
+            session_id: sandbox.chat_session_id,
+            task_id: None,
+            generation,
+            desired_policy_json: desired_policy,
+            rendered_summary_json: rendered_summary,
+        },
+        queries::NetworkPolicyFailureRecord {
+            status: persistence.status,
+            code: error.code(),
+            retryable: persistence.retryable,
+            message: &reason,
+            nack_reason: persistence.nack_reason,
+        },
+    )
+    .await
+    .with_context(|| {
+        format!(
+            "failed to persist network-policy failure {} for sandbox {}",
+            error.code(),
+            sandbox.id
+        )
+    })?;
+    Ok(())
 }
 
 async fn desired_policy(
@@ -384,25 +484,25 @@ pub(crate) async fn apply_ephemeral(
     policy: SandboxEgressPolicy,
     authority: &MutationAuthorityGuard,
 ) -> anyhow::Result<()> {
-    if authority.validate().is_err() {
-        anyhow::bail!("xDS authority changed before ephemeral policy application");
-    }
-    validate_egress_policy(&sandbox_id, &policy)?;
-    tokio::time::timeout(
-        POLICY_APPLY_TIMEOUT,
-        runtime.apply(
-            NetworkPolicyApplyRequest {
-                authority_epoch: authority.epoch(),
-                sandbox_id,
-                generation: generation.clone(),
-            },
-            policy,
-        ),
-    )
-    .await
-    .unwrap_or_else(|_| {
-        Err(anyhow::anyhow!(
-            "refresh_networking exceeded {POLICY_APPLY_TIMEOUT:?}"
-        ))
+    let request = NetworkPolicyApplyRequest {
+        authority_epoch: authority.epoch(),
+        sandbox_id,
+        generation: generation.clone(),
+    };
+    let result = tokio::time::timeout(POLICY_APPLY_TIMEOUT, async {
+        validate_egress_policy(&sandbox_id, &policy)
+            .map_err(|error| NetworkPolicyApplyError::InvalidPolicy(format!("{error:#}")))?;
+        runtime.prepare_apply(&request, &policy).await?;
+        let ticket = {
+            let _application_lock = authority.lock_application().await;
+            authority
+                .validate()
+                .map_err(|_| NetworkPolicyApplyError::AuthorityChanged)?;
+            runtime.publish_apply(request, policy).await?
+        };
+        runtime.settle_apply(ticket).await
     })
+    .await
+    .unwrap_or(Err(NetworkPolicyApplyError::ApplyTimedOut));
+    result.map_err(Into::into)
 }

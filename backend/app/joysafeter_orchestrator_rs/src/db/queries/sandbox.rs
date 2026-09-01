@@ -17,6 +17,16 @@ pub struct CommandDestroySandboxClaim {
     pub previous_status: String,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct NewSandboxCleanupWork<'a> {
+    pub provider: &'a str,
+    pub resource_kind: &'a str,
+    pub resource_name: &'a str,
+    pub resource_path: &'a str,
+    pub node_name: Option<&'a str>,
+    pub last_error: &'a str,
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct GuardedStoppedSandboxRestartClaim {
     pub session_id: SessionId,
@@ -195,11 +205,10 @@ pub async fn list_live_limited_sandboxes_for_project(
 }
 
 /// List live limited-networking sandboxes whose Envoy egress policy is NOT in
-/// the `ready` state — a push failed, NACK'd, or was left degraded (e.g. a
-/// transient xDS/Docker hiccup during provisioning). The networking-reconcile
-/// loop re-pushes these so a sandbox self-heals instead of running with no
-/// egress until the next task. Ordered oldest-updated-first so the
-/// longest-degraded sandbox is retried first.
+/// the `ready` state and is currently eligible for repair. Pending generations
+/// are attempted immediately; typed retryable failures are attempted only when
+/// their durable backoff expires. Explicit NACKs and exhausted failures are not
+/// hot-looped. Ordered by due time so the oldest eligible work is handled first.
 pub async fn list_degraded_limited_sandboxes(
     pool: &PgPool,
     limit: i64,
@@ -211,8 +220,15 @@ pub async fn list_degraded_limited_sandboxes(
           AND destroyed_at IS NULL
           AND external_id IS NOT NULL
           AND config #>> '{fingerprint,networking,type}' = 'limited'
-          AND networking_status IN ('pending', 'nacked', 'failed')
-        ORDER BY updated_at
+          AND (
+              networking_status = 'pending'
+              OR (
+                  networking_status = 'failed'
+                  AND networking_retryable
+                  AND networking_next_retry_at <= NOW()
+              )
+          )
+        ORDER BY COALESCE(networking_next_retry_at, updated_at)
         LIMIT $1
         "#,
     )
@@ -642,6 +658,7 @@ mod transition_validation_tests {
 pub async fn complete_sandbox_task(
     pool: &PgPool,
     sandbox_id: SandboxId,
+    task_id: TaskId,
 ) -> Result<bool, sqlx::Error> {
     let transitioned: Option<bool> = sqlx::query_scalar(
         r#"
@@ -662,15 +679,41 @@ pub async fn complete_sandbox_task(
                 WHEN status IN ('creating', 'provisioning', 'pooled', 'running') THEN NOW()
                 ELSE idle_since
             END
-        WHERE id = $1 AND status != 'destroyed'
+        WHERE id = $1
+          AND last_task_id = $2
+          AND status != 'destroyed'
         RETURNING status = 'idle'
         "#,
     )
     .bind(sandbox_id)
+    .bind(task_id)
     .fetch_optional(pool)
     .await?;
 
     Ok(transitioned.unwrap_or(false))
+}
+
+/// Refresh an idle heartbeat without clearing or overwriting an active task binding.
+pub async fn mark_unassigned_sandbox_idle(
+    pool: &PgPool,
+    sandbox_id: SandboxId,
+) -> Result<bool, sqlx::Error> {
+    let result = sqlx::query(
+        r#"
+        UPDATE joysafeter_sandboxes
+        SET status = 'idle',
+            last_used_at = NOW(),
+            updated_at = NOW(),
+            idle_since = COALESCE(idle_since, NOW())
+        WHERE id = $1
+          AND last_task_id IS NULL
+          AND status IN ('creating', 'provisioning', 'pooled', 'running', 'idle')
+        "#,
+    )
+    .bind(sandbox_id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() > 0)
 }
 
 /// Mark a healthy sandbox as running for a specific task.
@@ -950,6 +993,24 @@ pub async fn destroy_sandbox_if_status_and_external_id(
     expected_status: &str,
     expected_external_id: Option<&str>,
 ) -> Result<bool, sqlx::Error> {
+    destroy_sandbox_if_status_and_external_id_with_cleanup(
+        pool,
+        sandbox_id,
+        expected_status,
+        expected_external_id,
+        None,
+    )
+    .await
+}
+
+pub async fn destroy_sandbox_if_status_and_external_id_with_cleanup(
+    pool: &PgPool,
+    sandbox_id: SandboxId,
+    expected_status: &str,
+    expected_external_id: Option<&str>,
+    cleanup: Option<NewSandboxCleanupWork<'_>>,
+) -> Result<bool, sqlx::Error> {
+    let mut transaction = pool.begin().await?;
     let result = sqlx::query(
         r#"
         UPDATE joysafeter_sandboxes
@@ -974,8 +1035,46 @@ pub async fn destroy_sandbox_if_status_and_external_id(
     .bind(sandbox_id)
     .bind(expected_status)
     .bind(expected_external_id)
-    .execute(pool)
+    .execute(&mut *transaction)
     .await?;
+
+    if result.rows_affected() == 1 {
+        if let Some(cleanup) = cleanup {
+            sqlx::query(
+                r#"
+                INSERT INTO joysafeter_sandbox_cleanup_work (
+                    id, sandbox_id, provider, resource_kind, resource_name,
+                    resource_path, node_name, status, attempt_count,
+                    next_attempt_at, last_error, created_at, updated_at
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending', 0, NOW(), $8, NOW(), NOW())
+                ON CONFLICT (sandbox_id, resource_kind, resource_name) DO UPDATE
+                SET provider = EXCLUDED.provider,
+                    resource_path = EXCLUDED.resource_path,
+                    node_name = EXCLUDED.node_name,
+                    status = 'pending',
+                    next_attempt_at = NOW(),
+                    claim_owner = NULL,
+                    claim_expires_at = NULL,
+                    last_error = EXCLUDED.last_error,
+                    completed_at = NULL,
+                    updated_at = NOW()
+                "#,
+            )
+            .bind(uuid::Uuid::now_v7())
+            .bind(sandbox_id)
+            .bind(cleanup.provider)
+            .bind(cleanup.resource_kind)
+            .bind(cleanup.resource_name)
+            .bind(cleanup.resource_path)
+            .bind(cleanup.node_name)
+            .bind(cleanup.last_error)
+            .execute(&mut *transaction)
+            .await?;
+        }
+    }
+
+    transaction.commit().await?;
 
     Ok(result.rows_affected() > 0)
 }

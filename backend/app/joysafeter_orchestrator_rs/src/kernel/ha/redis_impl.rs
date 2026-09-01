@@ -711,7 +711,11 @@ impl AuthorityRequestSource<NetworkPolicyRequest> for RedisNetworkPolicyRequestS
                     .map(|(_, value)| value.clone())
                     .unwrap_or_else(|| "unknown".to_string());
                 match parse_network_policy_request(&fields) {
-                    Ok(request) => Some(AuthorityRequestEnvelope { request, source }),
+                    Ok(request) => Some(AuthorityRequestEnvelope {
+                        coalescing_key: Some(request.sandbox_id.to_string()),
+                        request,
+                        source,
+                    }),
                     Err(error) => {
                         warn!(error = %error, "Ignoring invalid network-policy authority request");
                         None

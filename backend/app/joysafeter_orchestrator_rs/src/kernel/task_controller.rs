@@ -7,9 +7,12 @@ use tracing::{debug, error, info, warn};
 
 use crate::config::JoySafeterConfig;
 use crate::db::queries;
+use crate::events::bus::EventBus;
+use crate::events::envelope::EventEnvelope;
 use crate::ids::{SandboxId, SessionId, TaskId};
 use crate::kernel::ha::BridgeStore;
 use crate::kernel::queue::TaskQueue;
+use crate::kernel::task_state::{publish_retry_outcome, publish_terminal_outcome};
 
 /// Task lifecycle watchdog with full Python parity.
 ///
@@ -25,6 +28,7 @@ pub struct TaskController {
     queue: TaskQueue,
     config: JoySafeterConfig,
     bridge_store: Arc<dyn BridgeStore>,
+    event_bus: EventBus,
 }
 
 impl TaskController {
@@ -33,12 +37,14 @@ impl TaskController {
         queue: TaskQueue,
         config: JoySafeterConfig,
         bridge_store: Arc<dyn BridgeStore>,
+        event_bus: EventBus,
     ) -> Self {
         Self {
             pool,
             queue,
             config,
             bridge_store,
+            event_bus,
         }
     }
 
@@ -111,8 +117,8 @@ impl TaskController {
                 if retry_count >= max_retries {
                     self.fail_scheduling_task_and_mark_session_idle(
                         *task_id,
-                        *session_id,
                         *sandbox_id,
+                        *retry_count,
                         "scheduling stuck after max retries",
                     )
                     .await;
@@ -176,7 +182,7 @@ impl TaskController {
             for (session_id,) in &stale_rescheduling_sessions {
                 let stop_reason = serde_json::json!({"type":"retries_exhausted"});
                 let payload = serde_json::json!({"stop_reason": stop_reason.clone()});
-                let _ = queries::update_session_status_if_no_active_tasks_and_insert_event(
+                match queries::update_session_status_if_no_active_tasks_and_insert_event(
                     &self.pool,
                     *session_id,
                     "terminated",
@@ -184,7 +190,23 @@ impl TaskController {
                     "session.status_terminated",
                     &payload,
                 )
-                .await;
+                .await
+                {
+                    Ok(Some((event_id, seq))) => {
+                        let envelope = EventEnvelope::new(
+                            *session_id,
+                            "session.status_terminated",
+                            payload,
+                        )
+                        .status_change(Some(stop_reason))
+                        .with_db_persisted(event_id, seq);
+                        self.event_bus.publish(envelope).await;
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        error!(session_id = %session_id, error = %error, "Failed to terminate stale rescheduling session");
+                    }
+                }
             }
 
             // Reset running sessions only when stale and no active task remains.
@@ -205,7 +227,7 @@ impl TaskController {
             for (session_id,) in &stale_running_sessions {
                 let stop_reason = serde_json::json!({"type":"end_turn"});
                 let payload = serde_json::json!({"stop_reason": stop_reason.clone()});
-                let _ = queries::update_session_status_if_no_active_tasks_and_insert_event(
+                match queries::update_session_status_if_no_active_tasks_and_insert_event(
                     &self.pool,
                     *session_id,
                     "idle",
@@ -213,7 +235,20 @@ impl TaskController {
                     "session.status_idle",
                     &payload,
                 )
-                .await;
+                .await
+                {
+                    Ok(Some((event_id, seq))) => {
+                        let envelope =
+                            EventEnvelope::new(*session_id, "session.status_idle", payload)
+                                .status_change(Some(stop_reason))
+                                .with_db_persisted(event_id, seq);
+                        self.event_bus.publish(envelope).await;
+                    }
+                    Ok(None) => {}
+                    Err(error) => {
+                        error!(session_id = %session_id, error = %error, "Failed to idle stale running session");
+                    }
+                }
             }
 
             info!(
@@ -314,51 +349,44 @@ impl TaskController {
             let task_id = &task.id;
             let reason = "task ownership lease expired";
             if task.retry_count < task.max_retries {
-                if queries::retry_lease_expired_task(&self.pool, *task_id, reason).await? {
-                    if let Some(sandbox_id) = task.sandbox_id {
-                        let _ = queries::complete_sandbox_task(&self.pool, sandbox_id).await;
-                    }
-                    if let Some(session_id) = task.session_id {
-                        let stop_reason =
-                            serde_json::json!({"type": "failover", "message": reason});
-                        let payload = serde_json::json!({
-                            "task_id": task_id.to_string(),
-                            "stop_reason": stop_reason.clone(),
-                        });
-                        let _ = queries::update_session_status_and_insert_event(
-                            &self.pool,
-                            session_id,
-                            "rescheduling",
-                            Some(&stop_reason),
-                            "session.status_rescheduling",
-                            &payload,
-                        )
-                        .await;
-                    }
+                let stop_reason = serde_json::json!({"type": "failover", "message": reason});
+                if let Some(outcome) = queries::retry_lease_expired_task_and_reschedule_session(
+                    &self.pool,
+                    *task_id,
+                    task.retry_count,
+                    task.owner_epoch,
+                    task.sandbox_id,
+                    reason,
+                    &stop_reason,
+                )
+                .await?
+                {
+                    publish_retry_outcome(&self.event_bus, *task_id, &stop_reason, &outcome).await;
                     self.queue.push_to_global(*task_id).await?;
                     warn!(task_id = %task_id, "Requeued lease-expired running task");
                 }
-            } else if queries::fail_lease_expired_task(&self.pool, *task_id, reason).await? {
-                if let Some(sandbox_id) = task.sandbox_id {
-                    let _ = queries::complete_sandbox_task(&self.pool, sandbox_id).await;
+            } else {
+                let stop_reason = serde_json::json!({"type": "error", "message": reason});
+                match queries::transition_expired_running_task_terminal_and_idle_session(
+                    &self.pool,
+                    *task_id,
+                    task.retry_count,
+                    task.owner_epoch,
+                    task.sandbox_id,
+                    reason,
+                    &stop_reason,
+                )
+                .await?
+                {
+                    Some(outcome) => {
+                        publish_terminal_outcome(&self.event_bus, *task_id, &stop_reason, &outcome)
+                            .await;
+                        warn!(task_id = %task_id, "Failed lease-expired running task");
+                    }
+                    None => {
+                        debug!(task_id = %task_id, "Lease-expired terminal transition skipped because the observed task generation changed");
+                    }
                 }
-                if let Some(session_id) = task.session_id {
-                    let stop_reason = serde_json::json!({"type": "error", "message": reason});
-                    let payload = serde_json::json!({
-                        "task_id": task_id.to_string(),
-                        "stop_reason": stop_reason.clone(),
-                    });
-                    let _ = queries::update_session_status_if_no_active_tasks_and_insert_event(
-                        &self.pool,
-                        session_id,
-                        "idle",
-                        Some(&stop_reason),
-                        "session.status_idle",
-                        &payload,
-                    )
-                    .await;
-                }
-                warn!(task_id = %task_id, "Failed lease-expired running task");
             }
         }
         Ok(())
@@ -397,17 +425,27 @@ impl TaskController {
         // Perform transitions outside the lock transaction (they have their own guards)
         for (task_id, session_id, sandbox_id, owner_epoch) in &overdue {
             warn!(task_id = %task_id, "Task overdue, marking as timeout");
-            let transitioned = match queries::transition_task_cas_observed_owner_epoch(
+            let stop_reason = serde_json::json!({"type":"timeout"});
+            let transitioned = match queries::transition_running_task_terminal_and_idle_session(
                 &self.pool,
                 *task_id,
-                "running",
-                "timeout",
-                Some("task exceeded deadline (detected by TaskController)"),
                 *owner_epoch,
+                *sandbox_id,
+                "timeout",
+                None,
+                Some("task exceeded deadline (detected by TaskController)"),
+                None,
+                None,
+                &stop_reason,
             )
             .await
             {
-                Ok(value) => value,
+                Ok(Some(outcome)) => {
+                    publish_terminal_outcome(&self.event_bus, *task_id, &stop_reason, &outcome)
+                        .await;
+                    true
+                }
+                Ok(None) => false,
                 Err(e) => {
                     error!(task_id = %task_id, error = %e, "Failed to mark overdue task timeout");
                     false
@@ -419,26 +457,7 @@ impl TaskController {
                 continue;
             }
 
-            if let Some(sandbox_id) = sandbox_id {
-                let _ = queries::complete_sandbox_task(&self.pool, *sandbox_id).await;
-            }
-
-            if let Some(sid) = session_id {
-                let stop_reason = serde_json::json!({"type":"timeout"});
-                let payload = serde_json::json!({
-                    "task_id": task_id.to_string(),
-                    "stop_reason": stop_reason.clone()
-                });
-                let _ = queries::update_session_status_if_no_active_tasks_and_insert_event(
-                    &self.pool,
-                    *sid,
-                    "idle",
-                    Some(&stop_reason),
-                    "session.status_idle",
-                    &payload,
-                )
-                .await;
-            }
+            let _ = session_id;
         }
 
         if !overdue.is_empty() {
@@ -485,8 +504,8 @@ impl TaskController {
                 warn!(task_id = %task_id, "Task stuck in scheduling past max_retries, marking failed");
                 self.fail_scheduling_task_and_mark_session_idle(
                     *task_id,
-                    *session_id,
                     *sandbox_id,
+                    *retry_count,
                     "scheduling stuck after max retries",
                 )
                 .await;
@@ -557,7 +576,7 @@ impl TaskController {
     async fn retry_task_and_mark_session_rescheduling(
         &self,
         task_id: TaskId,
-        session_id: Option<SessionId>,
+        _session_id: Option<SessionId>,
         sandbox_id: Option<SandboxId>,
         expected_retry_count: Option<i32>,
         expected_owner_epoch: Option<i64>,
@@ -567,40 +586,25 @@ impl TaskController {
             return false;
         };
 
-        match queries::increment_running_retry(
+        let stop_reason = serde_json::json!({"type":"sandbox_failed"});
+        match queries::retry_running_task_and_reschedule_session(
             &self.pool,
             task_id,
             expected_retry_count,
             expected_owner_epoch,
+            sandbox_id,
+            &stop_reason,
         )
         .await
         {
-            Ok(true) => {
-                if let Some(sandbox_id) = sandbox_id {
-                    let _ = queries::complete_sandbox_task(&self.pool, sandbox_id).await;
-                }
-                if let Some(session_id) = session_id {
-                    let stop_reason = serde_json::json!({"type":"sandbox_failed"});
-                    let payload = serde_json::json!({
-                        "task_id": task_id.to_string(),
-                        "stop_reason": stop_reason.clone()
-                    });
-                    let _ = queries::update_session_status_and_insert_event(
-                        &self.pool,
-                        session_id,
-                        "rescheduling",
-                        Some(&stop_reason),
-                        "session.status_rescheduling",
-                        &payload,
-                    )
-                    .await;
-                }
+            Ok(Some(outcome)) => {
+                publish_retry_outcome(&self.event_bus, task_id, &stop_reason, &outcome).await;
                 if let Err(e) = self.queue.push_to_global(task_id).await {
                     warn!(task_id = %task_id, error = %e, "Failed to re-enqueue running task after retry");
                 }
                 true
             }
-            Ok(false) => {
+            Ok(None) => {
                 warn!(task_id = %task_id, "Retry skipped because task is no longer running or retry count changed");
                 false
             }
@@ -614,34 +618,28 @@ impl TaskController {
     async fn retry_scheduling_task_and_mark_session_rescheduling(
         &self,
         task_id: TaskId,
-        session_id: Option<SessionId>,
+        _session_id: Option<SessionId>,
         sandbox_id: Option<SandboxId>,
         expected_retry_count: i32,
     ) -> bool {
-        match queries::increment_scheduling_retry(&self.pool, task_id, expected_retry_count).await {
-            Ok(true) => {
-                if let Some(sandbox_id) = sandbox_id {
-                    let _ = queries::complete_sandbox_task(&self.pool, sandbox_id).await;
-                }
-                if let Some(session_id) = session_id {
-                    let stop_reason = serde_json::json!({"type":"sandbox_failed"});
-                    let payload = serde_json::json!({
-                        "task_id": task_id.to_string(),
-                        "stop_reason": stop_reason.clone()
-                    });
-                    let _ = queries::update_session_status_and_insert_event(
-                        &self.pool,
-                        session_id,
-                        "rescheduling",
-                        Some(&stop_reason),
-                        "session.status_rescheduling",
-                        &payload,
-                    )
-                    .await;
-                }
+        let stop_reason = serde_json::json!({"type":"sandbox_failed"});
+        match queries::retry_scheduling_task_and_reschedule_session(
+            &self.pool,
+            task_id,
+            expected_retry_count,
+            sandbox_id,
+            0,
+            "runtime_retry",
+            "runtime retry",
+            &stop_reason,
+        )
+        .await
+        {
+            Ok(Some(outcome)) => {
+                publish_retry_outcome(&self.event_bus, task_id, &stop_reason, &outcome).await;
                 true
             }
-            Ok(false) => {
+            Ok(None) => {
                 warn!(task_id = %task_id, "Scheduling retry skipped because task is no longer scheduling");
                 false
             }
@@ -655,43 +653,30 @@ impl TaskController {
     async fn fail_task_and_mark_session_idle(
         &self,
         task_id: TaskId,
-        session_id: Option<SessionId>,
+        _session_id: Option<SessionId>,
         sandbox_id: Option<SandboxId>,
         observed_owner_epoch: Option<i64>,
         reason: &str,
     ) {
-        match queries::transition_task_cas_observed_owner_epoch(
+        let stop_reason = serde_json::json!({"type":"error", "message": reason});
+        match queries::transition_running_task_terminal_and_idle_session(
             &self.pool,
             task_id,
-            "running",
-            "failed",
-            Some(reason),
             observed_owner_epoch,
+            sandbox_id,
+            "failed",
+            None,
+            Some(reason),
+            None,
+            None,
+            &stop_reason,
         )
         .await
         {
-            Ok(true) => {
-                if let Some(sandbox_id) = sandbox_id {
-                    let _ = queries::complete_sandbox_task(&self.pool, sandbox_id).await;
-                }
-                if let Some(session_id) = session_id {
-                    let stop_reason = serde_json::json!({"type":"error", "message": reason});
-                    let payload = serde_json::json!({
-                        "task_id": task_id.to_string(),
-                        "stop_reason": stop_reason.clone()
-                    });
-                    let _ = queries::update_session_status_if_no_active_tasks_and_insert_event(
-                        &self.pool,
-                        session_id,
-                        "idle",
-                        Some(&stop_reason),
-                        "session.status_idle",
-                        &payload,
-                    )
-                    .await;
-                }
+            Ok(Some(outcome)) => {
+                publish_terminal_outcome(&self.event_bus, task_id, &stop_reason, &outcome).await;
             }
-            Ok(false) => {
+            Ok(None) => {
                 warn!(task_id = %task_id, "Task failure skipped because task is no longer running");
             }
             Err(e) => {
@@ -703,43 +688,27 @@ impl TaskController {
     async fn fail_scheduling_task_and_mark_session_idle(
         &self,
         task_id: TaskId,
-        session_id: Option<SessionId>,
         sandbox_id: Option<SandboxId>,
+        expected_retry_count: i32,
         reason: &str,
     ) -> bool {
-        match queries::transition_task_cas(
+        let stop_reason = serde_json::json!({"type":"error", "message": reason});
+        match queries::transition_scheduling_task_terminal_and_idle_session(
             &self.pool,
             task_id,
-            "scheduling",
+            expected_retry_count,
+            sandbox_id,
             "failed",
-            Some(reason),
-            None,
+            reason,
+            &stop_reason,
         )
         .await
         {
-            Ok(true) => {
-                if let Some(sandbox_id) = sandbox_id {
-                    let _ = queries::complete_sandbox_task(&self.pool, sandbox_id).await;
-                }
-                if let Some(session_id) = session_id {
-                    let stop_reason = serde_json::json!({"type":"error", "message": reason});
-                    let payload = serde_json::json!({
-                        "task_id": task_id.to_string(),
-                        "stop_reason": stop_reason.clone()
-                    });
-                    let _ = queries::update_session_status_if_no_active_tasks_and_insert_event(
-                        &self.pool,
-                        session_id,
-                        "idle",
-                        Some(&stop_reason),
-                        "session.status_idle",
-                        &payload,
-                    )
-                    .await;
-                }
+            Ok(Some(outcome)) => {
+                publish_terminal_outcome(&self.event_bus, task_id, &stop_reason, &outcome).await;
                 true
             }
-            Ok(false) => {
+            Ok(None) => {
                 warn!(task_id = %task_id, "Scheduling failure skipped because task is no longer scheduling");
                 false
             }
@@ -785,38 +754,27 @@ impl TaskController {
                 .await
                 .unwrap_or(false)
             {
-                match queries::transition_task_cas_observed_owner_epoch(
+                let stop_reason = serde_json::json!({"type":"end_turn"});
+                match queries::transition_running_task_terminal_and_idle_session(
                     &self.pool,
                     task_id,
-                    "running",
+                    task.owner_epoch,
+                    task.sandbox_id,
                     "completed",
                     None,
-                    task.owner_epoch,
+                    None,
+                    None,
+                    None,
+                    &stop_reason,
                 )
                 .await
                 {
-                    Ok(true) => {
-                        if let Some(sandbox_id) = task.sandbox_id {
-                            let _ = queries::complete_sandbox_task(&self.pool, sandbox_id).await;
-                        }
-                        // #15: Also transition session to idle (Python L308-318)
-                        let stop_reason = serde_json::json!({"type":"end_turn"});
-                        let payload = serde_json::json!({
-                            "task_id": task_id.to_string(),
-                            "stop_reason": stop_reason.clone()
-                        });
-                        let _ = queries::update_session_status_if_no_active_tasks_and_insert_event(
-                            &self.pool,
-                            sid,
-                            "idle",
-                            Some(&stop_reason),
-                            "session.status_idle",
-                            &payload,
-                        )
-                        .await;
+                    Ok(Some(outcome)) => {
+                        publish_terminal_outcome(&self.event_bus, task_id, &stop_reason, &outcome)
+                            .await;
                         info!(task_id = %task_id, "Task had agent output, marking completed + session idle");
                     }
-                    Ok(false) => {
+                    Ok(None) => {
                         warn!(task_id = %task_id, "Agent-output completion skipped because task was no longer running");
                     }
                     Err(e) => {
@@ -881,6 +839,7 @@ mod tests {
     use super::*;
     use crate::ids::AgentId;
     use crate::kernel::sandbox_bridge::BridgeRegistry;
+    use crate::runtime_config::RuntimeConfig;
 
     static DATABASE_TEST_LOCK: Mutex<()> = Mutex::const_new(());
 
@@ -915,10 +874,16 @@ mod tests {
         )
         .expect("build redis client");
         TaskController::new(
-            pool,
+            pool.clone(),
             TaskQueue::new(redis_client),
-            config,
+            config.clone(),
             Arc::new(BridgeRegistry::new()),
+            EventBus::new(
+                pool,
+                &config,
+                Arc::new(RuntimeConfig::from_config(&config)),
+                redis::Client::open("redis://127.0.0.1:1/").expect("build event redis client"),
+            ),
         )
     }
 
@@ -1198,6 +1163,79 @@ mod tests {
         .await;
 
         cleanup(&pool, agent_id, session_id, sandbox_id).await;
+        result
+    }
+
+    #[tokio::test]
+    async fn task_controller_startup_recovery_broadcasts_stale_session_repairs() {
+        let Some((_database_guard, pool)) = test_pool().await else {
+            return;
+        };
+        cleanup_test_artifacts(&pool).await;
+        let (rescheduling_agent_id, rescheduling_session_id) =
+            create_agent_session(&pool, "rescheduling").await;
+        let (running_agent_id, running_session_id) = create_agent_session(&pool, "running").await;
+        sqlx::query(
+            "UPDATE joysafeter_sessions SET updated_at = NOW() - INTERVAL '10 minutes' WHERE id IN ($1, $2)",
+        )
+        .bind(rescheduling_session_id)
+        .bind(running_session_id)
+        .execute(&pool)
+        .await
+        .expect("make sessions stale");
+
+        let result = async {
+            let controller = test_controller(pool.clone());
+            let mut events = controller.event_bus.subscribe();
+            controller
+                .recover_on_startup()
+                .await
+                .expect("startup recovery succeeds");
+
+            let (terminated, idle) = tokio::time::timeout(Duration::from_secs(1), async {
+                let mut terminated = None;
+                let mut idle = None;
+                while terminated.is_none() || idle.is_none() {
+                    let event = events.recv().await.expect("event bus remains open");
+                    if event.session_id == rescheduling_session_id {
+                        terminated = Some(event);
+                    } else if event.session_id == running_session_id {
+                        idle = Some(event);
+                    }
+                }
+                (terminated.unwrap(), idle.unwrap())
+            })
+            .await
+            .expect("session repair events must be broadcast without DB fallback");
+            assert_eq!(terminated.event_type, "session.status_terminated");
+            assert_eq!(terminated.session_id, rescheduling_session_id);
+            assert!(terminated.db_persisted);
+            assert!(terminated.event_id.is_some());
+            assert!(terminated.session_seq.is_some());
+
+            assert_eq!(idle.event_type, "session.status_idle");
+            assert_eq!(idle.session_id, running_session_id);
+            assert!(idle.db_persisted);
+            assert!(idle.event_id.is_some());
+            assert!(idle.session_seq.is_some());
+        }
+        .await;
+
+        let _ = sqlx::query("DELETE FROM joysafeter_session_events WHERE session_id IN ($1, $2)")
+            .bind(rescheduling_session_id)
+            .bind(running_session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_sessions WHERE id IN ($1, $2)")
+            .bind(rescheduling_session_id)
+            .bind(running_session_id)
+            .execute(&pool)
+            .await;
+        let _ = sqlx::query("DELETE FROM joysafeter_agents WHERE id IN ($1, $2)")
+            .bind(rescheduling_agent_id)
+            .bind(running_agent_id)
+            .execute(&pool)
+            .await;
         result
     }
 
@@ -1562,7 +1600,7 @@ mod tests {
             .execute(&pool)
             .await
             .expect("simulate task already pending");
-            queries::complete_sandbox_task(&pool, sandbox_id)
+            queries::complete_sandbox_task(&pool, sandbox_id, task_id)
                 .await
                 .expect("release sandbox for pending task");
 
@@ -1747,8 +1785,8 @@ mod tests {
                 !controller
                     .fail_scheduling_task_and_mark_session_idle(
                         task_id,
-                        Some(session_id),
                         Some(sandbox_id),
+                        2,
                         "scheduling stuck after max retries",
                     )
                     .await
@@ -2036,7 +2074,7 @@ mod tests {
             .execute(&pool)
             .await
             .expect("simulate retry after output");
-            queries::complete_sandbox_task(&pool, sandbox_id)
+            queries::complete_sandbox_task(&pool, sandbox_id, task_id)
                 .await
                 .expect("release sandbox after simulated retry");
             let stop_reason = serde_json::json!({"type": "sandbox_failed"});

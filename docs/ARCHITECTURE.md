@@ -649,6 +649,10 @@ or provider destruction, `BridgeStore::owns_connection` must prove that the exac
 still matches the Redis generation token. Missing keys, replacement generations, and Redis errors fail
 closed.
 
+The xDS authority worker owns foreground request concurrency. It keeps a fixed upper bound on in-flight
+apply tasks, coalesces queued requests by sandbox, and aborts its structured task set when authority is
+revoked. Generation and epoch fencing remain the correctness boundary for work already admitted.
+
 For node-scoped delivery, xDS publication waits inside `NodeOwnershipRegistry` for the authoritative
 placement revision before exposing resources. The Kubernetes watcher still only emits facts; schedulers and
 providers do not add Kubernetes-specific sleeps or retries. The enclosing delivery timeout owns the terminal
@@ -864,17 +868,24 @@ generation remains `pending` for the PostgreSQL-driven degraded-policy reconcile
 reserved for invalid policy state or terminal delivery failure. Standby and `Staging` ADS calls fail closed. Losing the Lease or shutting down
 revokes the epoch, disables ADS, actively closes existing ADS streams, and removes the label; the
 design does not rely on Kubernetes endpoint removal to terminate established HTTP/2 connections.
-Every mutation is serialized by one authority application lock and carries an epoch guard. ACK and
-NACK persistence are terminal compare-and-set transitions from `pending`, so a late failure cannot
-overwrite an acknowledged generation. Teardown requests are revalidated against the sandbox's
-current PostgreSQL lifecycle/network mode before touching provider-local xDS state. NACK, timeout,
-generation drift, or persistence failure leaves the sandbox non-ready.
+Every foreground mutation, recovery install, and stale-inventory publication is serialized by one
+authority application lock and carries an epoch guard. Periodic inventory discovery runs as
+maintenance work, but its resource-world mutation remains in that serialized critical section so
+an older PostgreSQL snapshot cannot remove a policy published by a newer foreground request. The
+maintenance path publishes stale removals without waiting for Envoy ACK while holding the lock;
+the authoritative resource snapshot and reconnect delta reconciliation provide eventual removal.
+ACK and NACK persistence are terminal compare-and-set transitions from `pending`, so a late failure
+cannot overwrite an acknowledged generation. Teardown requests are revalidated against the
+sandbox's current PostgreSQL lifecycle/network mode before touching provider-local xDS state. NACK,
+timeout, generation drift, or persistence failure leaves the sandbox non-ready.
 
 Redis delivery is deliberately non-authoritative. Missed reconcile messages are repaired by the
 leader-only degraded-policy loop using PostgreSQL. Missed teardown messages are bounded by the
 authority's periodic prune, which removes only xDS resources absent from the live PostgreSQL
-inventory without republishing healthy generations. A new leader always rebuilds from PostgreSQL
-and never depends on replaying Redis history.
+inventory without republishing healthy generations. Prune failures are isolated per stale sandbox
+and rate-limited by the normal maintenance interval; removal ACK is not a prune correctness
+precondition. A new leader always rebuilds from PostgreSQL and never depends on replaying Redis
+history.
 
 The health port exposes `/healthz/xds` and `/metrics`. `/healthz/xds` is 200 only in `Ready`; all
 other authority phases and disabled xDS return 503. Metrics use bounded labels and cover authority
@@ -933,6 +944,11 @@ service method (no unit-of-work).
 
 Four distinct FSMs govern lifecycle. Transitions are guarded (conditional `UPDATE ... WHERE
 status = ...` or advisory-locked) so concurrent writers can't corrupt state.
+
+Retry is one cross-entity PostgreSQL transition: the expected task generation moves to `pending`, its exact
+sandbox-task association is released, the session moves to `rescheduling`, and the replayable
+`session.status_rescheduling` event receives its canonical sequence in the same transaction. Redis queue
+publication happens only after commit and is a recoverable wakeup, never part of the durable state change.
 
 | FSM | Entity | States | Terminal |
 |---|---|---|---|

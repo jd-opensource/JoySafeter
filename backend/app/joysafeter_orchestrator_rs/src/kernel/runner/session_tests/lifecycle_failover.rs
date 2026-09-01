@@ -467,7 +467,7 @@ async fn failover_with_agent_output_does_not_complete_pending_retry() {
         .execute(&pool)
         .await
         .expect("simulate retry after output");
-        queries::complete_sandbox_task(&pool, sandbox_id)
+        queries::complete_sandbox_task(&pool, sandbox_id, task_id)
             .await
             .expect("release sandbox after simulated retry");
         let stop_reason = json!({"type": "sandbox_failed"});

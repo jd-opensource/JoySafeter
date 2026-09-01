@@ -4,7 +4,10 @@ use serde_json::Value;
 use sqlx::PgPool;
 
 use crate::ids::{SandboxId, SandboxNetworkPolicyId, SessionId, TaskId};
+use crate::kernel::network_policy::error::NetworkPolicyFailureStatus;
 use crate::kernel::network_policy::NetworkPolicyGeneration;
+
+pub const NETWORK_POLICY_MAX_ATTEMPTS: i32 = 8;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NetworkPolicyStatus {
@@ -36,6 +39,15 @@ pub struct UpsertNetworkPolicy<'a> {
     pub generation: &'a NetworkPolicyGeneration,
     pub desired_policy_json: &'a Value,
     pub rendered_summary_json: &'a Value,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct NetworkPolicyFailureRecord<'a> {
+    pub status: NetworkPolicyFailureStatus,
+    pub code: &'a str,
+    pub retryable: bool,
+    pub message: &'a str,
+    pub nack_reason: Option<&'a str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -115,28 +127,47 @@ pub async fn quarantine_recovery_generation(
     sandbox_id: SandboxId,
     observed_policy_hash: Option<&str>,
     observed_policy_version: i64,
-    reason: &str,
+    failure: NetworkPolicyFailureRecord<'_>,
 ) -> Result<NetworkPolicyFailureOutcome, sqlx::Error> {
     let result = sqlx::query(
         r#"
         UPDATE joysafeter_sandboxes
         SET networking_status = $2,
             networking_last_error = $3,
+            networking_last_error_code = $4,
+            networking_retry_count = CASE
+                WHEN $5 THEN LEAST(networking_retry_count + 1, $8)
+                ELSE networking_retry_count
+            END,
+            networking_retryable = $5 AND networking_retry_count + 1 < $8,
+            networking_next_retry_at = CASE
+                WHEN $5 AND networking_retry_count + 1 < $8
+                THEN NOW() + make_interval(
+                    secs => LEAST(
+                        300,
+                        POWER(2, LEAST(networking_retry_count + 1, 8))::INTEGER
+                    )
+                )
+                ELSE NULL
+            END,
             networking_applied_hash = NULL,
             networking_applied_version = NULL,
             networking_ready_at = NULL,
             updated_at = NOW()
         WHERE id = $1
           AND destroyed_at IS NULL
-          AND networking_policy_hash IS NOT DISTINCT FROM $4
-          AND networking_policy_version = $5
+          AND networking_policy_hash IS NOT DISTINCT FROM $6
+          AND networking_policy_version = $7
         "#,
     )
     .bind(sandbox_id)
-    .bind(NetworkPolicyStatus::Failed.as_str())
-    .bind(reason)
+    .bind(failure.status.as_str())
+    .bind(failure.message)
+    .bind(failure.code)
+    .bind(failure.retryable)
     .bind(observed_policy_hash)
     .bind(observed_policy_version)
+    .bind(NETWORK_POLICY_MAX_ATTEMPTS)
     .execute(pool)
     .await?;
 
@@ -188,6 +219,13 @@ pub async fn prepare_generation(
             networking_policy_hash = $2,
             networking_policy_version = $3,
             networking_last_error = NULL,
+            networking_last_error_code = NULL,
+            networking_retryable = FALSE,
+            networking_retry_count = CASE
+                WHEN networking_policy_hash IS DISTINCT FROM $2 THEN 0
+                ELSE networking_retry_count
+            END,
+            networking_next_retry_at = NULL,
             updated_at = NOW()
         WHERE id = $1
         "#,
@@ -209,7 +247,12 @@ pub async fn retry_generation(
     let row = sqlx::query_as::<_, (String, i64)>(
         r#"
         UPDATE joysafeter_sandboxes
-        SET networking_status = 'pending', networking_last_error = NULL, updated_at = NOW()
+        SET networking_status = 'pending',
+            networking_last_error = NULL,
+            networking_last_error_code = NULL,
+            networking_retryable = FALSE,
+            networking_next_retry_at = NULL,
+            updated_at = NOW()
         WHERE id = $1 AND destroyed_at IS NULL AND networking_policy_hash = $2
         RETURNING networking_policy_hash, networking_policy_version
         "#,
@@ -275,6 +318,13 @@ pub async fn prepare_recovery_generation(
             networking_applied_hash = NULL,
             networking_applied_version = NULL,
             networking_last_error = NULL,
+            networking_last_error_code = NULL,
+            networking_retryable = FALSE,
+            networking_retry_count = CASE
+                WHEN networking_policy_hash IS DISTINCT FROM $2 THEN 0
+                ELSE networking_retry_count
+            END,
+            networking_next_retry_at = NULL,
             networking_ready_at = NULL,
             updated_at = NOW()
         WHERE id = $1
@@ -302,6 +352,10 @@ pub async fn mark_generation_applied(
             networking_applied_hash = $2,
             networking_applied_version = $3,
             networking_last_error = NULL,
+            networking_last_error_code = NULL,
+            networking_retryable = FALSE,
+            networking_retry_count = 0,
+            networking_next_retry_at = NULL,
             networking_ready_at = NOW(),
             updated_at = NOW()
         WHERE id = $1
@@ -331,14 +385,30 @@ pub async fn mark_generation_applied(
 pub async fn record_generation_failure(
     pool: &PgPool,
     policy: UpsertNetworkPolicy<'_>,
-    reason: &str,
+    failure: NetworkPolicyFailureRecord<'_>,
 ) -> Result<NetworkPolicyFailureOutcome, sqlx::Error> {
     let result = sqlx::query(
         r#"
         WITH status_update AS (
             UPDATE joysafeter_sandboxes
-            SET networking_status = 'nacked',
-                networking_last_error = $7,
+            SET networking_status = $8,
+                networking_last_error = $9,
+                networking_last_error_code = $11,
+                networking_retry_count = CASE
+                    WHEN $12 THEN LEAST(networking_retry_count + 1, $14)
+                    ELSE networking_retry_count
+                END,
+                networking_retryable = $12 AND networking_retry_count + 1 < $14,
+                networking_next_retry_at = CASE
+                    WHEN $12 AND networking_retry_count + 1 < $14
+                    THEN NOW() + make_interval(
+                        secs => LEAST(
+                            300,
+                            POWER(2, LEAST(networking_retry_count + 1, 8))::INTEGER
+                        )
+                    )
+                    ELSE NULL
+                END,
                 updated_at = NOW()
             WHERE id = $1
               AND destroyed_at IS NULL
@@ -347,24 +417,28 @@ pub async fn record_generation_failure(
               AND networking_policy_version = $3
             RETURNING id,
                       chat_session_id,
-                      networking_policy_version AS policy_version
+                      networking_policy_version AS policy_version,
+                      networking_retryable AS retryable
         )
         INSERT INTO joysafeter_sandbox_network_policies (
             id, sandbox_id, session_id, task_id, policy_hash, policy_version,
             desired_policy_json, rendered_summary_json, status,
-            last_error, last_nack_reason, created_at, updated_at
+            last_error, last_nack_reason, error_code, retryable,
+            created_at, updated_at
         )
-        SELECT $9,
+        SELECT $13,
                status_update.id,
                COALESCE($4, status_update.chat_session_id),
                $5,
                $2,
                status_update.policy_version,
                $6,
+               $7,
                $8,
-               'nacked',
-               $7,
-               $7,
+               $9,
+               $10,
+               $11,
+               status_update.retryable,
                NOW(),
                NOW()
         FROM status_update
@@ -374,9 +448,11 @@ pub async fn record_generation_failure(
             policy_hash = EXCLUDED.policy_hash,
             desired_policy_json = EXCLUDED.desired_policy_json,
             rendered_summary_json = EXCLUDED.rendered_summary_json,
-            status = 'nacked',
+            status = EXCLUDED.status,
             last_error = EXCLUDED.last_error,
             last_nack_reason = EXCLUDED.last_nack_reason,
+            error_code = EXCLUDED.error_code,
+            retryable = EXCLUDED.retryable,
             updated_at = NOW()
         "#,
     )
@@ -386,9 +462,14 @@ pub async fn record_generation_failure(
     .bind(policy.session_id)
     .bind(policy.task_id)
     .bind(policy.desired_policy_json)
-    .bind(reason)
     .bind(policy.rendered_summary_json)
+    .bind(failure.status.as_str())
+    .bind(failure.message)
+    .bind(failure.nack_reason)
+    .bind(failure.code)
+    .bind(failure.retryable)
     .bind(policy.id)
+    .bind(NETWORK_POLICY_MAX_ATTEMPTS)
     .execute(pool)
     .await?;
 

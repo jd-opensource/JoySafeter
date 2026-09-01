@@ -13,6 +13,7 @@ use crate::ids::SandboxId;
 pub mod application;
 pub mod authority;
 pub mod envoy_model;
+pub(crate) mod error;
 pub(crate) mod identity;
 pub mod material;
 pub mod ports;
@@ -21,6 +22,7 @@ pub mod recovery;
 pub mod request;
 pub(crate) mod service;
 
+pub use error::{NetworkPolicyApplyError, NetworkPolicyFailureStatus};
 pub use request::{NetworkPolicyAction, NetworkPolicyRequest};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -214,8 +216,60 @@ fn sha256_hex(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::envoy_model::{EgressExposure, EgressKind, EgressRetryMode};
+    use super::error::{
+        NetworkPolicyApplyError, NetworkPolicyFailurePersistence, NetworkPolicyFailureStatus,
+    };
     use super::*;
     use uuid::Uuid;
+
+    #[test]
+    fn policy_failure_classification_is_closed_and_precise() {
+        let nack = NetworkPolicyApplyError::DeliveryNacked {
+            resource_type: "Listener".to_string(),
+            reason: "invalid listener".to_string(),
+        };
+        assert_eq!(nack.code(), "delivery_nacked");
+        assert_eq!(
+            nack.persistence(),
+            Some(NetworkPolicyFailurePersistence {
+                status: NetworkPolicyFailureStatus::Nacked,
+                retryable: false,
+                nack_reason: Some("invalid listener"),
+            })
+        );
+
+        for error in [
+            NetworkPolicyApplyError::DeliveryTimedOut,
+            NetworkPolicyApplyError::PublicationUnavailable("control plane unavailable".into()),
+            NetworkPolicyApplyError::SocketNotReady("socket missing".into()),
+            NetworkPolicyApplyError::AuthorityChanged,
+        ] {
+            let persistence = error.persistence().expect("retryable failure persists");
+            assert_eq!(persistence.status, NetworkPolicyFailureStatus::Failed);
+            assert!(persistence.retryable);
+            assert_eq!(persistence.nack_reason, None);
+        }
+
+        let invalid = NetworkPolicyApplyError::InvalidPolicy("bad host".into());
+        assert_eq!(invalid.code(), "invalid_policy");
+        assert_eq!(
+            invalid.persistence(),
+            Some(NetworkPolicyFailurePersistence {
+                status: NetworkPolicyFailureStatus::Failed,
+                retryable: false,
+                nack_reason: None,
+            })
+        );
+
+        assert_eq!(
+            NetworkPolicyApplyError::GenerationSuperseded.persistence(),
+            None
+        );
+        assert_eq!(
+            NetworkPolicyApplyError::DeliverySuperseded.persistence(),
+            None
+        );
+    }
 
     fn credentials() -> SandboxCredentials {
         SandboxCredentials {

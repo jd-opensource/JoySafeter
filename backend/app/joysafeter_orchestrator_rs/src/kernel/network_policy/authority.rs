@@ -71,8 +71,18 @@ mod tests {
             Ok(())
         }
 
-        async fn prune(&self, _live_sandbox_ids: &HashSet<SandboxId>) -> anyhow::Result<usize> {
-            Ok(0)
+        async fn publish_prune(
+            &self,
+            _live_sandbox_ids: &HashSet<SandboxId>,
+        ) -> anyhow::Result<super::super::ports::NetworkPolicyPruneTicket> {
+            Ok(super::super::ports::NetworkPolicyPruneTicket::completed(0))
+        }
+
+        async fn settle_prune(
+            &self,
+            ticket: super::super::ports::NetworkPolicyPruneTicket,
+        ) -> anyhow::Result<usize> {
+            Ok(ticket.removed())
         }
 
         async fn recover(
@@ -93,7 +103,7 @@ mod tests {
             &self,
             _request: super::super::ports::NetworkPolicyApplyRequest,
             _policy: super::super::envoy_model::SandboxEgressPolicy,
-        ) -> anyhow::Result<()> {
+        ) -> Result<(), super::super::error::NetworkPolicyApplyError> {
             Ok(())
         }
 

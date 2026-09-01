@@ -10,6 +10,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::config::JoySafeterConfig;
 use crate::db::queries;
+use crate::events::bus::EventBus;
 use crate::ids::{AgentId, ProjectId, SessionId, TaskId};
 use crate::kernel::credentials::snapshot;
 use crate::kernel::credentials::{error::CredentialRuntimeError, CredentialStore};
@@ -17,6 +18,7 @@ use crate::kernel::ha::BridgeStore;
 use crate::kernel::queue::TaskQueue;
 use crate::kernel::runtime_freshness::RuntimeFreshnessError;
 use crate::kernel::sandbox_resolver::{SandboxIdentityPolicy, SandboxResolution};
+use crate::kernel::task_state::{publish_retry_outcome, publish_terminal_outcome};
 
 const QUEUE_POP_TIMEOUT: Duration = Duration::from_secs(1);
 const DB_REPAIR_SWEEP_INTERVAL: Duration = Duration::from_secs(30);
@@ -49,6 +51,7 @@ pub(crate) fn spawn_scheduler(
     resolver: Arc<dyn SandboxResolution>,
     identity_policy: Arc<dyn SandboxIdentityPolicy>,
     config: JoySafeterConfig,
+    event_bus: EventBus,
 ) -> JoinHandle<()> {
     let scheduling_semaphore = Arc::new(Semaphore::new(config.max_scheduling_tasks));
 
@@ -145,6 +148,7 @@ pub(crate) fn spawn_scheduler(
                 let config = config.clone();
                 let resolver = resolver.clone();
                 let identity_policy = identity_policy.clone();
+                let event_bus = event_bus.clone();
                 let sched_sem = scheduling_semaphore.clone();
 
                 // Acquire scheduling semaphore
@@ -172,6 +176,7 @@ pub(crate) fn spawn_scheduler(
                             &config,
                             resolver.as_ref(),
                             identity_policy.as_ref(),
+                            &event_bus,
                             task_id,
                             task.agent_id,
                             task.session_id,
@@ -194,6 +199,7 @@ pub(crate) fn spawn_scheduler(
                             task_id,
                             &e.to_string(),
                             permanent_code,
+                            &event_bus,
                         )
                         .await;
                     }
@@ -215,6 +221,7 @@ async fn schedule_single_task(
     config: &JoySafeterConfig,
     resolver: &dyn SandboxResolution,
     identity_policy: &dyn SandboxIdentityPolicy,
+    event_bus: &EventBus,
     task_id: TaskId,
     agent_id: Option<AgentId>,
     mut session_id: Option<SessionId>,
@@ -231,6 +238,7 @@ async fn schedule_single_task(
         None => {
             mark_terminal_task_and_session_idle(
                 pool,
+                event_bus,
                 task_id,
                 session_id,
                 "failed",
@@ -258,6 +266,7 @@ async fn schedule_single_task(
         );
         mark_terminal_task_and_session_idle(
             pool,
+            event_bus,
             task_id,
             session_id,
             "cancelled",
@@ -460,6 +469,7 @@ async fn handle_scheduling_failure(
     task_id: TaskId,
     reason: &str,
     permanent_code: Option<&str>,
+    event_bus: &EventBus,
 ) {
     let task = match queries::get_task(pool, task_id).await {
         Ok(Some(task)) => task,
@@ -478,69 +488,36 @@ async fn handle_scheduling_failure(
         return;
     }
 
-    if let Some(sandbox_id) = task.sandbox_id {
-        let _ = queries::complete_sandbox_task(pool, sandbox_id).await;
-    }
-
     // Permanent credential failures can never succeed on retry. Fail fast to a
     // terminal state carrying the machine code instead of burning retries while
     // the UI shows a misleading "rescheduling" status.
     if permanent_code.is_none() && task.retry_count < task.max_retries {
         let next_retry_count = task.retry_count + 1;
         let backoff = scheduling_retry_backoff(next_retry_count);
-        match queries::increment_scheduling_retry_keep_scheduling(
+        let stop_reason = json!({"type": "sandbox_failed"});
+        match queries::retry_scheduling_task_and_reschedule_session(
             pool,
             task_id,
             task.retry_count,
+            task.sandbox_id,
             backoff.as_secs() as i64,
             classify_scheduling_error(reason),
             reason,
+            &stop_reason,
         )
         .await
         {
-            Ok(true) => {
-                if let Some(session_id) = task.session_id {
-                    let stop_reason = json!({"type": "sandbox_failed"});
-                    let payload = json!({
-                        "task_id": task_id.to_string(),
-                        "stop_reason": stop_reason.clone()
-                    });
-                    if let Err(e) = queries::update_session_status_and_insert_event(
-                        pool,
-                        session_id,
-                        "rescheduling",
-                        Some(&stop_reason),
-                        "session.status_rescheduling",
-                        &payload,
-                    )
-                    .await
-                    {
-                        error!(
-                            task_id = %task_id,
-                            session_id = %session_id,
-                            error = %e,
-                            "Failed to persist scheduler rescheduling status"
-                        );
-                    }
-                }
-                match queries::release_scheduling_retry_to_pending(pool, task_id, next_retry_count)
-                    .await
-                {
-                    Ok(true) => debug!(
-                        task_id = %task_id,
-                        retry = next_retry_count,
-                        backoff_seconds = backoff.as_secs(),
-                        "Scheduling retry persisted with durable DB backoff"
-                    ),
-                    Ok(false) => {
-                        warn!(task_id = %task_id, "Scheduling retry release skipped due to CAS conflict")
-                    }
-                    Err(e) => {
-                        error!(task_id = %task_id, error = %e, "Failed to release scheduling retry after persisting backoff")
-                    }
-                }
+            Ok(Some(outcome)) => {
+                publish_retry_outcome(event_bus, task_id, &stop_reason, &outcome).await;
+                debug!(
+                    task_id = %task_id,
+                    retry = next_retry_count,
+                    backoff_seconds = backoff.as_secs(),
+                    sandbox_released = outcome.sandbox_released,
+                    "Scheduling retry committed atomically"
+                );
             }
-            Ok(false) => {
+            Ok(None) => {
                 warn!(task_id = %task_id, "Scheduling retry skipped due to CAS conflict");
             }
             Err(e) => {
@@ -556,6 +533,7 @@ async fn handle_scheduling_failure(
     };
     mark_terminal_task_and_session_idle(
         pool,
+        event_bus,
         task_id,
         task.session_id,
         "failed",
@@ -587,41 +565,36 @@ fn classify_scheduling_error(reason: &str) -> &'static str {
 
 async fn mark_terminal_task_and_session_idle(
     pool: &PgPool,
+    event_bus: &EventBus,
     task_id: TaskId,
-    session_id: Option<SessionId>,
+    _session_id: Option<SessionId>,
     task_status: &str,
     reason: &str,
     stop_reason: Value,
 ) {
-    match queries::transition_task_cas(pool, task_id, "scheduling", task_status, Some(reason), None)
-        .await
-    {
-        Ok(true) => {
-            if let Some(session_id) = session_id {
-                let payload = json!({
-                    "task_id": task_id.to_string(),
-                    "stop_reason": stop_reason.clone()
-                });
-                if let Err(e) = queries::update_session_status_if_no_active_tasks_and_insert_event(
-                    pool,
-                    session_id,
-                    "idle",
-                    Some(&stop_reason),
-                    "session.status_idle",
-                    &payload,
-                )
-                .await
-                {
-                    error!(
-                        task_id = %task_id,
-                        session_id = %session_id,
-                        error = %e,
-                        "Failed to persist scheduler idle status"
-                    );
-                }
-            }
+    let task = match queries::get_task(pool, task_id).await {
+        Ok(Some(task)) => task,
+        Ok(None) => return,
+        Err(error) => {
+            error!(task_id = %task_id, error = %error, "Failed to load scheduler task for terminal transition");
+            return;
         }
-        Ok(false) => {
+    };
+    match queries::transition_scheduling_task_terminal_and_idle_session(
+        pool,
+        task_id,
+        task.retry_count,
+        task.sandbox_id,
+        task_status,
+        reason,
+        &stop_reason,
+    )
+    .await
+    {
+        Ok(Some(outcome)) => {
+            publish_terminal_outcome(event_bus, task_id, &stop_reason, &outcome).await;
+        }
+        Ok(None) => {
             warn!(task_id = %task_id, status = task_status, "Scheduler terminal task transition skipped");
         }
         Err(e) => {
@@ -640,6 +613,8 @@ mod tests {
     use sqlx::postgres::PgPoolOptions;
     use std::env;
     use uuid::Uuid;
+
+    use crate::runtime_config::RuntimeConfig;
 
     struct NoopIdentityPolicy;
 
@@ -889,6 +864,16 @@ mod tests {
         TaskQueue::new(redis::Client::open("redis://127.0.0.1:1/").expect("redis URL"))
     }
 
+    fn test_event_bus(pool: &PgPool) -> EventBus {
+        let config = JoySafeterConfig::from_env();
+        EventBus::new(
+            pool.clone(),
+            &config,
+            Arc::new(RuntimeConfig::from_config(&config)),
+            redis::Client::open("redis://127.0.0.1:1/").expect("redis URL"),
+        )
+    }
+
     #[test]
     fn scheduling_retry_backoff_is_bounded_exponential() {
         assert_eq!(scheduling_retry_backoff(0), Duration::from_secs(5));
@@ -1060,6 +1045,7 @@ mod tests {
                 &config,
                 &resolver,
                 &NoopIdentityPolicy,
+                &test_event_bus(&pool),
                 task_id,
                 Some(agent_id),
                 None,
@@ -1128,7 +1114,28 @@ mod tests {
             .expect("attach sandbox to task");
 
         let result = async {
-            handle_scheduling_failure(&pool, &test_queue(), task_id, "resolver failed", None).await;
+            let event_bus = test_event_bus(&pool);
+            let mut events = event_bus.subscribe();
+            handle_scheduling_failure(
+                &pool,
+                &test_queue(),
+                task_id,
+                "resolver failed",
+                None,
+                &event_bus,
+            )
+            .await;
+
+            let event = tokio::time::timeout(Duration::from_secs(1), events.recv())
+                .await
+                .expect("rescheduling event must be broadcast without DB fallback")
+                .expect("event bus remains open");
+            assert_eq!(event.event_type, "session.status_rescheduling");
+            assert_eq!(event.session_id, session_id);
+            assert_eq!(event.task_id, Some(task_id));
+            assert_eq!(event.sandbox_id, Some(sandbox_id));
+            assert!(event.db_persisted);
+            assert!(event.session_seq.is_some());
 
             let task: (String, i32, Option<Uuid>, i32, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as(
                 "SELECT status, retry_count, sandbox_id, schedule_attempts, next_schedule_at FROM joysafeter_tasks WHERE id = $1",
@@ -1211,8 +1218,15 @@ mod tests {
             .expect("attach running sandbox to task");
 
         let result = async {
-            handle_scheduling_failure(&pool, &test_queue(), task_id, "late resolver failure", None)
-                .await;
+            handle_scheduling_failure(
+                &pool,
+                &test_queue(),
+                task_id,
+                "late resolver failure",
+                None,
+                &test_event_bus(&pool),
+            )
+            .await;
 
             let task: (String, i32, Option<SandboxId>, Option<String>) = sqlx::query_as(
                 "SELECT status, retry_count, sandbox_id, error FROM joysafeter_tasks WHERE id = $1",
@@ -1279,8 +1293,15 @@ mod tests {
                 .await;
 
         let result = async {
-            handle_scheduling_failure(&pool, &test_queue(), task_id, "resolver exhausted", None)
-                .await;
+            handle_scheduling_failure(
+                &pool,
+                &test_queue(),
+                task_id,
+                "resolver exhausted",
+                None,
+                &test_event_bus(&pool),
+            )
+            .await;
 
             let task: (String, i32, Option<String>) = sqlx::query_as(
                 "SELECT status, retry_count, error FROM joysafeter_tasks WHERE id = $1",
@@ -1350,6 +1371,7 @@ mod tests {
                 task_id,
                 "credential record is corrupt",
                 Some("corrupt_record"),
+                &test_event_bus(&pool),
             )
             .await;
 
@@ -1452,6 +1474,7 @@ mod tests {
                 &config,
                 &resolver,
                 &NoopIdentityPolicy,
+                &test_event_bus(&pool),
                 task_id,
                 Some(agent_id),
                 Some(session_id),
@@ -1518,6 +1541,7 @@ mod tests {
                 &config,
                 &resolver,
                 &NoopIdentityPolicy,
+                &test_event_bus(&pool),
                 task_id,
                 Some(agent_id),
                 Some(session_id),

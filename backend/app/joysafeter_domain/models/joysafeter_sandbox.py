@@ -2,9 +2,11 @@
 
 from datetime import datetime
 from typing import Optional
+from uuid import UUID, uuid4
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Text, func
+from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Index, Integer, Text, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.joysafeter_domain.models.base import JoySafeterModel
@@ -128,6 +130,10 @@ class JoySafeterSandbox(JoySafeterModel):
     networking_applied_hash: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     networking_applied_version: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
     networking_last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    networking_last_error_code: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    networking_retryable: Mapped[bool] = mapped_column(nullable=False, default=False, server_default="false")
+    networking_retry_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default="0")
+    networking_next_retry_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     networking_ready_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
     runtime_config_status: Mapped[str] = mapped_column(Text, nullable=False, default="ready", server_default="ready")
     runtime_config_last_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
@@ -138,3 +144,48 @@ class JoySafeterSandbox(JoySafeterModel):
         default=0,
         server_default="0",
     )
+
+
+class JoySafeterSandboxCleanupWork(JoySafeterModel):
+    __tablename__ = "joysafeter_sandbox_cleanup_work"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'running', 'completed')",
+            name="ck_sandbox_cleanup_work_status",
+        ),
+        UniqueConstraint(
+            "sandbox_id",
+            "resource_kind",
+            "resource_name",
+            name="uq_sandbox_cleanup_resource",
+        ),
+        Index(
+            "idx_sandbox_cleanup_due",
+            "provider",
+            "next_attempt_at",
+            postgresql_where="status IN ('pending', 'running')",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True), primary_key=True, default=uuid4)
+    sandbox_id: Mapped[SandboxId] = mapped_column(
+        EntityIdType(SandboxId),
+        ForeignKey("joysafeter_sandboxes.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    resource_kind: Mapped[str] = mapped_column(Text, nullable=False)
+    resource_name: Mapped[str] = mapped_column(Text, nullable=False)
+    resource_path: Mapped[str] = mapped_column(Text, nullable=False)
+    node_name: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="pending")
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    claim_owner: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    claim_expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_error: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

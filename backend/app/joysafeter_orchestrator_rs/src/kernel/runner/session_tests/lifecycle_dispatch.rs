@@ -279,7 +279,7 @@ async fn dispatch_retry_failure_does_not_retry_pending_task_on_stale_snapshot() 
         .execute(&pool)
         .await
         .expect("simulate task already pending");
-        queries::complete_sandbox_task(&pool, sandbox_id)
+        queries::complete_sandbox_task(&pool, sandbox_id, task_id)
             .await
             .expect("release sandbox for pending task");
 
@@ -646,7 +646,7 @@ async fn dispatch_exhausted_failure_does_not_fail_pending_task_on_stale_snapshot
         .execute(&pool)
         .await
         .expect("simulate exhausted task already pending");
-        queries::complete_sandbox_task(&pool, sandbox_id)
+        queries::complete_sandbox_task(&pool, sandbox_id, task_id)
             .await
             .expect("release sandbox for pending task");
 

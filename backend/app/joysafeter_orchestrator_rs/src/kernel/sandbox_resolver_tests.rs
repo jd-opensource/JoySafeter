@@ -1059,11 +1059,18 @@ impl NetworkPolicyRuntime for RecordingProvider {
         Ok(())
     }
 
-    async fn prune(
+    async fn publish_prune(
         &self,
         _live_sandbox_ids: &std::collections::HashSet<SandboxId>,
+    ) -> anyhow::Result<crate::kernel::network_policy::ports::NetworkPolicyPruneTicket> {
+        Ok(crate::kernel::network_policy::ports::NetworkPolicyPruneTicket::completed(0))
+    }
+
+    async fn settle_prune(
+        &self,
+        ticket: crate::kernel::network_policy::ports::NetworkPolicyPruneTicket,
     ) -> anyhow::Result<usize> {
-        Ok(0)
+        Ok(ticket.removed())
     }
 
     async fn recover(
@@ -1086,7 +1093,7 @@ impl NetworkPolicyRuntime for RecordingProvider {
         &self,
         request: crate::kernel::network_policy::ports::NetworkPolicyApplyRequest,
         policy: crate::kernel::network_policy::envoy_model::SandboxEgressPolicy,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), crate::kernel::network_policy::error::NetworkPolicyApplyError> {
         self.networking.lock().await.push((
             request.sandbox_id,
             Some(serde_json::json!({
@@ -1102,7 +1109,11 @@ impl NetworkPolicyRuntime for RecordingProvider {
                 proxy_auth_token: policy.proxy_auth_token,
             });
         if let Some(message) = self.networking_error.lock().await.clone() {
-            anyhow::bail!(message);
+            return Err(
+                crate::kernel::network_policy::error::NetworkPolicyApplyError::PublicationUnavailable(
+                    message,
+                ),
+            );
         }
         Ok(())
     }
@@ -4959,7 +4970,7 @@ async fn reused_limited_sandbox_networking_failure_is_not_returned() {
     .execute(&pool)
     .await
     .expect("mark reused sandbox network policy pending");
-    *provider.networking_error.lock().await = Some("synthetic Envoy refresh rejection".to_string());
+    *provider.networking_error.lock().await = Some("synthetic xDS publication failure".to_string());
 
     let error = resolver
         .resolve(
@@ -4973,18 +4984,28 @@ async fn reused_limited_sandbox_networking_failure_is_not_returned() {
     assert!(error.to_string().contains("failed to refresh Envoy policy"));
     assert!(provider.destroyed.lock().await.is_empty());
 
-    let networking_state: (String, Option<String>) = sqlx::query_as(
-        "SELECT networking_status, networking_last_error FROM joysafeter_sandboxes WHERE id = $1",
+    let networking_state: (String, Option<String>, Option<String>, bool) = sqlx::query_as(
+        r#"
+        SELECT networking_status, networking_last_error,
+               networking_last_error_code, networking_retryable
+        FROM joysafeter_sandboxes
+        WHERE id = $1
+        "#,
     )
     .bind(resolved.sandbox_id)
     .fetch_one(&pool)
     .await
     .expect("load failed reused sandbox networking state");
-    assert_eq!(networking_state.0, "nacked");
+    assert_eq!(networking_state.0, "failed");
     assert!(networking_state
         .1
         .as_deref()
-        .is_some_and(|reason| reason.contains("synthetic Envoy refresh rejection")));
+        .is_some_and(|reason| reason.contains("synthetic xDS publication failure")));
+    assert_eq!(
+        networking_state.2.as_deref(),
+        Some("publication_unavailable")
+    );
+    assert!(networking_state.3);
 
     let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE chat_session_id = $1")
         .bind(session_id)

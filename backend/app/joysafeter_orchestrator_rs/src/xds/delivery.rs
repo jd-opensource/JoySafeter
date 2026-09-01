@@ -120,6 +120,20 @@ pub enum DeliveryOutcome {
     },
 }
 
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+pub enum DeliveryWaitError {
+    #[error("Envoy NACK'd {resource_type:?} xDS delivery for sandbox {sandbox_id}: {reason}")]
+    Nacked {
+        sandbox_id: SandboxId,
+        resource_type: ResourceType,
+        reason: String,
+    },
+    #[error("timed out waiting for exact Envoy xDS delivery for sandbox {sandbox_id}")]
+    TimedOut { sandbox_id: SandboxId },
+    #[error("xDS delivery attempt was superseded for sandbox {sandbox_id}")]
+    Superseded { sandbox_id: SandboxId },
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReceiptOutcome {
     Accepted,
@@ -451,11 +465,13 @@ impl DeliveryCoordinator {
 
     pub fn outcome(&self, attempt: DeliveryAttempt) -> Option<DeliveryOutcome> {
         let pending = self.attempts.get(&attempt.sandbox_id)?;
-        let key = pending.bound_key.as_ref()?;
-        if key.attempt_id != attempt.attempt_id {
+        if pending.attempt_id != attempt.attempt_id {
             return None;
         }
-        self.tracker.outcome(key)
+        let Some(key) = pending.bound_key.as_ref() else {
+            return Some(DeliveryOutcome::Pending);
+        };
+        self.tracker.outcome(key).or(Some(DeliveryOutcome::Pending))
     }
 
     pub fn forget(&mut self, sandbox_id: SandboxId) {
@@ -663,4 +679,46 @@ fn validate_receipt(receipt: &ResponseReceipt) -> Result<(), DeliveryError> {
         return Err(DeliveryError::DuplicateResourceName);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn request(sandbox_id: SandboxId, version: i64) -> DeliveryRequest {
+        DeliveryRequest {
+            authority_epoch: 1,
+            sandbox_id,
+            generation: DeliveryGeneration {
+                policy_hash: format!("policy-{version}"),
+                policy_version: version,
+            },
+        }
+    }
+
+    #[test]
+    fn current_unbound_attempt_is_pending_but_replaced_attempt_is_superseded() {
+        let sandbox_id = SandboxId::new();
+        let mut coordinator = DeliveryCoordinator::default();
+        let first = coordinator
+            .begin_attempt(
+                request(sandbox_id, 1),
+                DeliveryTarget::Node("node-a".to_string()),
+                HashSet::from([ResourceType::Listener]),
+            )
+            .expect("begin first delivery attempt");
+
+        assert_eq!(coordinator.outcome(first), Some(DeliveryOutcome::Pending));
+
+        let second = coordinator
+            .begin_attempt(
+                request(sandbox_id, 2),
+                DeliveryTarget::Node("node-a".to_string()),
+                HashSet::from([ResourceType::Listener]),
+            )
+            .expect("begin replacement delivery attempt");
+
+        assert_eq!(coordinator.outcome(first), None);
+        assert_eq!(coordinator.outcome(second), Some(DeliveryOutcome::Pending));
+    }
 }

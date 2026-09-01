@@ -26,6 +26,7 @@ use crate::kernel::queue::TaskQueue;
 use crate::kernel::runner::metrics::RunnerMetrics;
 use crate::kernel::sandbox_bridge::SandboxBridge;
 use crate::kernel::sandbox_resolver::SandboxIdentityPolicy;
+use crate::kernel::task_state::publish_terminal_outcome;
 use crate::runtime_config::RuntimeConfig;
 
 use super::failure::{RunnerFailure, RunnerFailureService};
@@ -246,6 +247,7 @@ pub(crate) async fn multi_task_loop(
                                                 if let Err(error) = failure_service
                                                     .eject_sandbox(
                                                         pool,
+                                                        event_bus,
                                                         sandbox_db_id,
                                                         linked_session_id,
                                                         RunnerFailure::setup_failed(reason),
@@ -581,7 +583,6 @@ pub(crate) async fn multi_task_loop(
                 warn!(task_id = %task_id, error = %e, "Failed to archive task artifacts");
             }
         }
-        let _ = queries::complete_sandbox_task(pool, sandbox_db_id).await;
         heartbeat_deadline = Instant::now() + heartbeat_timeout;
 
         // Remove the task-to-sandbox mapping and publish completion.
@@ -631,6 +632,7 @@ pub(crate) async fn multi_task_loop(
             if let Err(error) = failure_service
                 .eject_sandbox(
                     pool,
+                    event_bus,
                     sandbox_db_id,
                     None,
                     RunnerFailure::execution_unhealthy(reason),
@@ -673,6 +675,7 @@ pub(crate) async fn fail_setup_gate(
     if let Err(error) = failure_service
         .eject_sandbox(
             pool,
+            event_bus,
             sandbox_db_id,
             None,
             failure,
@@ -1324,52 +1327,45 @@ pub(crate) async fn handle_task_message(
                     },
                 );
 
-            // Persist output and usage only when the terminal CAS succeeds.
-            let cas_result = if harness_result.error.is_some() {
-                queries::transition_task_cas(
-                    pool,
-                    task_id,
-                    "running",
-                    status,
-                    harness_result.error.as_deref(),
-                    expected_owner_epoch,
-                )
-                .await
+            // Flush already-streamed output before assigning canonical sequence
+            // numbers to any fallback agent message and the terminal idle event.
+            event_bus.flush().await;
+
+            let stop_reason = if *task_error {
+                json!({"type": "error", "message": "Task failed"})
             } else {
-                queries::transition_task_cas(
-                    pool,
-                    task_id,
-                    "running",
-                    status,
-                    None,
-                    expected_owner_epoch,
-                )
-                .await
+                json!({"type": "end_turn"})
             };
-            let cas_ok = match cas_result {
-                Ok(true) => true,
-                Ok(false) => {
+            let fallback_agent_message = (!harness_result.output.trim().is_empty()).then(|| {
+                json!({
+                    "content": [{"type": "text", "text": harness_result.output}],
+                })
+            });
+            let terminal_outcome = match queries::transition_running_task_terminal_and_idle_session(
+                pool,
+                task_id,
+                expected_owner_epoch,
+                Some(sandbox_db_id),
+                status,
+                Some(&harness_result.output),
+                harness_result.error.as_deref(),
+                usage.as_ref(),
+                fallback_agent_message.as_ref(),
+                &stop_reason,
+            )
+            .await
+            {
+                Ok(Some(outcome)) => Some(outcome),
+                Ok(None) => {
                     warn!(task_id = %task_id, "CAS conflict: task already terminal, ignoring runner result");
-                    false
+                    None
                 }
                 Err(error) => {
                     error!(task_id = %task_id, error = %error, "Failed to transition task from runner result");
-                    false
+                    None
                 }
             };
-
-            if cas_ok {
-                let _ = queries::complete_task(
-                    pool,
-                    task_id,
-                    status,
-                    Some(&harness_result.output),
-                    harness_result.error.as_deref(),
-                    usage.as_ref(),
-                )
-                .await;
-            }
-            let task_result = if cas_ok {
+            let task_result = if terminal_outcome.is_some() {
                 runner_task_result.clone()
             } else {
                 load_terminal_task_result(pool, task_id)
@@ -1377,40 +1373,8 @@ pub(crate) async fn handle_task_message(
                     .unwrap_or_else(|| runner_task_result.clone())
             };
 
-            // Return the sandbox to idle and clear its active task binding.
-            let _ = queries::complete_sandbox_task(pool, sandbox_db_id).await;
-
-            // Accumulate session usage
-            if let (Some(sid), Some(ref usage_val)) = (session_id, &usage) {
-                let _ = queries::accumulate_session_usage(pool, sid, usage_val).await;
-            }
-
-            // The runner usually streams the final answer as agent.message before Result.
-            // Some adapters only include the final text in Result.output; in that case,
-            // persist one fallback agent.message so the session conversation is not empty.
-            if cas_ok && !harness_result.output.trim().is_empty() {
-                if let Some(sid) = session_id {
-                    let has_agent_output = queries::task_has_agent_output(pool, task_id, sid)
-                        .await
-                        .unwrap_or(false);
-                    if !has_agent_output {
-                        let envelope = EventEnvelope::new(
-                            sid,
-                            "agent.message",
-                            json!({
-                                "content": [{"type": "text", "text": harness_result.output}],
-                            }),
-                        )
-                        .with_task(task_id)
-                        .with_sandbox(sandbox_db_id)
-                        .flush_immediately();
-                        event_bus.publish(envelope).await;
-                    }
-                }
-            }
-
-            if cas_ok {
-                event_bus.flush().await;
+            if let Some(outcome) = terminal_outcome.as_ref() {
+                publish_terminal_outcome(event_bus, task_id, &stop_reason, outcome).await;
             }
 
             // Store result info for idle handler
@@ -1430,24 +1394,6 @@ pub(crate) async fn handle_task_message(
             // Remove task subscribers
             bridge.remove_task_subscribers(task_id).await;
 
-            if cas_ok {
-                let stop_reason = if *task_error {
-                    json!({"type": "error", "message": "Task failed"})
-                } else {
-                    json!({"type": "end_turn"})
-                };
-                emit_session_idle_status(
-                    pool,
-                    event_bus,
-                    task_id,
-                    session_id,
-                    sandbox_db_id,
-                    stop_reason,
-                    "runner result",
-                )
-                .await;
-            }
-
             info!(task_id = %task_id, status = status, "Task result received");
             TaskMessageOutcome {
                 task_done: true,
@@ -1464,7 +1410,7 @@ pub(crate) async fn handle_task_message(
                 .expect("idle heartbeat has no task id");
 
             // Update sandbox DB status
-            let _ = queries::complete_sandbox_task(pool, sandbox_db_id).await;
+            let _ = queries::mark_unassigned_sandbox_idle(pool, sandbox_db_id).await;
 
             // Update session sandbox info
             if let Some(sid) = session_id {
@@ -1555,6 +1501,7 @@ pub(crate) async fn handle_task_message(
                     if let Err(error) = failure_service
                         .eject_sandbox(
                             pool,
+                            event_bus,
                             sandbox_db_id,
                             None,
                             RunnerFailure::setup_failed(reason.clone()),
