@@ -1,7 +1,9 @@
 use sqlx::{PgPool, Postgres, Transaction};
 
-use crate::db::models::JoySafeterSession;
-use crate::ids::{AgentId, EnvironmentId, EventId, MemoryStoreId, ProjectId, SandboxId, SessionId};
+use crate::db::models::{JoySafeterSession, TaskStatus};
+use crate::ids::{
+    AgentId, EnvironmentId, EventId, MemoryStoreId, ProjectId, SandboxId, SessionId, TaskId,
+};
 
 // ---------------------------------------------------------------------------
 // Structs
@@ -21,6 +23,32 @@ pub struct SessionMemoryStore {
 pub struct MemoryFileRow {
     pub path: String,
     pub content: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TaskSessionRunningOutcome {
+    Applied { event_id: EventId, seq: i64 },
+    AlreadyApplied,
+    Rejected(TaskSessionRunningRejection),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum TaskSessionRunningRejection {
+    SessionNotFound,
+    TaskNotFound,
+    TaskSessionMismatch {
+        actual_session_id: Option<SessionId>,
+    },
+    TerminalTask {
+        status: String,
+    },
+    OtherActiveTask,
+    InvalidSessionStatus {
+        status: String,
+    },
+    InvalidTaskStatus {
+        status: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -94,6 +122,125 @@ pub async fn update_session_status_if_no_active_tasks_and_insert_event(
     .await?;
     tx.commit().await?;
     Ok(result)
+}
+
+/// Ensure that a session is running for the task that currently owns the
+/// transition. An already-applied transition is a successful idempotent
+/// outcome, while stale or inconsistent task/session state is classified
+/// explicitly for callers and observability.
+pub(crate) async fn ensure_task_session_running_and_insert_event(
+    pool: &PgPool,
+    session_id: SessionId,
+    task_id: TaskId,
+    payload: &serde_json::Value,
+) -> Result<TaskSessionRunningOutcome, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    lock_session_event_sequence_in_tx(&mut tx, session_id).await?;
+
+    let Some(session_status) = sqlx::query_scalar::<_, String>(
+        "SELECT status FROM joysafeter_sessions WHERE id = $1 FOR UPDATE",
+    )
+    .bind(session_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    else {
+        tx.commit().await?;
+        return Ok(TaskSessionRunningOutcome::Rejected(
+            TaskSessionRunningRejection::SessionNotFound,
+        ));
+    };
+
+    let Some((task_session_id, task_status)) = sqlx::query_as::<_, (Option<SessionId>, String)>(
+        "SELECT chat_session_id, status FROM joysafeter_tasks WHERE id = $1",
+    )
+    .bind(task_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    else {
+        tx.commit().await?;
+        return Ok(TaskSessionRunningOutcome::Rejected(
+            TaskSessionRunningRejection::TaskNotFound,
+        ));
+    };
+
+    if task_session_id != Some(session_id) {
+        tx.commit().await?;
+        return Ok(TaskSessionRunningOutcome::Rejected(
+            TaskSessionRunningRejection::TaskSessionMismatch {
+                actual_session_id: task_session_id,
+            },
+        ));
+    }
+
+    let Some(parsed_task_status) = TaskStatus::from_str(&task_status) else {
+        tx.commit().await?;
+        return Ok(TaskSessionRunningOutcome::Rejected(
+            TaskSessionRunningRejection::InvalidTaskStatus {
+                status: task_status,
+            },
+        ));
+    };
+    if parsed_task_status.is_terminal() {
+        tx.commit().await?;
+        return Ok(TaskSessionRunningOutcome::Rejected(
+            TaskSessionRunningRejection::TerminalTask {
+                status: task_status,
+            },
+        ));
+    }
+
+    let has_other_active_task: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM joysafeter_tasks
+            WHERE chat_session_id = $1
+              AND id <> $2
+              AND status IN ('pending', 'scheduling', 'running')
+        )
+        "#,
+    )
+    .bind(session_id)
+    .bind(task_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if has_other_active_task {
+        tx.commit().await?;
+        return Ok(TaskSessionRunningOutcome::Rejected(
+            TaskSessionRunningRejection::OtherActiveTask,
+        ));
+    }
+
+    if session_status == "running" {
+        tx.commit().await?;
+        return Ok(TaskSessionRunningOutcome::AlreadyApplied);
+    }
+    if !matches!(session_status.as_str(), "idle" | "rescheduling") {
+        tx.commit().await?;
+        return Ok(TaskSessionRunningOutcome::Rejected(
+            TaskSessionRunningRejection::InvalidSessionStatus {
+                status: session_status,
+            },
+        ));
+    }
+
+    let Some((event_id, seq)) = update_session_status_and_insert_event_locked_in_tx(
+        &mut tx,
+        session_id,
+        "running",
+        None,
+        "session.status_running",
+        payload,
+        false,
+    )
+    .await?
+    else {
+        return Err(sqlx::Error::Protocol(
+            "task-scoped session running transition unexpectedly affected zero rows".to_string(),
+        ));
+    };
+    tx.commit().await?;
+    Ok(TaskSessionRunningOutcome::Applied { event_id, seq })
 }
 
 /// Build the atomic session status UPDATE. The trailing predicate makes the
