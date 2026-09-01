@@ -4,7 +4,7 @@ use std::time::Duration;
 use serde_json::json;
 use sqlx::PgPool;
 use tokio::sync::mpsc;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use crate::config::JoySafeterConfig;
 use crate::db::queries;
@@ -38,17 +38,9 @@ pub(crate) async fn emit_session_running_status(
         return true;
     };
     let payload = json!({"task_id": task_id.to_string()});
-    match queries::update_session_status_and_insert_event(
-        pool,
-        sid,
-        "running",
-        None,
-        "session.status_running",
-        &payload,
-    )
-    .await
+    match queries::ensure_task_session_running_and_insert_event(pool, sid, task_id, &payload).await
     {
-        Ok(Some((event_id, seq))) => {
+        Ok(queries::TaskSessionRunningOutcome::Applied { event_id, seq }) => {
             let envelope = EventEnvelope::new(sid, "session.status_running", payload)
                 .with_task(task_id)
                 .with_sandbox(sandbox_db_id)
@@ -57,12 +49,22 @@ pub(crate) async fn emit_session_running_status(
             event_bus.publish(envelope).await;
             true
         }
-        Ok(None) => {
+        Ok(queries::TaskSessionRunningOutcome::AlreadyApplied) => {
+            debug!(
+                task_id = %task_id,
+                session_id = %sid,
+                context = context,
+                "Session running status already applied"
+            );
+            true
+        }
+        Ok(queries::TaskSessionRunningOutcome::Rejected(reason)) => {
             warn!(
                 task_id = %task_id,
                 session_id = %sid,
                 context = context,
-                "Session running status update skipped"
+                reason = ?reason,
+                "Session running status update rejected"
             );
             false
         }

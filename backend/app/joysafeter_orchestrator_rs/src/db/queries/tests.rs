@@ -2013,6 +2013,176 @@ async fn atomic_session_status_helper_writes_status_event_and_canonical_seq() {
 }
 
 #[tokio::test]
+async fn task_scoped_running_transition_distinguishes_applied_and_idempotent() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (agent_id, session_id) = create_agent_and_session(&pool, "idle").await;
+    let task_id = create_task(&pool, agent_id, session_id, "running").await;
+
+    let result = async {
+        let payload = json!({"task_id": task_id.to_string()});
+        let applied =
+            ensure_task_session_running_and_insert_event(&pool, session_id, task_id, &payload)
+                .await
+                .expect("running transition succeeds");
+        assert!(matches!(
+            applied,
+            TaskSessionRunningOutcome::Applied { seq: 1, .. }
+        ));
+
+        let duplicate =
+            ensure_task_session_running_and_insert_event(&pool, session_id, task_id, &payload)
+                .await
+                .expect("duplicate running transition succeeds");
+        assert_eq!(duplicate, TaskSessionRunningOutcome::AlreadyApplied);
+
+        let event_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM joysafeter_session_events WHERE session_id = $1",
+        )
+        .bind(session_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count status events");
+        assert_eq!(event_count, 1);
+    }
+    .await;
+
+    cleanup(&pool, agent_id, session_id).await;
+    result
+}
+
+#[tokio::test]
+async fn task_scoped_running_transition_reports_precise_rejections() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (agent_id, session_id) = create_agent_and_session(&pool, "running").await;
+    let terminal_task_id = create_task(&pool, agent_id, session_id, "completed").await;
+
+    let result = async {
+        let missing_session_id = SessionId::from_uuid(Uuid::now_v7());
+        let missing_session = ensure_task_session_running_and_insert_event(
+            &pool,
+            missing_session_id,
+            terminal_task_id,
+            &json!({"task_id": terminal_task_id.to_string()}),
+        )
+        .await
+        .expect("missing session is classified");
+        assert_eq!(
+            missing_session,
+            TaskSessionRunningOutcome::Rejected(TaskSessionRunningRejection::SessionNotFound)
+        );
+
+        let missing_task_id = TaskId::from_uuid(Uuid::now_v7());
+        let missing_task = ensure_task_session_running_and_insert_event(
+            &pool,
+            session_id,
+            missing_task_id,
+            &json!({"task_id": missing_task_id.to_string()}),
+        )
+        .await
+        .expect("missing task is classified");
+        assert_eq!(
+            missing_task,
+            TaskSessionRunningOutcome::Rejected(TaskSessionRunningRejection::TaskNotFound)
+        );
+
+        let terminal = ensure_task_session_running_and_insert_event(
+            &pool,
+            session_id,
+            terminal_task_id,
+            &json!({"task_id": terminal_task_id.to_string()}),
+        )
+        .await
+        .expect("terminal task is classified");
+        assert_eq!(
+            terminal,
+            TaskSessionRunningOutcome::Rejected(TaskSessionRunningRejection::TerminalTask {
+                status: "completed".to_string(),
+            })
+        );
+
+        let unlinked_task_id = TaskId::from_uuid(Uuid::now_v7());
+        sqlx::query(
+            r#"
+            INSERT INTO joysafeter_tasks (
+                id, agent_id, status, prompt, output,
+                timeout_sec, retry_count, max_retries
+            )
+            VALUES ($1, $2, 'running', 'test prompt', '', 7200, 0, 2)
+            "#,
+        )
+        .bind(unlinked_task_id)
+        .bind(agent_id)
+        .execute(&pool)
+        .await
+        .expect("insert unlinked task");
+        let mismatch = ensure_task_session_running_and_insert_event(
+            &pool,
+            session_id,
+            unlinked_task_id,
+            &json!({"task_id": unlinked_task_id.to_string()}),
+        )
+        .await
+        .expect("task/session mismatch is classified");
+        assert_eq!(
+            mismatch,
+            TaskSessionRunningOutcome::Rejected(TaskSessionRunningRejection::TaskSessionMismatch {
+                actual_session_id: None,
+            })
+        );
+
+        let current_task_id = create_task(&pool, agent_id, session_id, "running").await;
+        let other_task_id = create_task(&pool, agent_id, session_id, "pending").await;
+        let conflict = ensure_task_session_running_and_insert_event(
+            &pool,
+            session_id,
+            current_task_id,
+            &json!({"task_id": current_task_id.to_string()}),
+        )
+        .await
+        .expect("active task conflict is classified");
+        assert_eq!(
+            conflict,
+            TaskSessionRunningOutcome::Rejected(TaskSessionRunningRejection::OtherActiveTask)
+        );
+
+        sqlx::query("UPDATE joysafeter_tasks SET status = 'completed' WHERE id = $1")
+            .bind(other_task_id)
+            .execute(&pool)
+            .await
+            .expect("complete competing task");
+        sqlx::query("UPDATE joysafeter_sessions SET status = 'terminated' WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await
+            .expect("terminate test session");
+        let invalid_session = ensure_task_session_running_and_insert_event(
+            &pool,
+            session_id,
+            current_task_id,
+            &json!({"task_id": current_task_id.to_string()}),
+        )
+        .await
+        .expect("invalid session status is classified");
+        assert_eq!(
+            invalid_session,
+            TaskSessionRunningOutcome::Rejected(
+                TaskSessionRunningRejection::InvalidSessionStatus {
+                    status: "terminated".to_string(),
+                }
+            )
+        );
+    }
+    .await;
+
+    cleanup(&pool, agent_id, session_id).await;
+    result
+}
+
+#[tokio::test]
 async fn atomic_session_status_helper_rolls_back_status_when_seq_assignment_fails() {
     let Some(pool) = test_pool().await else {
         return;
