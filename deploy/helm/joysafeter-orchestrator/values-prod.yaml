@@ -49,6 +49,7 @@ image:
 # ── Orchestrator ──
 orchestrator:
   replicas: 3
+  requireDistinctNodes: true
 
   # ── 文件存储 ──
   # 线上使用 S3。bucket/endpoint/accessKey/secretKey 可放 externalSecret；

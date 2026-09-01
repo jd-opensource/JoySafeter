@@ -8,6 +8,7 @@ pub mod environment_binding;
 pub mod ha;
 pub mod harness_contract;
 pub mod harness_input_builder;
+pub mod instance_registry;
 pub mod leader_election;
 pub mod llm_catalog;
 pub mod llm_providers;

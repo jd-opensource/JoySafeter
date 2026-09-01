@@ -175,9 +175,17 @@ async fn xds_endpoint_rejects_unauthenticated_ads_and_exposes_no_agent_bridge() 
     let addr = unused_local_addr();
     let authenticator: Arc<dyn XdsClientAuthenticator> =
         Arc::new(SharedTokenAuthenticator::new(test_keyring()));
+    let authority = XdsAuthority::standalone();
+    let recovery = authority.begin_staging().expect("begin xDS recovery");
+    authority
+        .begin_recovery_serving(&recovery)
+        .expect("serve xDS recovery");
+    authority
+        .mark_ready(&recovery)
+        .expect("ready xDS authority");
     let handle = start_xds_server(
         addr,
-        XdsControlPlane::new(XdsAuthority::standalone(), NodeVisibility::Unscoped),
+        XdsControlPlane::new(authority, NodeVisibility::Unscoped),
         authenticator,
     )
     .await
@@ -216,6 +224,110 @@ async fn xds_endpoint_rejects_unauthenticated_ads_and_exposes_no_agent_bridge() 
         .await
         .expect_err("AgentBridge must not be registered on the xDS endpoint");
     assert_eq!(error.code(), Code::Unimplemented);
+
+    handle.abort();
+}
+
+#[tokio::test]
+async fn authority_revocation_closes_the_epoch_bound_http2_connection() {
+    let authority = XdsAuthority::managed();
+    let first_epoch = authority.begin_staging().expect("begin first epoch");
+    authority
+        .begin_recovery_serving(&first_epoch)
+        .expect("serve first epoch recovery");
+    authority
+        .mark_ready(&first_epoch)
+        .expect("ready first epoch");
+    let control_plane = XdsControlPlane::new(authority.clone(), NodeVisibility::Unscoped);
+    let addr = unused_local_addr();
+    let authenticator: Arc<dyn XdsClientAuthenticator> =
+        Arc::new(SharedTokenAuthenticator::new(test_keyring()));
+    let handle = start_xds_server(addr, control_plane.clone(), authenticator)
+        .await
+        .expect("xDS server must start");
+    wait_for_server(addr).await;
+
+    let channel = Endpoint::from_shared(format!("http://{addr}"))
+        .expect("xDS endpoint URI must be valid")
+        .connect()
+        .await
+        .expect("ADS client must connect");
+    let mut client = AggregatedDiscoveryServiceClient::new(channel);
+    let (first_tx, first_rx) = tokio::sync::mpsc::channel(1);
+    let mut first_request = Request::new(tokio_stream::wrappers::ReceiverStream::new(first_rx));
+    first_request.metadata_mut().insert(
+        "x-joysafeter-xds-token",
+        ACTIVE_TOKEN.parse().expect("token metadata"),
+    );
+    let mut first_stream = client
+        .delta_aggregated_resources(first_request)
+        .await
+        .expect("first epoch must admit ADS")
+        .into_inner();
+    assert_eq!(
+        control_plane
+            .metrics_snapshot()
+            .await
+            .authenticated_stream_total(),
+        1
+    );
+
+    authority.revoke().expect("revoke first epoch");
+    let _ = tokio::time::timeout(Duration::from_secs(1), first_stream.message())
+        .await
+        .expect("revocation must close the active stream promptly");
+    drop(first_tx);
+
+    let mut rejected_request = Request::new(tokio_stream::empty());
+    rejected_request.metadata_mut().insert(
+        "x-joysafeter-xds-token",
+        ACTIVE_TOKEN.parse().expect("token metadata"),
+    );
+    tokio::time::timeout(
+        Duration::from_secs(1),
+        client.delta_aggregated_resources(rejected_request),
+    )
+    .await
+    .expect("revoked epoch connection must fail promptly")
+    .expect_err("revoked epoch must not admit another ADS RPC");
+    assert_eq!(
+        control_plane
+            .metrics_snapshot()
+            .await
+            .authenticated_stream_total(),
+        1,
+        "the revoked HTTP/2 connection must be closed before interceptor admission"
+    );
+
+    let second_epoch = authority.begin_staging().expect("begin second epoch");
+    authority
+        .begin_recovery_serving(&second_epoch)
+        .expect("serve second epoch recovery");
+    authority
+        .mark_ready(&second_epoch)
+        .expect("ready second epoch");
+    let channel = Endpoint::from_shared(format!("http://{addr}"))
+        .expect("xDS endpoint URI must be valid")
+        .connect()
+        .await
+        .expect("new epoch client must connect");
+    let mut new_client = AggregatedDiscoveryServiceClient::new(channel);
+    let mut new_request = Request::new(tokio_stream::empty());
+    new_request.metadata_mut().insert(
+        "x-joysafeter-xds-token",
+        ACTIVE_TOKEN.parse().expect("token metadata"),
+    );
+    new_client
+        .delta_aggregated_resources(new_request)
+        .await
+        .expect("new authority epoch must admit a fresh connection");
+    assert_eq!(
+        control_plane
+            .metrics_snapshot()
+            .await
+            .authenticated_stream_total(),
+        2
+    );
 
     handle.abort();
 }

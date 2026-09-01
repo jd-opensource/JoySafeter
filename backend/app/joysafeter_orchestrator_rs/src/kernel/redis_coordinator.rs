@@ -1,9 +1,8 @@
-use std::time::Duration;
+use std::sync::Arc;
 
 use crate::ids::{SandboxId, TaskId};
+use crate::kernel::instance_registry::RedisInstanceRegistry;
 use redis::AsyncCommands;
-use tokio::sync::Mutex;
-use tracing::{info, warn};
 
 /// Redis-backed HA coordinator for cross-instance orchestration.
 ///
@@ -16,9 +15,7 @@ use tracing::{info, warn};
 pub struct RedisCoordinator {
     client: redis::Client,
     instance_id: String,
-    heartbeat_interval: Duration,
-    heartbeat_ttl: Duration,
-    _heartbeat_handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    instance_registry: Arc<RedisInstanceRegistry>,
 }
 
 impl RedisCoordinator {
@@ -28,12 +25,16 @@ impl RedisCoordinator {
         heartbeat_interval: u64,
         heartbeat_ttl: u64,
     ) -> Self {
+        let instance_registry = Arc::new(RedisInstanceRegistry::new(
+            client.clone(),
+            instance_id,
+            heartbeat_interval,
+            heartbeat_ttl,
+        ));
         Self {
             client,
             instance_id: instance_id.to_string(),
-            heartbeat_interval: Duration::from_secs(heartbeat_interval),
-            heartbeat_ttl: Duration::from_secs(heartbeat_ttl),
-            _heartbeat_handle: Mutex::new(None),
+            instance_registry,
         }
     }
 
@@ -48,57 +49,17 @@ impl RedisCoordinator {
     /// Register this instance in the Redis instance set.
     /// Stores hash with grpc_addr/http_addr/started_at matching Python L39-53.
     pub async fn register_instance(&self) -> anyhow::Result<()> {
-        let mut conn = self.get_conn().await?;
-        let key = format!("joysafeter:instances:{}", self.instance_id);
-        // Store as hash with metadata (matching Python L44-50)
-        redis::cmd("HSET")
-            .arg(&key)
-            .arg("grpc_addr")
-            .arg("")
-            .arg("http_addr")
-            .arg("")
-            .arg("started_at")
-            .arg(chrono::Utc::now().timestamp().to_string())
-            .query_async::<()>(&mut conn)
-            .await?;
-        conn.expire::<_, ()>(&key, 30).await?;
-        info!(instance_id = %self.instance_id, "Registered instance in Redis");
-        Ok(())
+        self.instance_registry.register().await
     }
 
     /// Spawn a background heartbeat task.
     pub fn spawn_heartbeat(&self) -> tokio::task::JoinHandle<()> {
-        let client = self.client.clone();
-        let instance_id = self.instance_id.clone();
-        let interval = self.heartbeat_interval;
-        let ttl = self.heartbeat_ttl;
-
-        tokio::spawn(async move {
-            loop {
-                tokio::time::sleep(interval).await;
-                match client.get_multiplexed_async_connection().await {
-                    Ok(mut conn) => {
-                        let key = format!("joysafeter:instances:{instance_id}");
-                        // M-NEW-8 fix: use config TTL instead of hardcoded 30
-                        if let Err(e) = conn.expire::<_, ()>(&key, ttl.as_secs() as i64).await {
-                            warn!("Heartbeat failed: {e}");
-                        }
-                    }
-                    Err(e) => {
-                        warn!("Heartbeat Redis connection failed: {e}");
-                    }
-                }
-            }
-        })
+        tokio::spawn(self.instance_registry.clone().run())
     }
 
     /// Deregister this instance.
     pub async fn deregister_instance(&self) -> anyhow::Result<()> {
-        let mut conn = self.get_conn().await?;
-        let key = format!("joysafeter:instances:{}", self.instance_id);
-        conn.del::<_, ()>(&key).await?;
-        info!(instance_id = %self.instance_id, "Deregistered instance from Redis");
-        Ok(())
+        self.instance_registry.deregister().await
     }
 
     // -----------------------------------------------------------------------
@@ -185,10 +146,6 @@ impl RedisCoordinator {
 
     /// Graceful stop: deregister + cancel heartbeat.
     pub async fn stop(&self) -> anyhow::Result<()> {
-        let handle = self._heartbeat_handle.lock().await.take();
-        if let Some(h) = handle {
-            h.abort();
-        }
         self.deregister_instance().await?;
         Ok(())
     }

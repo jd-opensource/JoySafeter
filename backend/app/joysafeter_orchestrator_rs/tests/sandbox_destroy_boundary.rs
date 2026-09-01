@@ -33,3 +33,28 @@ fn shared_destroy_protocol_finalizes_postgres_before_policy_teardown() {
         "PostgreSQL finalization must precede authoritative policy removal"
     );
 }
+
+#[test]
+fn shared_destroy_protocol_distinguishes_runtime_deletion_from_residual_cleanup() {
+    let provider = source("src/sandbox/provider.rs");
+    let lifecycle = source("src/kernel/sandbox_lifecycle.rs");
+    let k8s = source("src/sandbox/k8s.rs");
+
+    assert!(provider.contains("SandboxDestroyOutcome"));
+    assert!(provider.contains("SandboxRuntimeDeletion"));
+    assert!(lifecycle.contains("destroy_with_outcome"));
+    assert!(lifecycle.contains("residual cleanup pending"));
+    assert!(k8s.contains("get_opt(external_id)"));
+    assert!(k8s.contains("spec.nodeName="));
+    assert!(k8s.contains("SandboxDestroyOutcome::deleted_with_residual"));
+}
+
+#[test]
+fn bridge_health_destroy_is_fenced_by_exact_connection_generation() {
+    let controller = source("src/kernel/sandbox_controller.rs");
+    let bridge_store = source("src/kernel/ha/traits.rs");
+
+    assert!(bridge_store.contains("async fn owns_connection"));
+    assert!(controller.matches("owns_connection(&bridge)").count() >= 3);
+    assert!(controller.contains("remove_if_current(ext_id, &bridge)"));
+}

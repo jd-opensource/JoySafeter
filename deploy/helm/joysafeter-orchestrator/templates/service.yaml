@@ -40,7 +40,7 @@ metadata:
   name: joysafeter-orchestrator
   namespace: {{ .Release.Namespace }}
 spec:
-  minAvailable: 1
+  minAvailable: {{ if and (eq .Values.haMode "multi") (ge (int .Values.orchestrator.replicas) 3) }}2{{ else }}1{{ end }}
   selector:
     matchLabels:
       app: joysafeter-orchestrator

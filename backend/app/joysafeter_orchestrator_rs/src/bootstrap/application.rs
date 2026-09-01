@@ -85,6 +85,11 @@ impl OrchestratorApplication {
                     Some(client)
                 }
                 Err(e) => {
+                    if config.ha_mode == "multi" {
+                        return Err(anyhow::anyhow!(
+                            "multi-mode Redis client initialization failed: {e}"
+                        ));
+                    }
                     error!("Failed to connect to Redis: {e}");
                     None
                 }
@@ -96,23 +101,29 @@ impl OrchestratorApplication {
         };
 
         // Initialize Redis coordinator (HA)
+        let mut instance_heartbeat_handle = None;
         let redis_coordinator = if let Some(ref client) = redis_client {
-            let coord = kernel::redis_coordinator::RedisCoordinator::new(
+            let coord = Arc::new(kernel::redis_coordinator::RedisCoordinator::new(
                 client.clone(),
                 &config.instance_id,
                 config.heartbeat_interval,
                 config.heartbeat_ttl,
-            );
+            ));
             if let Err(e) = coord.register_instance().await {
+                if config.ha_mode == "multi" {
+                    return Err(anyhow::anyhow!(
+                        "multi-mode instance registration failed: {e}"
+                    ));
+                }
                 warn!("Failed to register instance in Redis: {e}");
             } else {
-                coord.spawn_heartbeat();
+                instance_heartbeat_handle = Some(coord.spawn_heartbeat());
                 info!(
                     "RedisCoordinator registered (instance={})",
                     config.instance_id
                 );
             }
-            Some(Arc::new(coord))
+            Some(coord)
         } else {
             None
         };
@@ -568,7 +579,8 @@ impl OrchestratorApplication {
         let total_tasks = 3
             + sandbox_controller_tasks.len()
             + subscriber_handles.len()
-            + if cmd_listener_handle.is_some() { 1 } else { 0 };
+            + usize::from(cmd_listener_handle.is_some())
+            + usize::from(instance_heartbeat_handle.is_some());
         info!(total_tasks, "JoySafeter kernel fully started");
         supervisor
             .register("runner-grpc", ServiceCriticality::Critical, grpc_handle)?
@@ -623,6 +635,16 @@ impl OrchestratorApplication {
             };
             supervisor
                 .register("command-listener", criticality, handle)?
+                .mark_ready();
+        }
+        if let Some(handle) = instance_heartbeat_handle {
+            let criticality = if ha.mode == kernel::ha::HaMode::Multi {
+                ServiceCriticality::Critical
+            } else {
+                ServiceCriticality::Degradable
+            };
+            supervisor
+                .register("redis-instance-heartbeat", criticality, handle)?
                 .mark_ready();
         }
         for (index, handle) in ha.background_handles.drain(..).enumerate() {

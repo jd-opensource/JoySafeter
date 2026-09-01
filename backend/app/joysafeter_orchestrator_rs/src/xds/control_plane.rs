@@ -45,6 +45,10 @@ impl XdsControlPlane {
         self.delta.clone()
     }
 
+    pub(crate) fn authority(&self) -> XdsAuthority {
+        self.delta.authority().clone()
+    }
+
     pub(crate) fn metrics(&self) -> XdsMetrics {
         self.delta.metrics()
     }

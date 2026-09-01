@@ -78,6 +78,9 @@ haMode: multi   # standalone / leader / multi
 
 orchestrator:
   replicas: 3
+  # Production clusters should set this to true so the three active replicas
+  # cannot collapse onto one node. Keep false for single-node local K3s.
+  requireDistinctNodes: false
 
   # ── 文件存储 ──
   # API 写文件，orchestrator-rs 读 session 文件；两边必须使用同一套配置。
@@ -231,6 +234,7 @@ agentIdentity:
 envoy:
   enabled: true
   xdsMode: grpc
+  xdsMaxConnectionDuration: 60s
   socketHostDir: /data/joysafeter/envoy-sockets
   runAsUser: 101
   runAsGroup: 101

@@ -76,6 +76,15 @@ end
 return 0
 "#;
 
+const OWNS_BRIDGE_CONNECTION_SCRIPT: &str = r#"
+local owner = redis.call('GET', KEYS[1])
+local generation = redis.call('GET', KEYS[2])
+if owner == ARGV[1] and generation == ARGV[2] then
+    return 1
+end
+return 0
+"#;
+
 fn bridge_registration_token(instance_id: &str, connection_id: Uuid) -> String {
     format!("{instance_id}\n{connection_id}")
 }
@@ -246,6 +255,29 @@ impl BridgeStore for RedisBridgeStore {
             Ok(mut conn) => conn.get::<_, Option<String>>(&key).await.unwrap_or(None),
             Err(_) => None,
         }
+    }
+
+    async fn owns_connection(&self, bridge: &Arc<SandboxBridge>) -> anyhow::Result<bool> {
+        if !self
+            .inner
+            .get_by_db_id(bridge.sandbox_db_id)
+            .is_some_and(|current| Arc::ptr_eq(&current, bridge))
+        {
+            return Ok(false);
+        }
+        let sandbox_id = bridge.sandbox_db_id.as_uuid();
+        let mut connection = self.get_conn().await?;
+        let owned = redis::Script::new(OWNS_BRIDGE_CONNECTION_SCRIPT)
+            .key(bridge_owner_key(sandbox_id))
+            .key(bridge_generation_key(sandbox_id))
+            .arg(&self.instance_id)
+            .arg(bridge_registration_token(
+                &self.instance_id,
+                bridge.connection_id(),
+            ))
+            .invoke_async::<i64>(&mut connection)
+            .await?;
+        Ok(owned == 1)
     }
 
     async fn heartbeat(&self) -> anyhow::Result<()> {
@@ -844,6 +876,10 @@ mod bridge_owner_tests {
             Some(&old_generation),
         )
         .await;
+        assert!(old_store
+            .owns_connection(&old_bridge)
+            .await
+            .expect("old generation ownership check"));
 
         let replacement_store = RedisBridgeStore::new(client.clone(), "orchestrator-new");
         let (replacement_tx, _replacement_rx) = mpsc::channel(1);
@@ -858,6 +894,14 @@ mod bridge_owner_tests {
             Some(&replacement_generation),
         )
         .await;
+        assert!(!old_store
+            .owns_connection(&old_bridge)
+            .await
+            .expect("stale generation ownership check"));
+        assert!(replacement_store
+            .owns_connection(&replacement_bridge)
+            .await
+            .expect("replacement generation ownership check"));
 
         assert!(old_store.remove_if_current("runtime-id", &old_bridge));
         old_store

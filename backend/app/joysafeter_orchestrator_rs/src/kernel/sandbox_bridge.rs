@@ -480,6 +480,12 @@ impl BridgeStore for BridgeRegistry {
         self.get_by_db_id(sandbox_id).map(|_| "self".to_string())
     }
 
+    async fn owns_connection(&self, bridge: &Arc<SandboxBridge>) -> anyhow::Result<bool> {
+        Ok(self
+            .get_by_db_id(bridge.sandbox_db_id)
+            .is_some_and(|current| Arc::ptr_eq(&current, bridge)))
+    }
+
     async fn heartbeat(&self) -> anyhow::Result<()> {
         Ok(())
     }
@@ -532,7 +538,22 @@ mod tests {
             registry.get_owner_instance(sandbox_id).await.as_deref(),
             Some("self")
         );
-        assert!(registry.remove_if_current("sandbox-external-id", &bridge));
+        assert!(registry
+            .owns_connection(&bridge)
+            .await
+            .expect("current bridge ownership"));
+        let (replacement_tx, _replacement_rx) = mpsc::channel(1);
+        let replacement = Arc::new(SandboxBridge::new(sandbox_id, replacement_tx));
+        registry.register("sandbox-external-id".to_string(), replacement.clone());
+        assert!(!registry
+            .owns_connection(&bridge)
+            .await
+            .expect("stale bridge ownership"));
+        assert!(registry
+            .owns_connection(&replacement)
+            .await
+            .expect("replacement bridge ownership"));
+        assert!(registry.remove_if_current("sandbox-external-id", &replacement));
         assert_eq!(registry.get_owner_instance(sandbox_id).await, None);
     }
 

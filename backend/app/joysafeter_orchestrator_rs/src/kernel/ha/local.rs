@@ -75,6 +75,13 @@ impl BridgeStore for LocalBridgeStore {
             .map(|_| "self".to_string())
     }
 
+    async fn owns_connection(&self, bridge: &Arc<SandboxBridge>) -> anyhow::Result<bool> {
+        Ok(self
+            .inner
+            .get_by_db_id(bridge.sandbox_db_id)
+            .is_some_and(|current| Arc::ptr_eq(&current, bridge)))
+    }
+
     async fn heartbeat(&self) -> anyhow::Result<()> {
         Ok(())
     }
