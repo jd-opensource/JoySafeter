@@ -72,9 +72,9 @@ kubernetes_validate_replicas() {
 }
 
 kubernetes_component_image_overrides() {
-    local record component helm_key
+    local record component helm_key profiles
     while IFS= read -r record; do
-        IFS='|' read -r component _ _ _ _ _ _ _ _ _ _ _ helm_key <<< "$record"
+        IFS='|' read -r component _ _ _ _ _ _ _ _ _ _ _ helm_key profiles <<< "$record"
         [ "$helm_key" = - ] && continue
         printf '%s=%s\n' "$helm_key" "$(component_image_ref "$component")"
     done < <(image_component_source_registry)
