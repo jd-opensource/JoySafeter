@@ -1,7 +1,7 @@
 """Add typed network-policy failure and retry metadata.
 
 Revision ID: 20260901_000001
-Revises: 20260830_000004
+Revises: 20260831_000001
 Create Date: 2026-09-01 00:00:01.000000
 """
 
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20260901_000001"
-down_revision: Union[str, None] = "20260830_000004"
+down_revision: Union[str, None] = "20260831_000001"
 branch_labels: Optional[str] = None
 depends_on: Optional[str] = None
 

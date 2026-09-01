@@ -12,7 +12,7 @@ def test_network_policy_retry_metadata_migration_is_complete() -> None:
     source = MIGRATION.read_text()
 
     assert 'revision: str = "20260901_000001"' in source
-    assert 'down_revision: Union[str, None] = "20260830_000004"' in source
+    assert 'down_revision: Union[str, None] = "20260831_000001"' in source
     for column in [
         "networking_last_error_code",
         "networking_retryable",

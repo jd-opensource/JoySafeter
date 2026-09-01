@@ -45,9 +45,9 @@ def test_upgrade_sql_rejects_the_online_only_unified_credential_migration():
 
 
 @pytest.mark.no_db
-def test_downgrade_sql_rejects_the_irreversible_unified_credential_migration():
+def test_downgrade_sql_rejects_the_online_only_egress_cookie_cleanup():
     cfg = _config()
-    with pytest.raises(RuntimeError, match="credential-reference alias removal is irreversible"):
+    with pytest.raises(RuntimeError, match="deprecated egress cookie field migration is online-only"):
         command.downgrade(cfg, "head:base", sql=True)
 
 
