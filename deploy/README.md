@@ -64,6 +64,9 @@ Docker socket / Compose 配置 / 常用端口，等待本地 Redis 就绪，并�
 
 - API 只创建任务和发出 Redis 唤醒，不直接运行 harness，不直接创建 sandbox。
 - Orchestrator 从 PostgreSQL 认领 pending task；Redis list 只是唤醒信号，不是调度权威。
+- 多活模式运行 3 个 orchestrator；生产 values 强制跨节点调度，并通过 PDB 保留至少 2 个可用副本。
+- Kubernetes Lease 只选举一个 xDS authority；authority epoch 变化会主动关闭旧实例上的 ADS HTTP/2 连接。
+- Redis instance heartbeat 每轮重写完整注册记录与 TTL，可在 key 丢失或 Redis 恢复后自愈。
 - Runner 只在 sandbox 内执行，并通过 gRPC `AgentBridge` 回连 orchestrator。
 - Worker 是事件可靠落库主路径；浏览器实时流可先收到 Pub/Sub，刷新后以 Postgres 事件日志回放为准。
 - SkillSpector 默认只提供风险 verdict；可选全局开关仅在发布时强制扫描，运行时只解析已发布版本。

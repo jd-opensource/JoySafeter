@@ -358,6 +358,10 @@ impl DeltaXdsServer {
         &self.delivery
     }
 
+    pub(crate) fn authority(&self) -> &XdsAuthority {
+        &self.authority
+    }
+
     pub(crate) fn delivery_notify(&self) -> watch::Receiver<u64> {
         self.delivery_notify.subscribe()
     }

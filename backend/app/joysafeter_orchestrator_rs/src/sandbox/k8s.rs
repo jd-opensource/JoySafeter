@@ -17,7 +17,7 @@ use super::mounts::SandboxMount;
 use super::pod_watcher::PodWatcher;
 use super::provider::{
     NetworkIsolation, ProviderCapabilities, ProviderSandboxInfo, SandboxCreateConfig,
-    SandboxProvider, SandboxStatus, StopSemantics,
+    SandboxDestroyOutcome, SandboxProvider, SandboxRuntimeDeletion, SandboxStatus, StopSemantics,
 };
 use super::runtime::{PlacementEventSink, SandboxSocketProvisioner};
 use crate::config::JoySafeterConfig;
@@ -357,15 +357,23 @@ impl K8sProvider {
         Ok(stdout)
     }
 
-    async fn cleanup_egress_socket_dir(&self, external_id: &str) -> anyhow::Result<()> {
+    async fn cleanup_egress_socket_dir(
+        &self,
+        external_id: &str,
+        node_name: Option<&str>,
+    ) -> anyhow::Result<()> {
         if self.egress_socket.is_none() {
             return Ok(());
         }
 
         let command = socket_cleanup_plan(external_id)?;
+        let mut list_params = ListParams::default().labels(ENVOY_POD_SELECTOR);
+        if let Some(node_name) = node_name {
+            list_params = list_params.fields(&format!("spec.nodeName={node_name}"));
+        }
         let envoy_pods = self
             .pods()
-            .list(&ListParams::default().labels(ENVOY_POD_SELECTOR))
+            .list(&list_params)
             .await
             .context("failed to list Envoy pods for socket cleanup")?;
         let pod_names = envoy_pods
@@ -374,7 +382,10 @@ impl K8sProvider {
             .filter_map(|pod| pod.metadata.name)
             .collect::<Vec<_>>();
         if pod_names.is_empty() {
-            anyhow::bail!("no Envoy pods available for K8s socket cleanup");
+            anyhow::bail!(
+                "no Envoy pods available for K8s socket cleanup{}",
+                node_name.map_or(String::new(), |node| format!(" on node {node}"))
+            );
         }
 
         let mut failures = Vec::new();
@@ -394,6 +405,27 @@ impl K8sProvider {
 
         info!(external_id, "Removed K8s Envoy socket directory");
         Ok(())
+    }
+
+    async fn cleanup_egress_socket_dir_with_retry(
+        &self,
+        external_id: &str,
+        node_name: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let mut last_error = None;
+        for attempt in 1..=3 {
+            match self.cleanup_egress_socket_dir(external_id, node_name).await {
+                Ok(()) => return Ok(()),
+                Err(error) => {
+                    warn!(external_id, ?node_name, attempt, %error, "K8s socket cleanup attempt failed");
+                    last_error = Some(error);
+                    if attempt < 3 {
+                        tokio::time::sleep(std::time::Duration::from_millis(250 * attempt)).await;
+                    }
+                }
+            }
+        }
+        Err(last_error.expect("at least one cleanup attempt must run"))
     }
 
     fn pod_name(sandbox_id: SandboxId) -> String {
@@ -656,6 +688,29 @@ impl SandboxProvider for K8sProvider {
     }
 
     async fn stop(&self, external_id: &str) -> anyhow::Result<()> {
+        self.destroy(external_id).await
+    }
+
+    async fn destroy(&self, external_id: &str) -> anyhow::Result<()> {
+        let outcome = self.destroy_with_outcome(external_id).await?;
+        if outcome.runtime == SandboxRuntimeDeletion::Pending {
+            anyhow::bail!("K8s sandbox pod deletion is still pending: {external_id}");
+        }
+        if let Some(error) = outcome.residual_cleanup_error {
+            warn!(external_id, %error, "K8s sandbox runtime deleted with residual socket cleanup pending");
+        }
+        Ok(())
+    }
+
+    async fn destroy_with_outcome(
+        &self,
+        external_id: &str,
+    ) -> anyhow::Result<SandboxDestroyOutcome> {
+        let node_name = self
+            .pods()
+            .get_opt(external_id)
+            .await?
+            .and_then(|pod| pod.spec.and_then(|spec| spec.node_name));
         match self
             .pods()
             .delete(external_id, &DeleteParams::default())
@@ -665,11 +720,30 @@ impl SandboxProvider for K8sProvider {
             Err(kube::Error::Api(err)) if err.code == 404 => {}
             Err(e) => return Err(e.into()),
         }
-        self.cleanup_egress_socket_dir(external_id).await
-    }
 
-    async fn destroy(&self, external_id: &str) -> anyhow::Result<()> {
-        self.stop(external_id).await
+        let deleted = tokio::time::timeout(std::time::Duration::from_secs(30), async {
+            loop {
+                if self.pods().get_opt(external_id).await?.is_none() {
+                    return Ok::<bool, kube::Error>(true);
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            }
+        })
+        .await
+        .unwrap_or(Ok(false))?;
+        if !deleted {
+            return Ok(SandboxDestroyOutcome::pending());
+        }
+
+        match self
+            .cleanup_egress_socket_dir_with_retry(external_id, node_name.as_deref())
+            .await
+        {
+            Ok(()) => Ok(SandboxDestroyOutcome::deleted()),
+            Err(error) => Ok(SandboxDestroyOutcome::deleted_with_residual(
+                error.to_string(),
+            )),
+        }
     }
 
     async fn status(&self, external_id: &str) -> anyhow::Result<SandboxStatus> {

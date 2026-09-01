@@ -587,7 +587,7 @@ or persist sandbox lifecycle state.
 | `delivery.rs` | Exact generation delivery attempts and CDS/LDS quorum completion | world revision + node session ACK/NACK → terminal attempt result |
 | `delta.rs` | Delta ADS subscriptions, reconnect reconciliation, per-node sessions, stream closure | authenticated protocol messages ↔ resource deltas/ACK/NACK updates |
 | `auth.rs` | Shared-token keyring parsing and client principal authentication | request metadata → principal or `Unauthenticated` |
-| `transport.rs` | Dedicated tonic ADS listener only | `XdsControlPlane` + authenticator → `:9092` server handle |
+| `transport.rs` | Dedicated tonic ADS listener and authority-epoch-bound TCP lifetime | `XdsControlPlane` + authenticator → `:9092` server handle; revoke/epoch change closes old HTTP/2 connections |
 | `metrics.rs` | Bounded-cardinality health and Prometheus projection | internal counters/state → health/metrics snapshots |
 
 The authority lifecycle is the sole permission model for xDS mutation. `RecoveryAuthorityGuard` permits
@@ -631,9 +631,23 @@ handling cannot leak between execution and control-plane transports.
 
 Kubernetes socket storage follows the same ownership rule. The sandbox initContainer creates its
 UUID-scoped directory in the node-local hostPath before the runner starts. When a non-resumable Pod is
-stopped or destroyed, the Kubernetes provider removes that UUID directory through every Envoy DaemonSet
-Pod. The operation accepts only a parsed sandbox UUID and fixed command arguments, remains idempotent when
-the sandbox Pod is already absent, and never publishes or removes xDS resources itself.
+stopped or destroyed, the Kubernetes provider captures the Pod node, waits for Pod disappearance, and
+removes that UUID directory through the Envoy DaemonSet Pod on the same node. The operation accepts only a
+parsed sandbox UUID and fixed command arguments, remains idempotent when the sandbox Pod is already absent,
+and never publishes or removes xDS resources itself. Provider destruction reports runtime deletion
+separately from residual cleanup, so a socket cleanup failure cannot restore PostgreSQL to a false running
+state after the Pod is gone.
+
+#### Multi-orchestrator coordination
+
+`src/kernel/instance_registry.rs` owns Redis instance registration. Every heartbeat atomically rewrites
+the complete instance record and TTL, so deleted keys and Redis restarts self-heal without restarting the
+orchestrator. In multi mode the heartbeat task is supervised as a critical service.
+
+Runner bridge ownership is generation-fenced. Before bridge-health maintenance performs durable recovery
+or provider destruction, `BridgeStore::owns_connection` must prove that the exact local `connection_id`
+still matches the Redis generation token. Missing keys, replacement generations, and Redis errors fail
+closed.
 
 For node-scoped delivery, xDS publication waits inside `NodeOwnershipRegistry` for the authoritative
 placement revision before exposing resources. The Kubernetes watcher still only emits facts; schedulers and

@@ -29,6 +29,7 @@ deploy 选项:
 verify 选项:
   --since DURATION    日志检查窗口（默认: 5m）
   --runtime-images    创建临时 Pod 验证四个 runtime 镜像可启动并自动清理
+  --failover          删除当前 xDS authority Pod 并验证权威切换与 Envoy 重连
 
 secrets 选项:
   --from-env          从当前环境读取 DATABASE_URL、REDIS_URL 和密钥
@@ -354,6 +355,137 @@ kubernetes_verify() {
     log_success "Kubernetes 部署验证通过"
 }
 
+kubernetes_verify_failover() {
+    local namespace=$1 context=$2 since=$3 timeout=$4 check_runtime_images=${5:-false}
+    local old_leader old_uid old_metrics old_authenticated old_rejected
+    local new_leader new_ip endpoint_ips new_metrics new_authenticated attempts=0
+
+    kubernetes_verify "$namespace" "$context" "$since" "$timeout" false || return 1
+
+    old_leader="$(kubernetes_kubectl "$context" get pods -n "$namespace" \
+        -l 'app=joysafeter-orchestrator,joysafeter-xds-leader=true' \
+        -o 'jsonpath={range .items[?(@.status.phase=="Running")]}{.metadata.name}{"\n"}{end}')"
+    [ "$(printf '%s\n' "$old_leader" | sed '/^$/d' | wc -l | tr -d ' ')" -eq 1 ] || {
+        log_error "故障注入前必须恰好有一个 xDS leader: ${old_leader:-none}"
+        return 1
+    }
+    old_uid="$(kubernetes_kubectl "$context" get pod "$old_leader" -n "$namespace" -o 'jsonpath={.metadata.uid}')"
+    old_metrics="$(kubernetes_pod_http_get "$context" "$namespace" "$old_leader" /metrics)"
+    old_authenticated="$(printf '%s\n' "$old_metrics" | awk '$1 == "joysafeter_xds_authenticated_streams_total" {print $2; exit}')"
+    old_rejected="$(printf '%s\n' "$old_metrics" | awk '$1 == "joysafeter_xds_rejected_streams_total{reason=\"authority_unavailable\"}" {print $2; exit}')"
+
+    log_warning "删除当前 xDS authority Pod 进行故障注入: $old_leader uid=$old_uid"
+    kubernetes_kubectl "$context" delete pod "$old_leader" -n "$namespace" \
+        --wait=true --timeout="$timeout" || return 1
+
+    new_leader=""
+    while [ "$attempts" -lt 90 ]; do
+        new_leader="$(kubernetes_kubectl "$context" get pods -n "$namespace" \
+            -l 'app=joysafeter-orchestrator,joysafeter-xds-leader=true' \
+            -o 'jsonpath={range .items[?(@.status.phase=="Running")]}{.metadata.name}{"\n"}{end}' \
+            2>/dev/null || true)"
+        if [ -n "$new_leader" ] && [ "$new_leader" != "$old_leader" ]; then
+            break
+        fi
+        attempts=$((attempts + 1))
+        sleep 2
+    done
+    if [ -z "$new_leader" ] || [ "$new_leader" = "$old_leader" ]; then
+        log_error "xDS authority 未在故障注入后切换"
+        return 1
+    fi
+
+    kubernetes_kubectl "$context" rollout status deployment/joysafeter-orchestrator \
+        -n "$namespace" --timeout="$timeout" || return 1
+    new_ip="$(kubernetes_kubectl "$context" get pod "$new_leader" -n "$namespace" -o 'jsonpath={.status.podIP}')"
+    endpoint_ips="$(kubernetes_kubectl "$context" get endpoints joysafeter-orchestrator-xds \
+        -n "$namespace" -o 'jsonpath={.subsets[*].addresses[*].ip}')"
+    case " $endpoint_ips " in
+        *" $new_ip "*) ;;
+        *)
+            log_error "xDS Service endpoint 未指向新 authority: leader=$new_leader ip=$new_ip endpoints=${endpoint_ips:-none}"
+            return 1
+            ;;
+    esac
+
+    kubernetes_verify "$namespace" "$context" "$since" "$timeout" "$check_runtime_images" \
+        || return 1
+    new_metrics="$(kubernetes_pod_http_get "$context" "$namespace" "$new_leader" /metrics)"
+    new_authenticated="$(printf '%s\n' "$new_metrics" | awk '$1 == "joysafeter_xds_authenticated_streams_total" {print $2; exit}')"
+    if ! [[ "${new_authenticated:-}" =~ ^[0-9]+$ ]] || [ "$new_authenticated" -lt 1 ]; then
+        log_error "新 xDS authority 未观察到 Envoy 认证连接: ${new_authenticated:-missing}"
+        return 1
+    fi
+    if kubernetes_kubectl "$context" get pod "$old_leader" -n "$namespace" \
+        -o 'jsonpath={.metadata.uid}' 2>/dev/null | grep -qxF "$old_uid"; then
+        log_error "旧 xDS authority Pod 仍以原 UID 存活: $old_leader uid=$old_uid"
+        return 1
+    fi
+
+    printf 'xDS failover: old=%s old_authenticated=%s old_authority_rejects=%s new=%s new_authenticated=%s\n' \
+        "$old_leader" "${old_authenticated:-missing}" "${old_rejected:-missing}" \
+        "$new_leader" "$new_authenticated"
+
+    kubernetes_verify_instance_registry_recovery "$namespace" "$context" "$new_leader" \
+        || return 1
+    log_success "xDS authority 故障切换与 Envoy 重连验证通过"
+}
+
+kubernetes_verify_instance_registry_recovery() {
+    local namespace=$1 context=$2 instance=$3
+    local redis_pod key before_started deleted exists ttl after_started fields attempts=0
+
+    redis_pod="$(kubernetes_kubectl "$context" get pods -n "$namespace" -l app=redis-e2e \
+        -o 'jsonpath={.items[0].metadata.name}' 2>/dev/null || true)"
+    if [ -z "$redis_pod" ]; then
+        redis_pod="$(kubernetes_kubectl "$context" get pods -n "$namespace" -l app=redis \
+            -o 'jsonpath={.items[0].metadata.name}' 2>/dev/null || true)"
+    fi
+    if [ -z "$redis_pod" ]; then
+        log_warning "未发现内置 Redis Pod，跳过 instance registry 破坏性自愈验证"
+        return 0
+    fi
+
+    key="joysafeter:instances:${instance}"
+    before_started="$(kubernetes_kubectl "$context" exec -n "$namespace" "$redis_pod" -- \
+        redis-cli HGET "$key" started_at)"
+    [ -n "$before_started" ] || {
+        log_error "Redis instance registry 缺少初始记录: $key"
+        return 1
+    }
+    deleted="$(kubernetes_kubectl "$context" exec -n "$namespace" "$redis_pod" -- \
+        redis-cli DEL "$key")"
+    [ "$deleted" = 1 ] || {
+        log_error "无法删除 Redis instance registry 测试 key: $key"
+        return 1
+    }
+
+    while [ "$attempts" -lt 45 ]; do
+        exists="$(kubernetes_kubectl "$context" exec -n "$namespace" "$redis_pod" -- \
+            redis-cli EXISTS "$key" 2>/dev/null || true)"
+        if [ "$exists" = 1 ]; then
+            break
+        fi
+        attempts=$((attempts + 1))
+        sleep 2
+    done
+    [ "${exists:-0}" = 1 ] || {
+        log_error "Redis instance registry 未被 heartbeat 重建: $key"
+        return 1
+    }
+
+    ttl="$(kubernetes_kubectl "$context" exec -n "$namespace" "$redis_pod" -- redis-cli TTL "$key")"
+    after_started="$(kubernetes_kubectl "$context" exec -n "$namespace" "$redis_pod" -- \
+        redis-cli HGET "$key" started_at)"
+    fields="$(kubernetes_kubectl "$context" exec -n "$namespace" "$redis_pod" -- redis-cli HLEN "$key")"
+    if ! [[ "$ttl" =~ ^[0-9]+$ ]] || [ "$ttl" -le 0 ] || [ "$fields" -lt 3 ] \
+        || [ "$after_started" != "$before_started" ]; then
+        log_error "Redis instance registry 重建不完整: key=$key ttl=$ttl fields=$fields"
+        return 1
+    fi
+    log_success "Redis instance registry 删除后已由 heartbeat 完整重建: $instance ttl=$ttl"
+}
+
 kubernetes_apply_secrets() {
     local namespace=$1 context=$2 from_env=$3 from_file=$4
     local database_url redis_url vault_key namespace_manifest secret_manifest
@@ -410,6 +542,7 @@ run_kubernetes_command() {
     local sync_images=false
     local reuse_values=false
     local runtime_images=false
+    local failover=false
     local from_env=false
     local from_file=""
 
@@ -428,6 +561,7 @@ run_kubernetes_command() {
             --sync-images) sync_images=true; shift ;;
             --reuse-values) reuse_values=true; shift ;;
             --runtime-images) runtime_images=true; shift ;;
+            --failover) failover=true; shift ;;
             --from-env) from_env=true; shift ;;
             --from-file) from_file="$2"; shift 2 ;;
             *)
@@ -451,12 +585,22 @@ run_kubernetes_command() {
         log_error "--runtime-images 仅适用于 k8s verify"
         return 1
     fi
+    if [ "$failover" = true ] && [ "$action" != verify ]; then
+        log_error "--failover 仅适用于 k8s verify"
+        return 1
+    fi
 
     case "$action" in
         help|-h|--help) kubernetes_usage ;;
         deploy) kubernetes_deploy "$namespace" "$release" "$context" "$mode" "$replicas" "$values_file" "$dry_run" "$timeout" "$sync_images" "$reuse_values" ;;
         uninstall) kubernetes_uninstall "$namespace" "$release" "$context" ;;
-        verify) kubernetes_verify "$namespace" "$context" "$since" "$timeout" "$runtime_images" ;;
+        verify)
+            if [ "$failover" = true ]; then
+                kubernetes_verify_failover "$namespace" "$context" "$since" "$timeout" "$runtime_images"
+            else
+                kubernetes_verify "$namespace" "$context" "$since" "$timeout" "$runtime_images"
+            fi
+            ;;
         scale)
             [ -n "$replicas" ] || { log_error "k8s scale 需要副本数"; return 1; }
             kubernetes_scale "$namespace" "$context" "$replicas" "$timeout"

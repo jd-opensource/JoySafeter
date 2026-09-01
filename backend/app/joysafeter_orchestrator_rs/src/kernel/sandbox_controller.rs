@@ -403,6 +403,18 @@ impl IdleSandboxMaintenance {
                 continue;
             }
 
+            match self.bridge_store.owns_connection(&bridge).await {
+                Ok(true) => {}
+                Ok(false) => {
+                    debug!(sandbox_id = %sandbox_id, connection_id = %bridge.connection_id(), "Skipping stale bridge health check generation");
+                    continue;
+                }
+                Err(error) => {
+                    warn!(sandbox_id = %sandbox_id, connection_id = %bridge.connection_id(), %error, "Skipping bridge health check because exact ownership is unavailable");
+                    continue;
+                }
+            }
+
             // Check container liveness via provider
             if let Ok(Some(sandbox)) = queries::get_sandbox(&self.pool, sandbox_id).await {
                 if let Some(ref ext_id) = sandbox.external_id {
@@ -412,6 +424,17 @@ impl IdleSandboxMaintenance {
                     };
 
                     if !is_running {
+                        match self.bridge_store.owns_connection(&bridge).await {
+                            Ok(true) => {}
+                            Ok(false) => {
+                                warn!(sandbox_id = %sandbox_id, connection_id = %bridge.connection_id(), "Skipped bridge-health recovery because ownership generation changed during status check");
+                                continue;
+                            }
+                            Err(error) => {
+                                warn!(sandbox_id = %sandbox_id, connection_id = %bridge.connection_id(), %error, "Skipped bridge-health recovery because ownership could not be revalidated");
+                                continue;
+                            }
+                        }
                         warn!(sandbox_id = %sandbox_id, "Bridge health check: container dead, cleaning up");
 
                         // 1. Repair any DB task/session state while the sandbox
@@ -450,22 +473,66 @@ impl IdleSandboxMaintenance {
                                 }
                             };
 
-                        // 3. Remove bridge
-                        self.bridge_store.remove(ext_id);
+                        // 3. Revalidate the exact connection generation before
+                        // crossing the destructive provider boundary.
+                        let owns_connection = self.bridge_store.owns_connection(&bridge).await;
+                        if !matches!(owns_connection, Ok(true)) {
+                            let _ = queries::restore_sandbox_after_passive_destroy_failure(
+                                &self.pool,
+                                sandbox_id,
+                                &restore_status,
+                                sandbox.external_id.as_deref(),
+                            )
+                            .await;
+                            match owns_connection {
+                                Ok(false) => {
+                                    warn!(sandbox_id = %sandbox_id, connection_id = %bridge.connection_id(), "Skipped bridge-health provider destroy because ownership generation changed")
+                                }
+                                Err(error) => {
+                                    warn!(sandbox_id = %sandbox_id, connection_id = %bridge.connection_id(), %error, "Skipped bridge-health provider destroy because ownership could not be revalidated")
+                                }
+                                Ok(true) => unreachable!(),
+                            }
+                            continue;
+                        }
+                        if !self.bridge_store.remove_if_current(ext_id, &bridge) {
+                            let _ = queries::restore_sandbox_after_passive_destroy_failure(
+                                &self.pool,
+                                sandbox_id,
+                                &restore_status,
+                                sandbox.external_id.as_deref(),
+                            )
+                            .await;
+                            warn!(sandbox_id = %sandbox_id, connection_id = %bridge.connection_id(), "Skipped bridge-health provider destroy because local bridge generation changed");
+                            continue;
+                        }
 
                         // 4. Destroy container
-                        if let Err(e) = self.provider.destroy(ext_id).await {
-                            let err = format!("{e}");
-                            if !(err.contains("No such container") || err.contains("404")) {
-                                let _ = queries::restore_sandbox_after_passive_destroy_failure(
-                                    &self.pool,
-                                    sandbox_id,
-                                    &restore_status,
-                                    sandbox.external_id.as_deref(),
-                                )
-                                .await;
-                                error!(sandbox_id = %sandbox_id, error = %err, "Failed to destroy bridge-health sandbox after DB recovery");
+                        match self.provider.destroy_with_outcome(ext_id).await {
+                            Ok(outcome) if outcome.runtime_deleted() => {
+                                if let Some(error) = outcome.residual_cleanup_error {
+                                    warn!(sandbox_id = %sandbox_id, external_id = ext_id, %error, "Bridge-health runtime deleted with residual cleanup pending");
+                                }
+                            }
+                            Ok(_) => {
+                                warn!(sandbox_id = %sandbox_id, external_id = ext_id, "Bridge-health runtime deletion is still pending");
                                 continue;
+                            }
+                            Err(e) => {
+                                let err = format!("{e}");
+                                if err.contains("No such container") || err.contains("404") {
+                                    // Idempotent destroy: the runtime is already absent.
+                                } else {
+                                    let _ = queries::restore_sandbox_after_passive_destroy_failure(
+                                        &self.pool,
+                                        sandbox_id,
+                                        &restore_status,
+                                        sandbox.external_id.as_deref(),
+                                    )
+                                    .await;
+                                    error!(sandbox_id = %sandbox_id, error = %err, "Failed to destroy bridge-health sandbox after DB recovery");
+                                    continue;
+                                }
                             }
                         }
 

@@ -167,6 +167,45 @@ pub struct ProviderSandboxInfo {
     pub labels: HashMap<String, String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SandboxRuntimeDeletion {
+    Deleted,
+    Pending,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SandboxDestroyOutcome {
+    pub runtime: SandboxRuntimeDeletion,
+    pub residual_cleanup_error: Option<String>,
+}
+
+impl SandboxDestroyOutcome {
+    pub fn deleted() -> Self {
+        Self {
+            runtime: SandboxRuntimeDeletion::Deleted,
+            residual_cleanup_error: None,
+        }
+    }
+
+    pub fn deleted_with_residual(error: impl Into<String>) -> Self {
+        Self {
+            runtime: SandboxRuntimeDeletion::Deleted,
+            residual_cleanup_error: Some(error.into()),
+        }
+    }
+
+    pub fn pending() -> Self {
+        Self {
+            runtime: SandboxRuntimeDeletion::Pending,
+            residual_cleanup_error: None,
+        }
+    }
+
+    pub fn runtime_deleted(&self) -> bool {
+        self.runtime == SandboxRuntimeDeletion::Deleted
+    }
+}
+
 /// The SandboxProvider trait — the complete execution-plane abstraction.
 ///
 /// Covers the full sandbox lifecycle: container management, networking/egress,
@@ -191,6 +230,16 @@ pub trait SandboxProvider: Send + Sync + 'static {
 
     /// Destroy (remove) a sandbox completely.
     async fn destroy(&self, external_id: &str) -> anyhow::Result<()>;
+
+    /// Destroy a sandbox while preserving the distinction between runtime
+    /// deletion and provider-specific residual cleanup.
+    async fn destroy_with_outcome(
+        &self,
+        external_id: &str,
+    ) -> anyhow::Result<SandboxDestroyOutcome> {
+        self.destroy(external_id).await?;
+        Ok(SandboxDestroyOutcome::deleted())
+    }
 
     /// Get the current status of a sandbox.
     async fn status(&self, external_id: &str) -> anyhow::Result<SandboxStatus>;

@@ -350,6 +350,7 @@ kubectl scale deployment joysafeter-orchestrator -n joysafeter-prod --replicas=5
 |------|------|------|
 | `haMode` | `multi` | HA 模式: standalone/leader/multi |
 | `orchestrator.replicas` | 3 | Orchestrator 副本数 |
+| `orchestrator.requireDistinctNodes` | false | 是否要求 orchestrator 强制跨节点；生产 values 为 true |
 | `orchestrator.pool.minSize` | 5 | 预热池最小沙箱数 |
 | `orchestrator.sandbox.idleTimeout` | 300 | 沙箱空闲超时(秒) |
 | `orchestrator.storage.backend` | `local` | 文件存储后端: local/s3/oss；线上推荐 oss/s3 |
@@ -358,6 +359,7 @@ kubectl scale deployment joysafeter-orchestrator -n joysafeter-prod --replicas=5
 | `orchestrator.storage.s3.bucket/endpoint/region` | 空/空/空 | S3 非敏感参数；region 允许为空字符串 |
 | `agentIdentity.provider` | `none` | 设为 `jd` 时，Helm 发布前强制要求 `baseUrl`、非空 `allowedHosts`、`clientId`、`platformId`；`clientSecret` 仍由 `externalSecret` 提供 |
 | `envoy.socketHostDir` | `/data/joysafeter/envoy-sockets` | Envoy UDS hostPath |
+| `envoy.xdsMaxConnectionDuration` | `60s` | xDS HTTP/2 最大连接寿命，作为 authority 切换的纵深保护 |
 | `envoy.runAsUser/runAsGroup` | `101/101` | Envoy 进程身份；初始化容器据此设置 socket 根目录所有权 |
 | `egress.allowedHosts` | [见 values.yaml] | Envoy 出站白名单 |
 
@@ -374,7 +376,8 @@ Envoy DaemonSet 的 root initContainer 只负责幂等初始化 hostPath 根目�
 | 参数 | 预发 (pre) | 生产 (prod) |
 |------|------|------|
 | namespace | `joysafeter-pre` | `joysafeter-prod` |
-| replicas | 1 | 3 |
+| replicas | 2 | 3 |
+| requireDistinctNodes | false | true |
 | pool.minSize | 2 | 10 |
 | sandbox.idleTimeout | 120s | 300s |
 | sandbox.hardTimeout | 1h | 6h |

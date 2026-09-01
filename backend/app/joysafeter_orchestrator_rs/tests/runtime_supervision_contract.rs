@@ -93,3 +93,14 @@ fn sandbox_controller_loops_are_named_and_assembled_by_bootstrap() {
     assert!(application.contains("build_sandbox_controller_tasks"));
     assert!(!application.contains("sandbox-controller-{index}"));
 }
+
+#[test]
+fn redis_instance_heartbeat_is_supervised_in_multi_mode() {
+    let application = source("src/bootstrap/application.rs");
+    let registry = source("src/kernel/instance_registry.rs");
+
+    assert!(application.contains("redis-instance-heartbeat"));
+    assert!(application.contains("ServiceCriticality::Critical"));
+    assert!(registry.contains("redis.call('HSET'"));
+    assert!(registry.contains("redis.call('EXPIRE'"));
+}

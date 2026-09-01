@@ -51,6 +51,10 @@ pub trait BridgeStore: Send + Sync + 'static {
     /// Returns `Some("self")` for local modes, `Some(instance_id)` for multi.
     async fn get_owner_instance(&self, sandbox_id: SandboxId) -> Option<String>;
 
+    /// Prove that the registry still contains this exact runner connection.
+    /// Destructive maintenance must fail closed when this cannot be proven.
+    async fn owns_connection(&self, bridge: &Arc<SandboxBridge>) -> anyhow::Result<bool>;
+
     /// Heartbeat to refresh TTLs (no-op for local mode).
     async fn heartbeat(&self) -> anyhow::Result<()>;
 }

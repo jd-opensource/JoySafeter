@@ -35,6 +35,13 @@ spec:
       {{- end }}
       affinity:
         podAntiAffinity:
+          {{- if .Values.orchestrator.requireDistinctNodes }}
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchLabels:
+                app: joysafeter-orchestrator
+            topologyKey: kubernetes.io/hostname
+          {{- else }}
           preferredDuringSchedulingIgnoredDuringExecution:
           - weight: 100
             podAffinityTerm:
@@ -42,6 +49,14 @@ spec:
                 matchLabels:
                   app: joysafeter-orchestrator
               topologyKey: kubernetes.io/hostname
+          {{- end }}
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: joysafeter-orchestrator
       {{- if and (eq $storageBackend "local") $storage.local.persistence.enabled }}
       volumes:
       - name: joysafeter-files

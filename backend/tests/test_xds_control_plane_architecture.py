@@ -103,6 +103,23 @@ def test_bootstrap_constructs_one_independent_xds_control_plane() -> None:
         assert bypass not in control_plane
         assert bypass not in (RUST_ROOT / "xds/delta.rs").read_text(encoding="utf-8")
 
+
+def test_kubernetes_multi_active_topology_and_xds_reconnect_guards() -> None:
+    chart = REPO_ROOT.parent / "deploy/helm/joysafeter-orchestrator"
+    deployment = (chart / "templates/deployment.yaml").read_text(encoding="utf-8")
+    service = (chart / "templates/service.yaml").read_text(encoding="utf-8")
+    envoy = (chart / "templates/envoy-daemonset.yaml").read_text(encoding="utf-8")
+    values = (chart / "values.yaml").read_text(encoding="utf-8")
+    production = (chart / "values-prod.yaml").read_text(encoding="utf-8")
+
+    assert "requiredDuringSchedulingIgnoredDuringExecution" in deployment
+    assert "topologySpreadConstraints" in deployment
+    assert "requireDistinctNodes: false" in values
+    assert "requireDistinctNodes: true" in production
+    assert 'minAvailable: {{ if and (eq .Values.haMode "multi")' in service
+    assert '"max_connection_duration"' in envoy
+    assert "xdsMaxConnectionDuration: 60s" in values
+
     resource_store = (RUST_ROOT / "xds/resource_store.rs").read_text(encoding="utf-8")
     assert "async fn replace_type" not in resource_store
 

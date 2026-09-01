@@ -332,6 +332,12 @@ kubernetes_verify() { printf '%s\n' "$*" > "$KUBE_VERIFY_ARGS_FILE"; }
 run_kubernetes_command verify --namespace verify-ns --context verify-context --since 10m --timeout 240s --runtime-images
 assert_contains "$(cat "$KUBE_VERIFY_ARGS_FILE")" 'verify-ns verify-context 10m 240s true'
 
+KUBE_FAILOVER_ARGS_FILE="$TEST_TMP/kube-failover-args"
+export KUBE_FAILOVER_ARGS_FILE
+kubernetes_verify_failover() { printf '%s\n' "$*" > "$KUBE_FAILOVER_ARGS_FILE"; }
+run_kubernetes_command verify --namespace verify-ns --context verify-context --since 10m --timeout 240s --failover
+assert_contains "$(cat "$KUBE_FAILOVER_ARGS_FILE")" 'verify-ns verify-context 10m 240s false'
+
 DOWN_ARGS_FILE="$TEST_TMP/down-args"
 export DOWN_ARGS_FILE
 check_docker_running() { return 0; }

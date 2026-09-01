@@ -131,6 +131,9 @@ spec:
                   "typed_extension_protocol_options": {
                     "envoy.extensions.upstreams.http.v3.HttpProtocolOptions": {
                       "@type": "type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions",
+                      "common_http_protocol_options": {
+                        "max_connection_duration": {{ .Values.envoy.xdsMaxConnectionDuration | quote }}
+                      },
                       "explicit_http_config": {
                         "http2_protocol_options": {}
                       }

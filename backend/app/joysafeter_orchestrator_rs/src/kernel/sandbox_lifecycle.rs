@@ -47,12 +47,17 @@ pub(crate) async fn destroy_unpersisted_sandbox(
     external_id: &str,
     reason: &str,
 ) -> anyhow::Result<()> {
-    let destroy_error = provider
-        .destroy(external_id)
-        .await
-        .err()
-        .map(|error| error.to_string())
-        .filter(|message| !provider_runtime_is_absent(message));
+    let destroy_error = match provider.destroy_with_outcome(external_id).await {
+        Ok(outcome) if outcome.runtime_deleted() => {
+            if let Some(error) = outcome.residual_cleanup_error {
+                warn!(sandbox_id = %sandbox_id, external_id, %error, "Provider runtime deleted with residual cleanup pending");
+            }
+            None
+        }
+        Ok(_) => Some("provider runtime deletion is still pending".to_string()),
+        Err(error) if provider_runtime_is_absent(&error.to_string()) => None,
+        Err(error) => Some(error.to_string()),
+    };
     let networking_error = network_cleanup
         .teardown_networking(sandbox_id)
         .await
@@ -100,17 +105,33 @@ pub(crate) async fn finalize_claimed_sandbox_destroy(
     reason: &str,
 ) -> anyhow::Result<bool> {
     if let Some(ext_id) = external_id {
-        if let Err(err) = provider.destroy(ext_id).await {
-            let message = err.to_string();
-            if !provider_runtime_is_absent(&message) {
-                let _ = queries::restore_sandbox_after_passive_destroy_failure(
-                    pool,
-                    sandbox_id,
-                    restore_status,
-                    external_id,
-                )
-                .await;
-                anyhow::bail!("failed to destroy sandbox {sandbox_id} during {reason}: {message}");
+        match provider.destroy_with_outcome(ext_id).await {
+            Ok(outcome) if outcome.runtime_deleted() => {
+                if let Some(error) = outcome.residual_cleanup_error {
+                    warn!(sandbox_id = %sandbox_id, external_id = ext_id, %error, "Provider runtime deleted with residual cleanup pending");
+                }
+            }
+            Ok(_) => {
+                anyhow::bail!(
+                    "sandbox {sandbox_id} runtime deletion is still pending during {reason}"
+                );
+            }
+            Err(err) => {
+                let message = err.to_string();
+                if provider_runtime_is_absent(&message) {
+                    // Idempotent destroy: the runtime is already absent.
+                } else {
+                    let _ = queries::restore_sandbox_after_passive_destroy_failure(
+                        pool,
+                        sandbox_id,
+                        restore_status,
+                        external_id,
+                    )
+                    .await;
+                    anyhow::bail!(
+                        "failed to destroy sandbox {sandbox_id} during {reason}: {message}"
+                    );
+                }
             }
         }
     }

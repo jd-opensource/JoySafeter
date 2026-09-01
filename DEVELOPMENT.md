@@ -199,12 +199,20 @@ kubectl get nodes
   --release joysafeter-local \
   --namespace joysafeter-local \
   --runtime-images
+
+# 显式破坏性验证：删除当前 xDS authority Pod，等待 Lease/Service 切换，
+# 并要求 Envoy 节点全部重新连接到新 authority。
+./deploy/deploy.sh k8s verify \
+  --release joysafeter-local \
+  --namespace joysafeter-local \
+  --failover
 ```
 
 Runner gRPC and ADS must render as distinct service ports. Deployment verification must wait for
 the orchestrator readiness endpoint and the Envoy DaemonSet before exercising Runner and managed
 network-policy flows. `--runtime-images` creates short-lived probe Pods and therefore requires Pod
-create/delete permission in the target namespace.
+create/delete permission in the target namespace. `--failover` deletes the current authority Pod and is
+therefore opt-in; run it only against an isolated verification namespace.
 
 ## Component Guides
 
