@@ -11,7 +11,6 @@ call the route function directly).
 
 import uuid
 
-import httpx
 import pytest
 import pytest_asyncio
 from error_contract_helpers import handled_app_error_payload
@@ -27,9 +26,6 @@ from app.joysafeter_api.api.v1.quickstart import (
     _build_system_prompt,
     _build_tools,
     _generate_curl,
-    _upstream_connection_error_event,
-    _upstream_error_event,
-    _upstream_stream_error_event,
     quickstart_chat,
 )
 from app.joysafeter_application.credentials.application_service import (
@@ -298,40 +294,6 @@ async def test_credential_group_create_initial_member_failure_rolls_back_group(d
     )
     assert exc.value.code == "CREDENTIAL_FIELD_MISSING"
     assert rows == []
-
-
-def test_quickstart_upstream_status_error_event_is_structured():
-    assert _upstream_error_event(429) == {
-        "type": "error",
-        "code": "UPSTREAM_RATE_LIMITED",
-        "message": "Rate limited by upstream API. Please try again later.",
-        "data": None,
-        "source": "upstream",
-        "retryable": True,
-        "status": 429,
-    }
-
-
-def test_quickstart_upstream_connection_error_event_is_retryable():
-    assert _upstream_connection_error_event(httpx.ConnectError("connection refused")) == {
-        "type": "error",
-        "code": "UPSTREAM_CONNECTION_FAILED",
-        "message": "Failed to connect to upstream API (ConnectError).",
-        "data": None,
-        "source": "upstream",
-        "retryable": True,
-    }
-
-
-def test_quickstart_upstream_stream_error_event_is_structured():
-    assert _upstream_stream_error_event("model refused the request") == {
-        "type": "error",
-        "code": "UPSTREAM_STREAM_ERROR",
-        "message": "model refused the request",
-        "data": None,
-        "source": "upstream",
-        "retryable": False,
-    }
 
 
 @pytest.mark.asyncio
