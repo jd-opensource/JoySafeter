@@ -252,12 +252,14 @@ describe('ModelConnectionConfigurator', () => {
 
   it('ignores a model create completion after the project changes', async () => {
     const create = deferred<unknown>()
-    managedPostMock.mockReturnValueOnce(create.promise)
+    managedPostMock
+      .mockResolvedValueOnce({ ok: true, message: 'ok' })
+      .mockReturnValueOnce(create.promise)
     const onCreated = vi.fn()
     render(<ModelConnectionConfigurator initialEngineId="native" onCreated={onCreated} />)
     fillModelForm()
     fireEvent.click(screen.getByRole('button', { name: 'managed.llm.createConfiguration' }))
-    await waitFor(() => expect(managedPostMock).toHaveBeenCalledOnce())
+    await waitFor(() => expect(managedPostMock).toHaveBeenCalledTimes(2))
 
     await act(async () => {
       setProject('project-b')
@@ -306,16 +308,40 @@ describe('ModelConnectionConfigurator', () => {
 
   it('submits auth_scheme for anthropic credentials', async () => {
     const create = deferred<unknown>()
-    managedPostMock.mockReturnValueOnce(create.promise)
+    managedPostMock
+      .mockResolvedValueOnce({ ok: true, message: 'ok' })
+      .mockReturnValueOnce(create.promise)
     render(<ModelConnectionConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
     fireEvent.change(screen.getByLabelText('API Key'), { target: { value: 'k' } })
     fireEvent.change(screen.getByPlaceholderText('managed.llm.configurationNamePlaceholder'), {
       target: { value: 'Claude key' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'managed.llm.createConfiguration' }))
-    await waitFor(() => expect(managedPostMock).toHaveBeenCalledOnce())
-    const [, body] = managedPostMock.mock.calls[0]
-    expect(body.auth_scheme).toBe('auto')
-    expect(body.data.ANTHROPIC_API_KEY).toBe('k')
+    await waitFor(() => expect(managedPostMock).toHaveBeenCalledTimes(2))
+    for (const [, body] of managedPostMock.mock.calls) {
+      expect(body.auth_scheme).toBe('auto')
+      expect(body.data.ANTHROPIC_API_KEY).toBe('k')
+    }
+  })
+
+  it('does not create a model connection when automatic validation fails', async () => {
+    managedPostMock.mockResolvedValueOnce({ ok: false, message: '该key不允许访问该模型' })
+    const onCreated = vi.fn()
+    render(<ModelConnectionConfigurator initialEngineId="native" onCreated={onCreated} />)
+    fillModelForm()
+
+    fireEvent.click(screen.getByRole('button', { name: 'managed.llm.createConfiguration' }))
+
+    await waitFor(() => expect(screen.getByText('该key不允许访问该模型')).toBeTruthy())
+    expect(managedPostMock).toHaveBeenCalledTimes(1)
+    expect(managedPostMock).toHaveBeenCalledWith(
+      '/credentials/test',
+      expect.objectContaining({
+        provider: 'openai',
+        protocol: 'openai_responses',
+      }),
+      expect.anything(),
+    )
+    expect(onCreated).not.toHaveBeenCalled()
   })
 })

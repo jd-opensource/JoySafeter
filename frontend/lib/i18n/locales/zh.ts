@@ -1100,6 +1100,7 @@ const zh = {
           credentialFailure: {
             corrupt_record: '所用密钥/凭据数据已损坏或为旧格式',
             envelope_invalid: '凭据无法解密',
+            configuration_invalid: '服务端模型目录配置无效，请联系管理员',
             unsupported_scheme: '凭据的鉴权方式已不受支持',
             kind_mismatch: '凭据类型与绑定不匹配',
             field_missing: '凭据缺少必要字段',
@@ -2070,8 +2071,18 @@ const zh = {
           uploadSuccess: '已导入 {{count}} 个文件',
           uploadEmpty: '没有可导入的文本文件',
           moveConflict: '目标已存在同名文件，已跳过',
-          selectModelConnection: '选择密钥',
+          selectModelConnection: '选择模型连接',
           noModelConnections: '暂无可用模型连接',
+          modelConnection: {
+            required: '先配置模型连接',
+            requiredHint:
+              'AI 创作支持 Anthropic Messages、OpenAI Responses 和 Chat Completions 模型连接。可在当前页面直接创建，完成后会自动选中。',
+            selected: 'AI 创作模型连接',
+            select: '选择模型连接',
+            change: '更换',
+            dialogTitle: '配置 AI 创作模型连接',
+            dialogDescription: '选择现有连接，或创建一个 AI 创作支持的新模型连接。',
+          },
           default: '默认',
           saveDraft: '保存草稿',
           create: '创建技能',

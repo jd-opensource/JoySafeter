@@ -14,11 +14,12 @@ from app.joysafeter_domain.credentials.types import (
     require_project_id,
 )
 
-from .catalog import EngineCapability, LlmCatalog
+from .catalog import EngineCapability, LlmCatalog, ModelConsumerCapability
 
 
 class ModelInferencePolicyErrorCode(StrEnum):
     ENGINE_DISABLED = "engine_disabled"
+    MODEL_CONSUMER_DISABLED = "model_consumer_disabled"
 
 
 class ModelInferencePolicyError(ValueError):
@@ -27,10 +28,12 @@ class ModelInferencePolicyError(ValueError):
         code: ModelInferencePolicyErrorCode,
         message: str,
         *,
-        engine_kind: EngineKind,
+        engine_kind: EngineKind | None = None,
+        model_consumer_id: str | None = None,
     ) -> None:
         self.code = code
         self.engine_kind = engine_kind
+        self.model_consumer_id = model_consumer_id
         super().__init__(message)
 
 
@@ -68,6 +71,20 @@ def require_enabled_model_inference_engine(
     return engine
 
 
+def require_enabled_model_inference_consumer(
+    catalog: LlmCatalog,
+    model_consumer_id: str,
+) -> ModelConsumerCapability:
+    consumer = catalog.model_consumer(model_consumer_id)
+    if not consumer.enabled:
+        raise ModelInferencePolicyError(
+            ModelInferencePolicyErrorCode.MODEL_CONSUMER_DISABLED,
+            f"LLM model consumer is disabled: {model_consumer_id}",
+            model_consumer_id=model_consumer_id,
+        )
+    return consumer
+
+
 def build_model_inference_policy(
     catalog: LlmCatalog,
     *,
@@ -83,4 +100,22 @@ def build_model_inference_policy(
         credential_id=credential_id,
         engine_kind=normalized_engine_kind,
         model_id=model_id,
+    )
+
+
+def build_model_consumer_inference_policy(
+    catalog: LlmCatalog,
+    *,
+    project_id: ProjectId,
+    credential_id: CredentialId,
+    model_consumer_id: str,
+    model_id: str | None,
+) -> ModelInferenceBinding:
+    require_enabled_model_inference_consumer(catalog, model_consumer_id)
+    return ModelInferenceBinding(
+        project_id=require_project_id(project_id),
+        credential_id=credential_id,
+        engine_kind=None,
+        model_id=model_id,
+        model_consumer_id=model_consumer_id,
     )

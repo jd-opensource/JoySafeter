@@ -5,8 +5,8 @@ Two routes, both mounted under ``/api/v1/skills/ai-authoring/`` (the parent
 ``/api/v1/skills/ai-authoring/chat`` and ``.../save-draft``).
 
 * ``POST /chat`` — SSE stream. The client sends the running conversation +
-  current right-side draft, the server resolves OPENAI_* keys from a user-
-  named secret (same pattern as ``quickstart.py``), and streams back
+  current right-side draft, the server resolves the selected model connection
+  through the canonical credential application service, and streams back
   ``text_delta`` / ``draft_patch`` / ``done`` / ``error`` events for the
   workspace UI to consume.
 
@@ -31,7 +31,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.joysafeter_api.api.v1.audit import credential_audit_actor
 from app.joysafeter_application.credentials.composition import compose_credential_application
 from app.joysafeter_application.credentials.ports import CredentialAccessContext
-from app.joysafeter_domain.credentials.bindings import EngineKind
 from app.joysafeter_domain.llm.catalog import get_llm_catalog
 from app.joysafeter_domain.llm.compatibility import (
     LlmCompatibilityError,
@@ -39,7 +38,7 @@ from app.joysafeter_domain.llm.compatibility import (
 )
 from app.joysafeter_domain.llm.model_inference_policy import (
     ModelInferenceMaterialFieldMissingError,
-    build_model_inference_policy,
+    build_model_consumer_inference_policy,
 )
 from app.joysafeter_domain.services.credential_binding_errors import raise_public_credential_error
 from app.joysafeter_domain.services.joysafeter_skill_authoring import (
@@ -137,7 +136,7 @@ class AuthoringDraft(BaseModel):
 
 
 class AuthoringChatRequest(BaseModel):
-    model_credential_id: CredentialId = Field(..., description="Model credential holding OPENAI_*.")
+    model_credential_id: CredentialId = Field(..., description="Model connection used for AI authoring.")
     messages: list[AuthoringMessage] = Field(..., max_length=50)
     draft: Optional[AuthoringDraft] = None
 
@@ -282,10 +281,8 @@ async def authoring_chat(
 ):
     """Stream one authoring turn against the configured LLM.
 
-    Credentials live in a JoySafeter model credential (multi-tenant) — same
-    shape ``quickstart.py`` uses: ``OPENAI_API_KEY`` (required), ``OPENAI_BASE_URL``
-    (optional, defaults to api.openai.com), ``OPENAI_MODEL`` (optional,
-    defaults to ``gpt-5.5``).
+    Credentials live in a JoySafeter model connection and may use any protocol
+    declared compatible with the ``skill_ai_authoring`` catalog consumer.
     """
     actor = credential_audit_actor(request, auth_ctx)
     application = compose_credential_application(
@@ -294,11 +291,11 @@ async def authoring_chat(
         audit_actor=actor,
     )
     try:
-        binding = build_model_inference_policy(
+        binding = build_model_consumer_inference_policy(
             get_llm_catalog(),
             project_id=auth_ctx.project_id,
             credential_id=req.model_credential_id,
-            engine_kind=EngineKind.CODEX,
+            model_consumer_id="skill_ai_authoring",
             model_id=None,
         )
         material, resolution = await application.material_access_service.resolve_model_inference(
@@ -340,7 +337,13 @@ async def authoring_chat(
             provider=provider,
             protocol=protocol,
         )
-    api_key = data.get("OPENAI_API_KEY") or ""
+    if protocol == "anthropic_messages":
+        auth_token = data.get("ANTHROPIC_AUTH_TOKEN") or ""
+        api_key = auth_token or data.get("ANTHROPIC_API_KEY") or ""
+        bearer_token = bool(auth_token)
+    else:
+        api_key = data.get("OPENAI_API_KEY") or ""
+        bearer_token = False
     base_url_key = resolution.base_url_key or "BASE_URL"
     base_url = data.get(base_url_key) or resolution.default_base_url
     if not base_url:
@@ -355,14 +358,27 @@ async def authoring_chat(
     except LLMBaseUrlError as exc:
         raise _authoring_base_url_error(exc, credential_id=req.model_credential_id) from None
     model = data.get(resolution.model_key) if resolution.model_key else None
-    model = model or "gpt-5.5"
+    if not model:
+        raise InvalidRequestError(
+            code="SKILL_AUTHORING_MODEL_REQUIRED",
+            message=f"{resolution.model_key or 'model'} is required for skill authoring.",
+            data={
+                "credential_id": str(req.model_credential_id),
+                "provider": provider,
+                "protocol": protocol,
+                "key": resolution.model_key,
+            },
+            user_action="fix_input",
+        )
 
     history = [m.model_dump() for m in req.messages]
     draft_dict = req.draft.model_dump() if req.draft else None
 
     async def _gen():
         async for event in stream_authoring_chat(
+            protocol=protocol,
             api_key=api_key,
+            bearer_token=bearer_token,
             base_url=base_url,
             model=model,
             history=history,

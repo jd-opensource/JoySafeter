@@ -301,6 +301,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
         let buffer = ''
         let assistantAccum = ''
         let sawPatch = false
+        let sawError = false
 
         const processLine = (line: string) => {
           if (!line.startsWith('data:')) return
@@ -332,6 +333,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
               break
             }
             case 'error':
+              sawError = true
               setMessages((prev) => {
                 const updated = [...prev]
                 const last = updated[updated.length - 1]
@@ -339,7 +341,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
                 if (last && last.role === 'assistant') {
                   updated[updated.length - 1] = {
                     ...last,
-                    content: `${last.content || ''}\n\n⚠️ ${msg}`,
+                    content: `${last.content ? `${last.content}\n\n` : ''}⚠️ ${msg}`,
                   }
                 }
                 return updated
@@ -386,7 +388,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
             }
             return updated
           })
-        } else if (!assistantAccum && !sawPatch) {
+        } else if (!assistantAccum && !sawPatch && !sawError) {
           // Stream ended but the model said nothing and patched nothing.
           // Surface it so the user can retry rather than stare at "...".
           setMessages((prev) => {

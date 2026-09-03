@@ -141,7 +141,12 @@ fn validate_model_binding(
         provider,
         protocol,
     )
-    .map_err(|error| match error {
+    .map_err(map_catalog_error)?;
+    Ok(binding)
+}
+
+fn map_catalog_error(error: crate::kernel::llm_catalog::LlmCatalogError) -> CredentialRuntimeError {
+    match error {
         crate::kernel::llm_catalog::LlmCatalogError::SecretKindInvalid { .. } => {
             CredentialRuntimeError::KindMismatch
         }
@@ -149,9 +154,20 @@ fn validate_model_binding(
         | crate::kernel::llm_catalog::LlmCatalogError::ProtocolRequired => {
             CredentialRuntimeError::FieldMissing
         }
-        _ => CredentialRuntimeError::CorruptRecord,
-    })?;
-    Ok(binding)
+        crate::kernel::llm_catalog::LlmCatalogError::CatalogInvalid { .. }
+        | crate::kernel::llm_catalog::LlmCatalogError::EngineUnknown { .. }
+        | crate::kernel::llm_catalog::LlmCatalogError::EngineDisabled { .. }
+        | crate::kernel::llm_catalog::LlmCatalogError::CredentialProfileMissing { .. } => {
+            CredentialRuntimeError::ConfigurationInvalid
+        }
+        crate::kernel::llm_catalog::LlmCatalogError::ProviderUnknown { .. }
+        | crate::kernel::llm_catalog::LlmCatalogError::ProviderDisabled { .. }
+        | crate::kernel::llm_catalog::LlmCatalogError::ProtocolUnknown { .. }
+        | crate::kernel::llm_catalog::LlmCatalogError::ProviderProtocolUnsupported { .. }
+        | crate::kernel::llm_catalog::LlmCatalogError::EngineProtocolUnsupported { .. } => {
+            CredentialRuntimeError::UnsupportedScheme
+        }
+    }
 }
 
 #[cfg(test)]
@@ -160,9 +176,10 @@ mod tests {
 
     use uuid::Uuid;
 
-    use super::model_material_fields;
+    use super::{map_catalog_error, model_material_fields};
     use crate::ids::CredentialId;
     use crate::ids::ProjectId;
+    use crate::kernel::credentials::error::CredentialRuntimeError;
     use crate::kernel::credentials::record::{CredentialKind, CredentialMetadataRecord};
 
     #[test]
@@ -190,6 +207,31 @@ mod tests {
                 "ANTHROPIC_API_KEY".to_string(),
                 "ANTHROPIC_BASE_URL".to_string(),
             ])
+        );
+    }
+
+    #[test]
+    fn invalid_catalog_is_not_reported_as_a_corrupt_credential() {
+        let error = crate::kernel::llm_catalog::LlmCatalogError::CatalogInvalid {
+            message: "unknown catalog field".to_string(),
+        };
+
+        assert_eq!(
+            map_catalog_error(error),
+            CredentialRuntimeError::ConfigurationInvalid
+        );
+    }
+
+    #[test]
+    fn unsupported_model_protocol_is_not_reported_as_a_corrupt_credential() {
+        let error = crate::kernel::llm_catalog::LlmCatalogError::EngineProtocolUnsupported {
+            engine_kind: "claude".to_string(),
+            protocol_id: "openai_responses".to_string(),
+        };
+
+        assert_eq!(
+            map_catalog_error(error),
+            CredentialRuntimeError::UnsupportedScheme
         );
     }
 }

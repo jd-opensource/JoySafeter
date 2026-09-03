@@ -8,6 +8,7 @@ from app.joysafeter_domain.llm.catalog import (
     CredentialProfile,
     EngineCapability,
     LlmCatalogError,
+    ModelConsumerCapability,
     ProviderDefinition,
     ProviderProtocolBinding,
     get_llm_catalog,
@@ -61,8 +62,32 @@ def _provider(provider_id: str) -> ProviderDefinition:
     return provider
 
 
+def _model_consumer(consumer_id: str) -> ModelConsumerCapability:
+    try:
+        consumer = get_llm_catalog().model_consumer(consumer_id)
+    except LlmCatalogError as exc:
+        raise LlmCompatibilityError(
+            code="LLM_MODEL_CONSUMER_UNKNOWN",
+            message=f"Unknown LLM model consumer: {consumer_id}",
+            data={"model_consumer": consumer_id},
+            user_action="fix_input",
+        ) from exc
+    if not consumer.enabled:
+        raise LlmCompatibilityError(
+            code="LLM_MODEL_CONSUMER_DISABLED",
+            message=f"LLM model consumer is disabled: {consumer_id}",
+            data={"model_consumer": consumer_id},
+            user_action="fix_input",
+        )
+    return consumer
+
+
 def validate_engine(engine_id: str) -> EngineCapability:
     return _engine(engine_id)
+
+
+def validate_model_consumer(consumer_id: str) -> ModelConsumerCapability:
+    return _model_consumer(consumer_id)
 
 
 def _validate_protocol_id(protocol_id: str) -> None:
@@ -83,16 +108,25 @@ def compatible_protocol_ids(engine_id: str, provider_id: str | None = None) -> l
         return list(engine.supported_protocol_ids)
     provider = _provider(provider_id)
     provider_protocol_ids = {binding.protocol_id for binding in provider.protocol_bindings}
-    return [
-        protocol_id
-        for protocol_id in engine.supported_protocol_ids
-        if protocol_id in provider_protocol_ids
-    ]
+    return [protocol_id for protocol_id in engine.supported_protocol_ids if protocol_id in provider_protocol_ids]
 
 
 def compatible_provider_protocol_pairs(engine_id: str) -> list[tuple[str, str]]:
     engine = _engine(engine_id)
     supported_protocol_ids = set(engine.supported_protocol_ids)
+    pairs: list[tuple[str, str]] = []
+    for provider in get_llm_catalog().providers:
+        if not provider.enabled:
+            continue
+        for binding in provider.protocol_bindings:
+            if binding.protocol_id in supported_protocol_ids:
+                pairs.append((provider.id, binding.protocol_id))
+    return pairs
+
+
+def compatible_provider_protocol_pairs_for_consumer(consumer_id: str) -> list[tuple[str, str]]:
+    consumer = _model_consumer(consumer_id)
+    supported_protocol_ids = set(consumer.supported_protocol_ids)
     pairs: list[tuple[str, str]] = []
     for provider in get_llm_catalog().providers:
         if not provider.enabled:
@@ -166,9 +200,7 @@ def validate_credential_data(provider_id: str, protocol_id: str, data: Mapping[s
     profile = get_llm_catalog().credential_profile(binding.credential_profile_id)
 
     missing_required = [
-        field.key
-        for field in profile.fields
-        if field.required and not str(data.get(field.key, "")).strip()
+        field.key for field in profile.fields if field.required and not str(data.get(field.key, "")).strip()
     ]
     if missing_required:
         raise LlmCompatibilityError(
@@ -183,9 +215,7 @@ def validate_credential_data(provider_id: str, protocol_id: str, data: Mapping[s
         )
 
     missing_groups = [
-        group
-        for group in profile.required_any_of
-        if not any(str(data.get(key, "")).strip() for key in group)
+        group for group in profile.required_any_of if not any(str(data.get(key, "")).strip() for key in group)
     ]
     if missing_groups:
         raise LlmCompatibilityError(
@@ -219,8 +249,7 @@ def resolve_credential_profile(secret) -> CredentialProfile | None:
         return get_llm_catalog().credential_profile(binding.credential_profile_id)
     except (LlmCompatibilityError, LlmCatalogError) as exc:
         logger.warning(
-            "Skipping model resolution for secret %r: incompatible provider/protocol "
-            "(provider=%r, protocol=%r): %s",
+            "Skipping model resolution for secret %r: incompatible provider/protocol (provider=%r, protocol=%r): %s",
             getattr(secret, "name", None),
             getattr(secret, "provider", None),
             getattr(secret, "protocol", None),

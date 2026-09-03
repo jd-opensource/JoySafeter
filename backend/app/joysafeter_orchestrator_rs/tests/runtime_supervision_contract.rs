@@ -19,6 +19,23 @@ fn bootstrap_uses_one_supervisor_as_the_runtime_lifecycle_owner() {
 }
 
 #[test]
+fn bootstrap_validates_the_embedded_llm_catalog_before_starting_services() {
+    let application = source("src/bootstrap/application.rs");
+    let config_validation = application
+        .find("config.validate()?")
+        .expect("bootstrap validates process configuration");
+    let catalog_validation = application
+        .find("kernel::llm_catalog::validate_catalog_configuration()?")
+        .expect("bootstrap validates the embedded LLM catalog");
+    let database_initialization = application
+        .find("db::pool::create_pool")
+        .expect("bootstrap initializes the database");
+
+    assert!(config_validation < catalog_validation);
+    assert!(catalog_validation < database_initialization);
+}
+
+#[test]
 fn health_server_binds_before_returning_its_managed_task() {
     let supervisor = source("src/bootstrap/supervisor.rs");
     let bind = supervisor

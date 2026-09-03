@@ -573,7 +573,9 @@ fn classify_load_failure(
     if policy_validated
         || matches!(
             error,
-            CredentialRuntimeError::CorruptRecord | CredentialRuntimeError::EnvelopeInvalid
+            CredentialRuntimeError::CorruptRecord
+                | CredentialRuntimeError::EnvelopeInvalid
+                | CredentialRuntimeError::ConfigurationInvalid
         )
     {
         CredentialAccessFailure::Failed
@@ -584,9 +586,27 @@ fn classify_load_failure(
 
 fn classify_runtime_error(error: CredentialRuntimeError) -> CredentialAccessFailure {
     match error {
-        CredentialRuntimeError::CorruptRecord | CredentialRuntimeError::EnvelopeInvalid => {
-            CredentialAccessFailure::Failed
-        }
+        CredentialRuntimeError::CorruptRecord
+        | CredentialRuntimeError::EnvelopeInvalid
+        | CredentialRuntimeError::ConfigurationInvalid => CredentialAccessFailure::Failed,
         _ => CredentialAccessFailure::Denied,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{classify_load_failure, classify_runtime_error, CredentialAccessFailure};
+    use crate::kernel::credentials::error::CredentialRuntimeError;
+
+    #[test]
+    fn configuration_failures_are_audited_as_system_failures() {
+        assert_eq!(
+            classify_load_failure(CredentialRuntimeError::ConfigurationInvalid, false),
+            CredentialAccessFailure::Failed
+        );
+        assert_eq!(
+            classify_runtime_error(CredentialRuntimeError::ConfigurationInvalid),
+            CredentialAccessFailure::Failed
+        );
     }
 }

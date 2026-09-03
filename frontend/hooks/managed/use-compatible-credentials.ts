@@ -5,12 +5,12 @@ import { useQuery } from '@tanstack/react-query'
 import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
 import { managedGet } from '@/lib/api-client'
 import { apiCollectionPath } from '@/lib/managed/api-paths'
+import { parseCredentialListResponse } from '@/lib/managed/credential-response-parsers'
 import {
   hasManagedRequestScope,
   managedRequestOptions,
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
-import { parseCredentialListResponse } from '@/lib/managed/credential-response-parsers'
 import { parseCredentialId, type CredentialId } from '@/types/entity-id'
 import type { Credential } from '@/types/managed'
 
@@ -21,7 +21,8 @@ interface CredentialPage {
 }
 
 interface UseCompatibleCredentialsOptions {
-  engineId: string
+  engineId?: string
+  modelConsumerId?: string
   enabled?: boolean
 }
 
@@ -78,6 +79,10 @@ export function compatibleCredentialsQueryPrefix(scopeKey: string, engineId: str
   return [...compatibleCredentialsScopePrefix(scopeKey), engineId] as const
 }
 
+export function consumerCredentialsQueryPrefix(scopeKey: string, modelConsumerId: string) {
+  return ['consumer-credentials', scopeKey, modelConsumerId] as const
+}
+
 export function activeModelConnectionsQueryKey(scopeKey: string, catalogVersion = '') {
   return ['active-model-connections', scopeKey, catalogVersion] as const
 }
@@ -88,6 +93,14 @@ export function compatibleCredentialsQueryKey(
   catalogVersion = '',
 ) {
   return [...compatibleCredentialsQueryPrefix(scopeKey, engineId), catalogVersion] as const
+}
+
+export function consumerCredentialsQueryKey(
+  scopeKey: string,
+  modelConsumerId: string,
+  catalogVersion = '',
+) {
+  return [...consumerCredentialsQueryPrefix(scopeKey, modelConsumerId), catalogVersion] as const
 }
 
 export function modelConnectionByNameQueryKey(scopeKey: string, name: string, catalogVersion = '') {
@@ -103,7 +116,8 @@ export function protocolCredentialsQueryKey(
 }
 
 export function useCompatibleCredentials({
-  engineId,
+  engineId = '',
+  modelConsumerId = '',
   enabled = true,
 }: UseCompatibleCredentialsOptions) {
   const managedScope = useManagedRequestScope()
@@ -111,17 +125,22 @@ export function useCompatibleCredentials({
   const catalogVersion = catalogQuery.data?.version ?? ''
   const queryEnabled =
     enabled &&
-    Boolean(engineId) &&
+    Boolean(engineId || modelConsumerId) &&
+    !(engineId && modelConsumerId) &&
     catalogQuery.isSuccess &&
     Boolean(catalogVersion) &&
     hasManagedRequestScope(managedScope)
 
   return useQuery<Credential[]>({
-    queryKey: compatibleCredentialsQueryKey(managedScope.key, engineId, catalogVersion),
+    queryKey: modelConsumerId
+      ? consumerCredentialsQueryKey(managedScope.key, modelConsumerId, catalogVersion)
+      : compatibleCredentialsQueryKey(managedScope.key, engineId, catalogVersion),
     queryFn: () =>
       fetchAllModelConnections(
         managedScope,
-        { compatible_engine: engineId },
+        modelConsumerId
+          ? { compatible_consumer: modelConsumerId }
+          : { compatible_engine: engineId },
         'Compatible Credential',
       ),
     enabled: queryEnabled,

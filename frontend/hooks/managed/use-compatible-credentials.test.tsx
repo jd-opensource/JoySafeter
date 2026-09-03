@@ -91,6 +91,27 @@ describe('useCompatibleCredentials', () => {
     expect(managedGetMock.mock.calls[1][0]).toContain(`after_id=cred_${UUID_A}`)
   })
 
+  it('requests a platform model consumer without pretending it is an engine', async () => {
+    managedGetMock.mockResolvedValueOnce({
+      data: [secret(UUID_A, 'authoring-model')],
+      has_more: false,
+      last_id: `cred_${UUID_A}`,
+    })
+
+    const { result } = renderHook(
+      () =>
+        useCompatibleCredentials({
+          modelConsumerId: 'skill_ai_authoring',
+          enabled: true,
+        }),
+      { wrapper },
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(managedGetMock.mock.calls[0][0]).toContain('compatible_consumer=skill_ai_authoring')
+    expect(managedGetMock.mock.calls[0][0]).not.toContain('compatible_engine=')
+  })
+
   it('includes the catalog version in the derived compatibility query key', () => {
     expect(compatibleCredentialsScopePrefix('org-a:project-a')).toEqual([
       'compatible-credentials',

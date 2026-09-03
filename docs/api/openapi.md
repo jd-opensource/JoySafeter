@@ -77,6 +77,8 @@ explicit `kind=model + provider + protocol + data` identity. MCP credentials bel
 `GET /api/v1/llm/catalog` is the canonical public compatibility contract:
 
 - Engines declare `supported_protocol_ids` and `preferred_protocol_ids`.
+- Platform model consumers declare their own `supported_protocol_ids` and
+  `preferred_protocol_ids`; `skill_ai_authoring` is independent from Agent runtime engines.
 - Providers declare Protocol bindings and Credential Profiles.
 - Credential Profiles declare accepted fields, required alternatives, `base_url_key`, and `model_key`.
 
@@ -106,6 +108,7 @@ Useful Credential list filters:
 |---|---|
 | `kind=model` | Return only model configurations |
 | `compatible_engine=codex` | Return only configurations whose Protocol is supported by Codex |
+| `compatible_consumer=skill_ai_authoring` | Return only configurations supported by AI Skill authoring |
 | `name=openai-production` | Exact project-scoped name lookup |
 | `provider=openai&protocol=openai_responses` | Filter an explicit Provider/Protocol binding |
 
@@ -116,6 +119,10 @@ scoped by Protocol.
 Agent creation requires an explicit `engine_kind`; the API does not infer or default an Engine.
 Agent create/update and `POST /api/v1/quickstart/chat` validate Engine/Protocol compatibility on
 the server. Quickstart chat requests use `engine_kind` (not `provider`) plus `model_credential_id`.
+`compatible_engine` and `compatible_consumer` are mutually exclusive. AI Skill authoring resolves
+its `model_credential_id` against the `skill_ai_authoring` consumer and supports Anthropic Messages,
+OpenAI Responses, and Chat Completions connections. A Skill resource itself stores no model binding;
+the Agent or first-party authoring consumer selects the model connection for each use case.
 
 ## ID formats
 

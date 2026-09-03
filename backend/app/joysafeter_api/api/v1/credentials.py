@@ -24,6 +24,8 @@ from app.joysafeter_domain.llm.catalog import LlmCatalogError, get_llm_catalog
 from app.joysafeter_domain.llm.compatibility import (
     LlmCompatibilityError,
     compatible_engine_ids,
+    compatible_provider_protocol_pairs,
+    compatible_provider_protocol_pairs_for_consumer,
     resolve_credential_profile,
     validate_credential_data,
     validate_provider_protocol,
@@ -97,7 +99,12 @@ def _credential_response(cred: JoySafeterCredential, svc: CredentialService) -> 
     )
 
 
-def _validate_list_filters(provider: str | None, protocol: str | None) -> None:
+def _validate_list_filters(
+    provider: str | None,
+    protocol: str | None,
+    compatible_engine: str | None,
+    compatible_consumer: str | None,
+) -> list[tuple[str, str]] | None:
     """Reject unknown provider/protocol list filters against the LLM catalog.
 
     Invalid filters surface ``LLM_PROVIDER_UNKNOWN`` or
@@ -126,6 +133,21 @@ def _validate_list_filters(provider: str | None, protocol: str | None) -> None:
             ) from exc
     if provider is not None and protocol is not None:
         validate_provider_protocol(provider, protocol)
+    if compatible_engine is not None and compatible_consumer is not None:
+        raise InvalidRequestError(
+            code="LLM_COMPATIBILITY_FILTER_CONFLICT",
+            message="compatible_engine and compatible_consumer are mutually exclusive",
+            data={
+                "compatible_engine": compatible_engine,
+                "compatible_consumer": compatible_consumer,
+            },
+            user_action="fix_input",
+        )
+    if compatible_engine is not None:
+        return compatible_provider_protocol_pairs(compatible_engine)
+    if compatible_consumer is not None:
+        return compatible_provider_protocol_pairs_for_consumer(compatible_consumer)
+    return None
 
 
 # --- test-connection helpers (ported verbatim from secrets.py) ------------------
@@ -337,18 +359,24 @@ async def list_credentials(
     provider: Optional[str] = Query(None),
     protocol: Optional[str] = Query(None),
     compatible_engine: Optional[str] = Query(None),
+    compatible_consumer: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
 ) -> CursorPaginatedResponse[CredentialResponse, CredentialId]:
     svc = CredentialService(db, audit_actor=CredentialAuditActor.system("credential_query"))
-    _validate_list_filters(provider, protocol)
+    compatible_pairs = _validate_list_filters(
+        provider,
+        protocol,
+        compatible_engine,
+        compatible_consumer,
+    )
     creds, has_more = await svc.list(
         project_id=auth_ctx.project_id,
         kind=kind,
         name=name,
         provider=provider,
         protocol=protocol,
-        compatible_engine=compatible_engine,
+        compatible_provider_protocol_pairs=compatible_pairs,
         include_archived=include_archived,
         limit=limit,
         after_id=after_id,

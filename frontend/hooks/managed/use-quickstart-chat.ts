@@ -358,6 +358,8 @@ export function useQuickstartChat(
 
       const controller = new AbortController()
       abortRef.current = controller
+      let streamErrorMessage: string | null = null
+      let receivedDone = false
 
       try {
         const historyForApi = newMessages.map((m) => ({
@@ -467,7 +469,15 @@ export function useQuickstartChat(
                 break
 
               case 'error':
-                accumulatedText += `\n\n⚠️ ${event.message || t('managed.quickstart.errors.generic')}`
+                streamErrorMessage = event.message || t('managed.quickstart.errors.generic')
+                accumulatedText += `\n\n⚠️ ${streamErrorMessage}`
+                if (tracksAgentGeneration) {
+                  setGenerationState((current) => ({
+                    ...current,
+                    status: 'error',
+                    errorMessage: streamErrorMessage || undefined,
+                  }))
+                }
                 setMessages((prev) => {
                   const updated = [...prev]
                   const last = updated[updated.length - 1]
@@ -479,6 +489,7 @@ export function useQuickstartChat(
                 break
 
               case 'done':
+                receivedDone = true
                 break
             }
           } catch {
@@ -504,6 +515,31 @@ export function useQuickstartChat(
           for (const line of lines) {
             processLine(line)
           }
+        }
+        if (
+          tracksAgentGeneration &&
+          !streamErrorMessage &&
+          !receivedDone &&
+          !controller.signal.aborted &&
+          isCurrentWritableManagedScope(scopeAtStart)
+        ) {
+          streamErrorMessage = t('managed.quickstart.errors.chatFailed')
+          setGenerationState((current) => ({
+            ...current,
+            status: 'error',
+            errorMessage: streamErrorMessage || undefined,
+          }))
+          setMessages((prev) => {
+            const updated = [...prev]
+            const last = updated[updated.length - 1]
+            if (last && last.role === 'assistant') {
+              updated[updated.length - 1] = {
+                ...last,
+                content: `${last.content}\n\n⚠️ ${streamErrorMessage}`.trim(),
+              }
+            }
+            return updated
+          })
         }
       } catch (e) {
         if (tracksAgentGeneration) {
@@ -540,9 +576,11 @@ export function useQuickstartChat(
           setIsStreaming(false)
           if (tracksAgentGeneration) {
             generationStartedAtRef.current = null
-            setGenerationState((current) =>
-              current.status === 'generating' ? { ...current, status: 'complete' } : current,
-            )
+            if (receivedDone && !streamErrorMessage) {
+              setGenerationState((current) =>
+                current.status === 'generating' ? { ...current, status: 'complete' } : current,
+              )
+            }
           }
           setMessages((prev) => {
             const updated = [...prev]

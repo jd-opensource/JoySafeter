@@ -1065,12 +1065,22 @@ separate `MemoryStoreId` / `memstore_` identity.
 
 ### 9.1 Multi-model — the "unified protocol"
 
-There is **no coded multi-provider adapter registry** in the backend. The shared LLM layer
-(`joysafeter_shared/llm/openai_stream.py`) is a single OpenAI-compatible SSE streaming helper:
-credentials (`api_key`, `base_url`, `model`) are passed in, never resolved there. Any provider
-— OpenAI, Claude, Gemini, DeepSeek, Qwen, etc. — is reached generically by pointing `base_url`
-at its OpenAI-compatible gateway. This helper backs only first-party features (skill authoring,
-quickstart). **Agent-workload model traffic is delegated to the CLI harness inside the
+The LLM catalog separates runtime Engines from platform model consumers. Engines describe the
+protocols accepted by an Agent runtime; consumers such as `skill_ai_authoring` describe the
+protocols accepted by a first-party feature. Credential bindings carry exactly one target, so a
+platform feature is never represented as a fake runtime engine. `GET /credentials` resolves
+`compatible_engine` or `compatible_consumer` through this catalog before querying persistence.
+The YAML schema is a shared Python/Rust/frontend contract: every top-level capability collection
+must be represented and reference-validated by each parser. The Rust orchestrator validates its
+embedded catalog before application startup completes, so schema drift fails readiness instead of
+being misreported as a corrupt credential during task scheduling.
+
+The shared first-party inference gateway (`joysafeter_shared/llm/model_stream.py`) implements
+Anthropic Messages, OpenAI Responses, and Chat Completions streaming behind one normalized event
+contract. Credentials (`api_key`, `base_url`, `model`) are resolved by the canonical credential
+application service and passed into the gateway; the gateway never reads settings, environment
+variables, or persistence. Quickstart owns wizard-specific tool/result mapping, while AI Skill
+authoring owns draft-patch mapping. **Agent-workload model traffic is delegated to the CLI harness inside the
 sandbox** (Claude Code / Codex / `ccb`), so real-world model routing, retry, and fallback live
 in the runner and the CLIs, not in Python. Model config and credentials are DB-driven
 (`joysafeter_credentials`, encrypted), managed through the unified Credentials UI.
@@ -1080,6 +1090,10 @@ in the runner and the CLIs, not in Python. Model config and credentials are DB-d
 Skills are versioned plugin packs (4 in-repo: `pptx` and `xlsx` document utilities, plus
 `skill-creator` and `skill-security-auditor`), each
 a `SKILL.md`-fronted directory. The pipeline spans three layers:
+
+A Skill does not store a model or Engine binding. The same published Skill can be attached to
+multiple Agents and executed through any compatible Agent runtime/model connection. The model
+selected on the AI authoring page is used only to create or revise the Skill draft.
 
 1. **Parse & validate** (`joysafeter_shared/skill/`) — SKILL.md YAML frontmatter + Agent-Skills
    spec constraints (name/description/allowed-tools), binary/size guards.

@@ -238,20 +238,40 @@ async def test_authoring_chat_missing_openai_key_returns_structured_error(
     assert "must-not-leak" not in str(payload)
 
 
+@pytest.mark.parametrize(
+    ("provider", "protocol", "data"),
+    [
+        (
+            "openai",
+            "chat_completions",
+            {"OPENAI_API_KEY": "value", "OPENAI_MODEL": "gpt-compatible"},
+        ),
+        (
+            "anthropic",
+            "anthropic_messages",
+            {"ANTHROPIC_API_KEY": "value", "ANTHROPIC_MODEL": "claude-compatible"},
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_authoring_chat_rejects_wrong_protocol_credential(db_session, project_id):
-    # A model credential on a non-Responses protocol is incompatible with authoring.
+async def test_authoring_chat_accepts_each_catalog_consumer_protocol(
+    db_session,
+    project_id,
+    provider,
+    protocol,
+    data,
+):
     cred_id = await _make_model_credential(
         db_session,
         project_id,
-        {"OPENAI_API_KEY": "value"},
-        protocol="chat_completions",
+        data,
+        provider=provider,
+        protocol=protocol,
     )
 
-    with pytest.raises(AppError) as exc_info:
-        await authoring_chat(_chat_req(cred_id), _request(), db_session, _auth_ctx(project_id))
+    response = await authoring_chat(_chat_req(cred_id), _request(), db_session, _auth_ctx(project_id))
 
-    assert exc_info.value.code == "CREDENTIAL_KIND_INVALID"
+    assert response.media_type == "text/event-stream"
 
 
 @pytest.mark.asyncio

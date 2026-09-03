@@ -59,6 +59,7 @@ import {
 } from '@/lib/managed/request-scope'
 import { shortEntityId } from '@/lib/managed/entity-id-display'
 import { getEnabledEngines } from '@/lib/managed/llm-catalog'
+import { recordCreatedModelConnection } from '@/lib/managed/model-connection-cache'
 import {
   recommendQuickstartModelConnection,
   type QuickstartModelRecommendationReason,
@@ -77,7 +78,6 @@ import type {
   Environment,
   PaginatedResponse,
   QuickstartTaskSummary,
-  Credential,
   CredentialDetail,
   Session,
   SessionEvent,
@@ -122,7 +122,6 @@ import {
 } from '@/hooks/managed/use-current-project-read-only'
 import {
   useActiveModelConnections,
-  compatibleCredentialsQueryPrefix,
   useCompatibleCredentials,
 } from '@/hooks/managed/use-compatible-credentials'
 import { buildQuickstartEngineOptions } from '@/lib/managed/quickstart-engine-recommendation'
@@ -1992,14 +1991,7 @@ export default function QuickstartPage() {
 
   const handleInlineModelCredentialCreated = (created: CredentialDetail) => {
     if (!selectedEngine) return
-    const listItem: Credential = created
-    queryClient.setQueriesData<Credential[]>(
-      { queryKey: compatibleCredentialsQueryPrefix(managedScope.key, selectedEngine) },
-      (current) => [
-        ...(current ?? []).filter((credential) => credential.id !== listItem.id),
-        listItem,
-      ],
-    )
+    recordCreatedModelConnection(queryClient, managedScope.key, selectedEngine, created)
     setModelCredentialId(created.id)
     setModelCredentialSelectionCleared(false)
     selectModelCredential(created.id)

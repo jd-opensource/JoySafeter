@@ -94,6 +94,7 @@ function quickstartAgentConfigResponse(resourceId?: string): Response {
           curl: 'curl -X POST /agents',
           ...(resourceId ? { resource_id: resourceId } : {}),
         },
+        { type: 'done' },
       ]) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`))
       }
@@ -1055,6 +1056,54 @@ describe('useQuickstartChat resource creation', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
     expect(result.current.generationState.status).toBe('complete')
     expect(result.current.config.agent).toMatchObject({ name: 'Research Agent' })
+  })
+
+  it('keeps generation in error when the stream reports an upstream error', async () => {
+    globalThis.fetch = vi.fn().mockResolvedValueOnce(
+      quickstartResponseText(
+        `data: ${JSON.stringify({
+          type: 'error',
+          code: 'UPSTREAM_INVALID_RESPONSE',
+          message: 'Model returned an invalid configuration. Please retry.',
+        })}\n\n`,
+      ),
+    ) as typeof fetch
+
+    const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
+
+    await act(async () => {
+      await result.current.sendMessage('make an agent', { stepOverride: 3 })
+    })
+
+    expect(result.current.generationState.status).toBe('error')
+    expect(result.current.generationState.errorMessage).toBe(
+      'Model returned an invalid configuration. Please retry.',
+    )
+    expect(result.current.messages.at(-1)?.content).toContain(
+      'Model returned an invalid configuration. Please retry.',
+    )
+  })
+
+  it('treats a generation stream that closes without done as an error', async () => {
+    globalThis.fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        quickstartResponseText(
+          `data: ${JSON.stringify({ type: 'text_delta', text: 'Partial response' })}\n\n`,
+        ),
+      ) as typeof fetch
+
+    const { result } = renderHook(() => useQuickstartChat('anthropic-prod'))
+
+    await act(async () => {
+      await result.current.sendMessage('make an agent', { stepOverride: 3 })
+    })
+
+    expect(result.current.generationState.status).toBe('error')
+    expect(result.current.messages.at(-1)?.content).toContain('Partial response')
+    expect(result.current.messages.at(-1)?.content).toContain(
+      'managed.quickstart.errors.chatFailed',
+    )
   })
 
   it('does not apply late stream events from the previous managed project', async () => {

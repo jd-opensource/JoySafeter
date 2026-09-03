@@ -21,7 +21,7 @@ import {
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
-import type { Agent, Credential, Environment } from '@/types/managed'
+import type { Agent, Credential, CredentialDetail, Environment } from '@/types/managed'
 import {
   parseAgentId,
   parseCredentialId,
@@ -65,7 +65,8 @@ import {
   useCompatibleCredentials,
   useModelConnectionByName,
 } from '@/hooks/managed/use-compatible-credentials'
-import { CompatibleCredentialPicker } from '@/components/managed/llm/compatible-credential-picker'
+import { ModelConnectionSelectionFlow } from '@/components/managed/llm/model-connection-selection-flow'
+import { recordCreatedModelConnection } from '@/lib/managed/model-connection-cache'
 import { SearchableAgentConfigSelect } from '../../components/searchable-agent-config-select'
 
 const BUILTIN_TOOLS = ['Bash', 'Read', 'Write', 'Edit', 'Glob', 'Grep', 'WebFetch', 'WebSearch']
@@ -593,7 +594,7 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
                   {t('managed.agents.formOptional')}
                 </span>
               </h3>
-              <CompatibleCredentialPicker
+              <ModelConnectionSelectionFlow
                 engineId={engineKind}
                 value={modelCredentialId}
                 allowNone
@@ -603,13 +604,15 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
                 conflictMessage={
                   credentialConflict ? t('managed.llm.incompatibleWithSelectedEngine') : undefined
                 }
-                onChange={(value) => {
+                onSelect={(value) => {
                   setModelCredentialId(value)
                   markDirty()
                 }}
-                onCreateRequested={() =>
-                  window.open('/managed/credentials?tab=models&create=model', '_blank')
-                }
+                onCreated={(created: CredentialDetail) => {
+                  recordCreatedModelConnection(queryClient, managedScope.key, engineKind, created)
+                  setModelCredentialId(created.id)
+                  markDirty()
+                }}
               />
               {credentialConflict ? (
                 <div className="flex flex-wrap gap-2">

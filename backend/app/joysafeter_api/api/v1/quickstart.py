@@ -6,7 +6,7 @@ tool calls, streaming text deltas and config updates back to the frontend.
 
 import json
 import logging
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from typing import Any, Literal, Optional, cast
 
 import httpx
@@ -35,6 +35,7 @@ from app.joysafeter_shared.database import get_db
 from app.joysafeter_shared.ids import CredentialId, SkillId
 from app.joysafeter_shared.json_boundary import normalize_json_value
 from app.joysafeter_shared.llm.base_url import LLMBaseUrlError, validate_llm_base_url
+from app.joysafeter_shared.llm.model_stream import stream_model
 
 router = APIRouter(tags=["joysafeter-quickstart"])
 logger = logging.getLogger(__name__)
@@ -444,6 +445,95 @@ def _try_parse_partial_json(input_str: str) -> Optional[dict]:
 
 def _sse_event(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _invalid_tool_output_event(*, step: int, message: str) -> dict[str, Any]:
+    return async_error_payload(
+        code="UPSTREAM_INVALID_RESPONSE",
+        message=message,
+        data={"step": step},
+        source="upstream",
+        retryable=True,
+        user_action="retry",
+    )
+
+
+async def _stream_quickstart_events(
+    events: AsyncIterator[dict[str, Any]],
+    *,
+    current_step: int,
+    requires_tool: bool,
+) -> AsyncIterator[str]:
+    completed_tool = False
+    tool_args: dict[str, str] = {}
+    async for event in events:
+        event_type = event.get("type")
+        if event_type == "text_delta":
+            yield _sse_event(event)
+        elif event_type == "tool_call_delta":
+            key = str(event.get("id") or "0")
+            tool_args[key] = tool_args.get(key, "") + str(event.get("args") or "")
+            config = _try_parse_partial_json(tool_args[key])
+            if config:
+                yield _sse_event({"type": "config_update", "step": current_step, "config": config})
+        elif event_type == "tool_call_complete" and not completed_tool:
+            key = str(event.get("id") or "0")
+            args_json = str(event.get("args_json") or tool_args.get(key, ""))
+            try:
+                config = json.loads(args_json)
+            except json.JSONDecodeError as exc:
+                log_boundary_failure(
+                    logger,
+                    boundary="quickstart_api",
+                    code="QUICKSTART_TOOL_OUTPUT_INVALID",
+                    message="Quickstart model returned invalid tool arguments",
+                    operation="parse_tool_arguments",
+                    error=exc,
+                    data={"step": current_step, "raw_length": len(args_json)},
+                    source="upstream",
+                    retryable=True,
+                    user_action="retry",
+                )
+                yield _sse_event(
+                    _invalid_tool_output_event(
+                        step=current_step,
+                        message="Model returned an invalid configuration. Please retry.",
+                    )
+                )
+                return
+            if not isinstance(config, dict) or not config:
+                yield _sse_event(
+                    _invalid_tool_output_event(
+                        step=current_step,
+                        message="Model returned an empty configuration. Please retry.",
+                    )
+                )
+                return
+            completed_tool = True
+            yield _sse_event({"type": "config_update", "step": current_step, "config": config})
+            yield _sse_event(
+                {
+                    "type": "step_complete",
+                    "step": current_step,
+                    "resource_id": None,
+                    "curl": _generate_curl(str(event.get("name") or ""), config),
+                }
+            )
+        elif event_type == "error":
+            yield _sse_event(event)
+            return
+        elif event_type == "done":
+            break
+
+    if requires_tool and not completed_tool:
+        yield _sse_event(
+            _invalid_tool_output_event(
+                step=current_step,
+                message="Model stopped before returning a complete configuration. Please retry.",
+            )
+        )
+        return
+    yield _sse_event({"type": "done"})
 
 
 def _upstream_error_message(status: int) -> str:
@@ -945,68 +1035,13 @@ async def quickstart_chat(
 
     messages = [{"role": m.role, "content": m.content} for m in req.messages]
 
-    stream_provider: Callable[..., AsyncIterator[str]] = _stream_anthropic
-    stream_kwargs = {}
-
     if protocol == "anthropic_messages":
         auth_token = data.get("ANTHROPIC_AUTH_TOKEN") or ""
         api_key = auth_token or data.get("ANTHROPIC_API_KEY") or ""
-        claude_body = {
-            "model": model,
-            "max_tokens": 4096,
-            "system": system_prompt,
-            "messages": messages,
-            "stream": True,
-        }
-        if tools:
-            claude_body["tools"] = tools
-            if req.current_step in (2, 3, 4):
-                claude_body["tool_choice"] = {"type": "tool", "name": tools[0]["name"]}
-
-        stream_kwargs = {
-            "base_url": base_url,
-            "api_key": api_key,
-            "bearer_token": bool(auth_token),
-            "body": claude_body,
-        }
-
+        bearer_token = bool(auth_token)
     elif protocol in {"openai_responses", "chat_completions"}:
         api_key = data.get("OPENAI_API_KEY") or ""
-        if protocol == "chat_completions":
-            openai_tools = _build_openai_chat_tools(tools)
-            chat_body = {
-                "model": model,
-                "messages": [{"role": "system", "content": system_prompt}, *messages],
-                "stream": True,
-                "max_tokens": 4096,
-            }
-            if openai_tools:
-                chat_body["tools"] = openai_tools
-                if req.current_step in (2, 3, 4):
-                    chat_body["tool_choice"] = {
-                        "type": "function",
-                        "function": {"name": openai_tools[0]["function"]["name"]},
-                    }
-            stream_provider = _stream_openai_chat_completions
-            stream_kwargs = {"base_url": base_url, "api_key": api_key, "body": chat_body}
-        else:
-            responses_tools = _build_openai_responses_tools(tools)
-            responses_body = {
-                "model": model,
-                "instructions": system_prompt,
-                "input": _messages_to_transcript(messages),
-                "stream": True,
-                "max_output_tokens": 4096,
-            }
-            if responses_tools:
-                responses_body["tools"] = responses_tools
-                if req.current_step in (2, 3, 4):
-                    responses_body["tool_choice"] = {
-                        "type": "function",
-                        "name": responses_tools[0]["name"],
-                    }
-            stream_provider = _stream_openai_responses
-            stream_kwargs = {"base_url": base_url, "api_key": api_key, "body": responses_body}
+        bearer_token = False
     else:
         raise InvalidRequestError(
             code="QUICKSTART_PROTOCOL_UNSUPPORTED",
@@ -1016,10 +1051,24 @@ async def quickstart_chat(
         )
 
     async def event_generator():
-        async for event in stream_provider(current_step=req.current_step, **stream_kwargs):
+        events = stream_model(
+            protocol=protocol,
+            base_url=base_url,
+            api_key=api_key,
+            bearer_token=bearer_token,
+            model=model,
+            system=system_prompt,
+            messages=messages,
+            tools=tools,
+            force_tool_name=(str(tools[0]["name"]) if tools and req.current_step in (2, 3, 4) else None),
+            max_tokens=4096,
+        )
+        async for event in _stream_quickstart_events(
+            events,
+            current_step=req.current_step,
+            requires_tool=bool(tools),
+        ):
             yield event
-
-        yield _sse_event({"type": "done"})
 
     return StreamingResponse(
         event_generator(),

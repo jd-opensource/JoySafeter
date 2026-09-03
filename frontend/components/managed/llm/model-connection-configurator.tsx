@@ -21,6 +21,7 @@ import {
 } from '@/lib/managed/anthropic-auth'
 import {
   getAllProviderProtocolOptions,
+  getConsumerProviderProtocolOptions,
   getProviderProtocolOptions,
   stableConnectionFingerprint,
 } from '@/lib/managed/llm-catalog'
@@ -32,6 +33,7 @@ import type { CredentialDetail } from '@/types/managed'
 
 interface ModelConnectionConfiguratorProps {
   initialEngineId?: string
+  initialModelConsumerId?: string
   onCreated: (credential: CredentialDetail) => void
   onCancel?: () => void
   className?: string
@@ -68,6 +70,7 @@ function fieldInputType(field: LlmCredentialField) {
 
 export function ModelConnectionConfigurator({
   initialEngineId,
+  initialModelConsumerId,
   onCreated,
   onCancel,
   className,
@@ -101,10 +104,12 @@ export function ModelConnectionConfigurator({
 
   const options = useMemo(() => {
     if (!catalogQuery.data) return []
-    return engineId
-      ? getProviderProtocolOptions(catalogQuery.data, engineId)
-      : getAllProviderProtocolOptions(catalogQuery.data)
-  }, [catalogQuery.data, engineId])
+    if (engineId) return getProviderProtocolOptions(catalogQuery.data, engineId)
+    if (initialModelConsumerId) {
+      return getConsumerProviderProtocolOptions(catalogQuery.data, initialModelConsumerId)
+    }
+    return getAllProviderProtocolOptions(catalogQuery.data)
+  }, [catalogQuery.data, engineId, initialModelConsumerId])
   const providerOptions = useMemo(() => {
     const seen = new Set<string>()
     return options.filter((option) => {
@@ -132,11 +137,15 @@ export function ModelConnectionConfigurator({
       ) ?? null,
     [options, protocolId, providerId],
   )
-  const currentFingerprint = stableConnectionFingerprint({ providerId, protocolId, values })
+  const isAnthropic = selectedOption?.credentialProfile.id === 'anthropic_standard'
+  const currentFingerprint = stableConnectionFingerprint({
+    providerId,
+    protocolId,
+    values: isAnthropic ? { ...values, __auth_scheme: authScheme } : values,
+  })
   const connectionTestIsFresh =
     testedFingerprint !== null && testedFingerprint === currentFingerprint
   const connectionTestIsStale = testedFingerprint !== null && !connectionTestIsFresh
-  const isAnthropic = selectedOption?.credentialProfile.id === 'anthropic_standard'
   const engineDisplayName =
     catalogQuery.data?.engines.find((engine) => engine.id === engineId)?.display_name ?? engineId
 
@@ -275,7 +284,27 @@ export function ModelConnectionConfigurator({
     }
     setCreating(true)
     setRequestError(null)
+    setTestMessage(null)
     try {
+      if (!connectionTestIsFresh) {
+        const testResult = await managedPost<{ ok: boolean; message: string }>(
+          '/credentials/test',
+          {
+            provider: providerId,
+            protocol: protocolId,
+            data: values,
+            auth_scheme: isAnthropic ? authScheme : undefined,
+          },
+          managedRequestOptions(action.requestScope),
+        )
+        if (!isCurrentAction(action.runId, action.scope)) return
+        if (!testResult.ok) {
+          setRequestError(testResult.message || t('managed.llm.connectionFailed'))
+          return
+        }
+        setTestedFingerprint(currentFingerprint)
+        setTestMessage(testResult.message)
+      }
       const response = await managedPost<unknown>(
         '/credentials',
         {

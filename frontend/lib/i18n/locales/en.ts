@@ -972,6 +972,7 @@ const en = {
           credentialFailure: {
             corrupt_record: 'the credential/key data is corrupt or in an old format',
             envelope_invalid: 'the credential could not be decrypted',
+            configuration_invalid: 'the server model catalog configuration is invalid',
             unsupported_scheme: 'the credential auth scheme is no longer supported',
             kind_mismatch: 'the credential kind does not match the binding',
             field_missing: 'the credential is missing a required field',
@@ -2019,8 +2020,19 @@ const en = {
           uploadSuccess: 'Imported {{count}} file(s)',
           uploadEmpty: 'No importable text files',
           moveConflict: 'Target already has a file with that name; skipped',
-          selectModelConnection: 'Select secret',
+          selectModelConnection: 'Select Model Connection',
           noModelConnections: 'No model connections available',
+          modelConnection: {
+            required: 'Configure a Model Connection first',
+            requiredHint:
+              'AI authoring supports Anthropic Messages, OpenAI Responses, and Chat Completions connections. Create one here and it will be selected automatically.',
+            selected: 'AI authoring Model Connection',
+            select: 'Select Model Connection',
+            change: 'Change',
+            dialogTitle: 'Configure AI authoring Model Connection',
+            dialogDescription:
+              'Select an existing connection or create a new connection supported by AI authoring.',
+          },
           default: 'default',
           saveDraft: 'Save draft',
           create: 'Create skill',

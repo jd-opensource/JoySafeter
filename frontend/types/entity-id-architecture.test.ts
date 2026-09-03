@@ -620,6 +620,7 @@ function numeric(sessionId) {
           match[1].includes('${') ||
           match[1].startsWith('agent_toolset_') ||
           match[1] === 'agent_identity' ||
+          match[1] === 'skill_ai_authoring' ||
           ['secret_ref', 'secret_key', 'secret_data'].includes(match[1]) ||
           (match[1] === 'secret_refs' && file.endsWith('environment-response-parsers.test.ts')) ||
           isAllowedNonEntityCorePrefixLiteral(file, match[1])

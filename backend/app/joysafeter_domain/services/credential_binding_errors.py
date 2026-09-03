@@ -22,10 +22,18 @@ def raise_public_credential_error(
         payload.setdefault("credential_id", str(credential_id))
     if isinstance(exc, ModelInferencePolicyError):
         if exc.code is ModelInferencePolicyErrorCode.ENGINE_DISABLED:
+            assert exc.engine_kind is not None
             raise InvalidRequestError(
                 code="LLM_ENGINE_DISABLED",
                 message=f"LLM engine is disabled: {exc.engine_kind.value}",
                 data={"engine_kind": exc.engine_kind.value},
+                user_action="fix_input",
+            ) from exc
+        if exc.code is ModelInferencePolicyErrorCode.MODEL_CONSUMER_DISABLED:
+            raise InvalidRequestError(
+                code="LLM_MODEL_CONSUMER_DISABLED",
+                message=f"LLM model consumer is disabled: {exc.model_consumer_id}",
+                data={"model_consumer": exc.model_consumer_id},
                 user_action="fix_input",
             ) from exc
     if isinstance(exc, LookupError):

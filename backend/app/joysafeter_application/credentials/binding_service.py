@@ -23,6 +23,7 @@ from app.joysafeter_domain.credentials.types import CredentialFieldName
 from app.joysafeter_domain.llm.catalog import get_llm_catalog
 from app.joysafeter_domain.llm.model_inference_policy import (
     ModelInferenceMaterialFieldMissingError,
+    require_enabled_model_inference_consumer,
     require_enabled_model_inference_engine,
 )
 
@@ -181,8 +182,14 @@ class CredentialBindingService:
         self,
         binding: ModelInferenceBinding,
     ) -> tuple[_ModelInferenceCandidate, ...]:
-        engine = require_enabled_model_inference_engine(self._catalog, binding.engine_kind)
-        supported_protocols = set(engine.supported_protocol_ids)
+        if binding.engine_kind is not None:
+            target = require_enabled_model_inference_engine(self._catalog, binding.engine_kind)
+        else:
+            target = require_enabled_model_inference_consumer(
+                self._catalog,
+                binding.model_consumer_id or "",
+            )
+        supported_protocols = set(target.supported_protocol_ids)
         candidates: list[_ModelInferenceCandidate] = []
         for provider in self._catalog.providers:
             if not provider.enabled:
@@ -199,6 +206,7 @@ class CredentialBindingService:
                             protocol_id=provider_binding.protocol_id,
                             engine_kind=binding.engine_kind,
                             model_ids=None,
+                            model_consumer_id=binding.model_consumer_id,
                         ),
                         resolution=ModelInferenceResolution(
                             provider_id=provider.id,
@@ -225,7 +233,7 @@ class CredentialBindingService:
     ) -> tuple[CredentialResource, _ModelInferenceCandidate]:
         if type(binding) is not ModelInferenceBinding:
             raise TypeError("dedicated model inference validation requires ModelInferenceBinding")
-        if not isinstance(binding.engine_kind, EngineKind):
+        if binding.engine_kind is not None and not isinstance(binding.engine_kind, EngineKind):
             raise TypeError("model inference engine kind must be an EngineKind")
         candidates = self._model_inference_candidates(binding)
         resource = await self._credentials.get_resource(

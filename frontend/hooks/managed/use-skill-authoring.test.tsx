@@ -328,6 +328,30 @@ describe('useSkillAuthoring stream lifecycle', () => {
     expect(result.current.draft.content).toBe('from terminal frame')
   })
 
+  it('preserves an upstream error instead of replacing it with the empty-response fallback', async () => {
+    apiStreamMock.mockResolvedValueOnce(
+      streamResponseText(
+        `data: ${JSON.stringify({
+          type: 'error',
+          code: 'UPSTREAM_INVALID_REQUEST',
+          message: '该key不允许访问该模型',
+          status: 400,
+          source: 'upstream',
+        })}\n\n`,
+      ),
+    )
+
+    const { result } = renderHook(() => useSkillAuthoring({ startFresh: true }))
+
+    await act(async () => {
+      await result.current.send('build a skill', 'openai-prod')
+    })
+
+    expect(result.current.messages.at(-1)?.content).toBe(
+      '⚠️ 该key不允许访问该模型 (UPSTREAM_INVALID_REQUEST, HTTP 400, upstream)',
+    )
+  })
+
   it('does not attach a saved draft id after switching managed project', async () => {
     useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
     const save = deferred<{ skill_id: SkillId }>()

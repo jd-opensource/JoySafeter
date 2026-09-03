@@ -35,7 +35,7 @@ def test_mcp_auth_contract_is_canonical_only(credential_contract: dict):
 
 
 def test_runtime_errors_and_versioned_envelopes_are_frozen(credential_contract: dict):
-    assert credential_contract["contract_version"] == 3
+    assert credential_contract["contract_version"] == 4
     assert credential_contract["runtime_errors"] == [
         "not_bound",
         "not_found",
@@ -46,6 +46,7 @@ def test_runtime_errors_and_versioned_envelopes_are_frozen(credential_contract: 
         "unsupported_scheme",
         "corrupt_record",
         "envelope_invalid",
+        "configuration_invalid",
     ]
     assert credential_contract["encryption_envelopes"] == {
         "legacy_read": ["enc:", "enc:v1:"],

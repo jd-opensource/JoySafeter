@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import {
   findCredentialProfileForBinding,
+  getConsumerProviderProtocolOptions,
   getCredentialProfileForBinding,
   getEnabledEngines,
   getProviderProtocolOptions,
@@ -43,6 +44,15 @@ function rawCatalog() {
         enabled: true,
         supported_protocol_ids: ['anthropic_messages', 'openai_responses', 'chat_completions'],
         preferred_protocol_ids: ['anthropic_messages', 'openai_responses', 'chat_completions'],
+      },
+    ],
+    model_consumers: [
+      {
+        id: 'skill_ai_authoring',
+        display_name: 'AI Skill Authoring',
+        enabled: true,
+        supported_protocol_ids: ['anthropic_messages', 'openai_responses', 'chat_completions'],
+        preferred_protocol_ids: ['openai_responses', 'anthropic_messages', 'chat_completions'],
       },
     ],
     credential_profiles: [
@@ -131,6 +141,20 @@ describe('LLM catalog helpers', () => {
     expect(getCredentialProfileForBinding(catalog, 'openai', 'chat_completions').id).toBe(
       'openai_bearer',
     )
+  })
+
+  it('filters provider and protocol options by platform model consumer', () => {
+    const catalog = parseLlmCatalogResponse(rawCatalog())
+
+    expect(
+      getConsumerProviderProtocolOptions(catalog, 'skill_ai_authoring').map(
+        ({ providerId, protocolId }) => `${providerId}:${protocolId}`,
+      ),
+    ).toEqual([
+      'anthropic:anthropic_messages',
+      'openai:openai_responses',
+      'openai:chat_completions',
+    ])
   })
 
   it('removes disabled engines from choices and compatibility options', () => {

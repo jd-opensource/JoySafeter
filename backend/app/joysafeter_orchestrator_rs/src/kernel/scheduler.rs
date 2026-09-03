@@ -433,9 +433,9 @@ async fn schedule_single_task(
 }
 
 /// Returns a stable machine code when the scheduling error is a permanent
-/// credential-resolution failure (corrupt/unsupported/mismatched material that
-/// can never succeed on retry). Transient failures (resolver timeouts, Docker
-/// hiccups, transient DB errors) return `None` and keep normal retry behavior.
+/// credential-resolution or runtime-configuration failure that cannot succeed
+/// on retry. Transient failures (resolver timeouts, Docker hiccups, transient
+/// DB errors) return `None` and keep normal retry behavior.
 ///
 /// The `.context(...)` wrappers used at the credential error sites preserve the
 /// original type, so `downcast_ref` still recovers the `CredentialRuntimeError`.
@@ -900,6 +900,12 @@ mod tests {
         assert_eq!(
             permanent_scheduling_failure_code(&unsupported),
             Some("unsupported_scheme")
+        );
+
+        let configuration = anyhow::Error::new(CredentialRuntimeError::ConfigurationInvalid);
+        assert_eq!(
+            permanent_scheduling_failure_code(&configuration),
+            Some("configuration_invalid")
         );
 
         // Transient scheduling failures must NOT be classified permanent.

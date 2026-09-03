@@ -1,4 +1,4 @@
-version: "2026-08-07.1"
+version: "2026-09-02.1"
 
 protocols:
   - id: anthropic_messages
@@ -28,6 +28,12 @@ engines:
     display_name: Pi
     supported_protocol_ids: [anthropic_messages, openai_responses, chat_completions]
     preferred_protocol_ids: [chat_completions, anthropic_messages, openai_responses]
+
+model_consumers:
+  - id: skill_ai_authoring
+    display_name: AI Skill Authoring
+    supported_protocol_ids: [anthropic_messages, openai_responses, chat_completions]
+    preferred_protocol_ids: [openai_responses, anthropic_messages, chat_completions]
 
 credential_profiles:
   - id: anthropic_standard

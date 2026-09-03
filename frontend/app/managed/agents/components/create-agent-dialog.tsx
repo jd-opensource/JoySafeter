@@ -39,6 +39,7 @@ import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
 import { getEnabledEngines } from '@/lib/managed/llm-catalog'
+import { recordCreatedModelConnection } from '@/lib/managed/model-connection-cache'
 import { serializeMcpServerEntries, type McpServerEntry } from '@/lib/managed/mcp-config'
 import { selectInitialModelConnection } from '@/lib/managed/model-connection-selection'
 import { parseAgentCreateResponse } from '@/lib/managed/agent-response-parsers'
@@ -404,14 +405,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
             initialEngineId={engineKind}
             onCancel={() => setDialogView('agent_form')}
             onCreated={(created: CredentialDetail) => {
-              const listItem: Credential = created
-              queryClient.setQueriesData<Credential[]>(
-                { queryKey: compatibleCredentialsQueryPrefix(managedScope.key, engineKind) },
-                (current) => [
-                  ...(current ?? []).filter((secret) => secret.id !== listItem.id),
-                  listItem,
-                ],
-              )
+              recordCreatedModelConnection(queryClient, managedScope.key, engineKind, created)
               setModelCredentialId(created.id)
               setModelCredentialSelectionCleared(false)
               setModelCredentialCompatibilityNotice(false)
