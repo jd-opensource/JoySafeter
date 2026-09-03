@@ -1,4 +1,4 @@
-version: "2026-09-02.1"
+version: "2026-09-03.1"
 
 protocols:
   - id: anthropic_messages
@@ -70,7 +70,6 @@ credential_profiles:
         label: Base URL
         type: url
         placeholder: https://api.openai.com/v1
-        advanced: true
       - key: OPENAI_MODEL
         label: Model
         type: text

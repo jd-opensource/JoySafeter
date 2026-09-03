@@ -80,7 +80,17 @@ const catalog = {
           placeholder: null,
           help_text: null,
           options: [],
-          advanced: false,
+          advanced: true,
+        },
+        {
+          key: 'OPENAI_BASE_URL',
+          label: 'Base URL',
+          type: 'url',
+          required: false,
+          placeholder: null,
+          help_text: null,
+          options: [],
+          advanced: true,
         },
         {
           key: 'OPENAI_MODEL',
@@ -90,11 +100,21 @@ const catalog = {
           placeholder: null,
           help_text: null,
           options: [],
-          advanced: false,
+          advanced: true,
+        },
+        {
+          key: 'OPENAI_REASONING_EFFORT',
+          label: 'Reasoning Effort',
+          type: 'select',
+          required: false,
+          placeholder: null,
+          help_text: null,
+          options: ['low', 'medium', 'high'],
+          advanced: true,
         },
       ],
       required_any_of: [],
-      base_url_key: null,
+      base_url_key: 'OPENAI_BASE_URL',
       model_key: 'OPENAI_MODEL',
     },
   ],
@@ -219,6 +239,22 @@ describe('ModelConnectionConfigurator', () => {
     render(<ModelConnectionConfigurator initialEngineId="native" onCreated={vi.fn()} />)
     fireEvent.change(screen.getByLabelText('managed.llm.provider'), { target: { value: 'openai' } })
     expect(screen.getByLabelText('managed.llm.protocol')).toBeTruthy()
+  })
+
+  it('keeps connection essentials visible and only collapses tuning fields', () => {
+    render(<ModelConnectionConfigurator initialEngineId="native" onCreated={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('managed.llm.provider'), { target: { value: 'openai' } })
+    fireEvent.change(screen.getByLabelText('managed.llm.protocol'), {
+      target: { value: 'openai_responses' },
+    })
+
+    expect(screen.getByLabelText('API Key')).toBeTruthy()
+    expect(screen.getByLabelText('Base URL')).toBeTruthy()
+    expect(screen.getByLabelText('Model')).toBeTruthy()
+    expect(screen.queryByLabelText('Reasoning Effort')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'managed.llm.showAdvanced' }))
+    expect(screen.getByLabelText('Reasoning Effort')).toBeTruthy()
   })
 
   it('marks a successful connection test stale after any value changes', async () => {

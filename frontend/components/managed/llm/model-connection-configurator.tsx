@@ -19,6 +19,7 @@ import {
   inferSchemeFromValues,
   resolveAnthropicScheme,
 } from '@/lib/managed/anthropic-auth'
+import { parseCredentialDetailResponse } from '@/lib/managed/credential-response-parsers'
 import {
   getAllProviderProtocolOptions,
   getConsumerProviderProtocolOptions,
@@ -26,9 +27,8 @@ import {
   stableConnectionFingerprint,
 } from '@/lib/managed/llm-catalog'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
-import { parseCredentialDetailResponse } from '@/lib/managed/credential-response-parsers'
 import { cn } from '@/lib/utils'
-import type { LlmCredentialField } from '@/types/llm'
+import type { LlmCredentialField, LlmCredentialProfile } from '@/types/llm'
 import type { CredentialDetail } from '@/types/managed'
 
 interface ModelConnectionConfiguratorProps {
@@ -66,6 +66,25 @@ function fieldInputType(field: LlmCredentialField) {
   if (field.type === 'secret') return 'password'
   if (field.type === 'url') return 'url'
   return 'text'
+}
+
+function isPrimaryConnectionField(
+  field: LlmCredentialField,
+  profile: LlmCredentialProfile,
+): boolean {
+  return (
+    field.required ||
+    field.key === profile.base_url_key ||
+    field.key === profile.model_key ||
+    (field.type === 'secret' && /(^|_)API_KEY$/.test(field.key))
+  )
+}
+
+function isAdvancedConnectionField(
+  field: LlmCredentialField,
+  profile: LlmCredentialProfile,
+): boolean {
+  return field.advanced && !isPrimaryConnectionField(field, profile)
 }
 
 export function ModelConnectionConfigurator({
@@ -209,15 +228,18 @@ export function ModelConnectionConfigurator({
     )
   }
 
+  const credentialProfile = selectedOption?.credentialProfile
   const visibleFields =
-    selectedOption?.credentialProfile.fields.filter(
+    credentialProfile?.fields.filter(
       (field) =>
-        (!field.advanced || showAdvanced) &&
+        (!isAdvancedConnectionField(field, credentialProfile) || showAdvanced) &&
         !(isAnthropic && field.key === ANTHROPIC_ENV.authToken),
     ) ?? []
   const advancedFieldCount =
-    selectedOption?.credentialProfile.fields.filter(
-      (field) => field.advanced && !(isAnthropic && field.key === ANTHROPIC_ENV.authToken),
+    credentialProfile?.fields.filter(
+      (field) =>
+        isAdvancedConnectionField(field, credentialProfile) &&
+        !(isAnthropic && field.key === ANTHROPIC_ENV.authToken),
     ).length ?? 0
 
   const runValidation = () => {
