@@ -3,6 +3,7 @@ use tracing::warn;
 
 use crate::db::queries;
 use crate::ids::{EnvironmentId, ProjectId};
+use crate::kernel::agent_identity_provider::IdentityEgressRequestTarget;
 use crate::kernel::credentials::access::{
     CredentialAccessContext, CredentialMaterialAccessService,
 };
@@ -32,13 +33,56 @@ pub(crate) async fn rebuild_sandbox_credentials(
     sandbox: &crate::db::models::JoySafeterSandbox,
     llm_egress_allowed_hosts: &[String],
 ) -> anyhow::Result<SandboxCredentials> {
+    let (credentials, _) = rebuild_sandbox_credentials_inner(
+        pool,
+        credential_access,
+        repository_material,
+        sandbox,
+        llm_egress_allowed_hosts,
+        false,
+    )
+    .await?;
+    Ok(credentials)
+}
+
+pub(crate) async fn rebuild_sandbox_credentials_with_identity_routes(
+    pool: &PgPool,
+    credential_access: &CredentialMaterialAccessService,
+    repository_material: &dyn RepositoryAccessMaterial,
+    sandbox: &crate::db::models::JoySafeterSandbox,
+    llm_egress_allowed_hosts: &[String],
+) -> anyhow::Result<(SandboxCredentials, Vec<IdentityEgressRequestTarget>)> {
+    rebuild_sandbox_credentials_inner(
+        pool,
+        credential_access,
+        repository_material,
+        sandbox,
+        llm_egress_allowed_hosts,
+        true,
+    )
+    .await
+}
+
+async fn rebuild_sandbox_credentials_inner(
+    pool: &PgPool,
+    credential_access: &CredentialMaterialAccessService,
+    repository_material: &dyn RepositoryAccessMaterial,
+    sandbox: &crate::db::models::JoySafeterSandbox,
+    llm_egress_allowed_hosts: &[String],
+    include_agent_identity_routes: bool,
+) -> anyhow::Result<(SandboxCredentials, Vec<IdentityEgressRequestTarget>)> {
     let mut routes = Vec::new();
+    let mut identity_targets = Vec::new();
 
     let Some(session_id) = sandbox.chat_session_id else {
-        return Ok(SandboxCredentials {
-            routes,
-            proxy_auth_token: runtime_auth::egress_proxy_token(sandbox.config.as_ref()),
-        });
+        return Ok((
+            SandboxCredentials {
+                routes,
+                proxy_auth_token: runtime_auth::egress_proxy_token(sandbox.config.as_ref()),
+                ephemeral_valid_for_seconds: None,
+            },
+            identity_targets,
+        ));
     };
     let session = queries::get_session(pool, session_id)
         .await?
@@ -89,7 +133,7 @@ pub(crate) async fn rebuild_sandbox_credentials(
             resolved_env.llm_binding.as_ref(),
             llm_egress_allowed_hosts,
         ));
-        let (external_routes, _) = build_external_egress(
+        let (external_routes, external_identity_targets) = build_external_egress(
             credential_access,
             &access_context,
             environment.as_ref(),
@@ -97,7 +141,11 @@ pub(crate) async fn rebuild_sandbox_credentials(
         )
         .await?;
         routes.extend(external_routes);
-        remove_agent_identity_routes(&mut routes);
+        if !include_agent_identity_routes {
+            remove_agent_identity_routes(&mut routes);
+        } else {
+            identity_targets = external_identity_targets;
+        }
         let network_mode = effective_network_mode(networking, false)?;
         let mcp_plan = resolve_mcp_runtime_plan_with_access(
             credential_access,
@@ -120,10 +168,14 @@ pub(crate) async fn rebuild_sandbox_credentials(
             "Failed to rebuild Git egress credentials during sandbox recovery: {e}"
         ),
     }
-    Ok(SandboxCredentials {
-        routes,
-        proxy_auth_token: runtime_auth::egress_proxy_token(sandbox.config.as_ref()),
-    })
+    Ok((
+        SandboxCredentials {
+            routes,
+            proxy_auth_token: runtime_auth::egress_proxy_token(sandbox.config.as_ref()),
+            ephemeral_valid_for_seconds: None,
+        },
+        identity_targets,
+    ))
 }
 
 pub(crate) fn remove_agent_identity_routes(routes: &mut Vec<EgressCredentialRoute>) {

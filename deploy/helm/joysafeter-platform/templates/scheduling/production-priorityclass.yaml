@@ -1,0 +1,10 @@
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: joysafeter-production
+  labels:
+    {{- include "joysafeter-platform.labels" . | nindent 4 }}
+value: {{ int .Values.productionPriorityClass.value }}
+globalDefault: false
+preemptionPolicy: {{ .Values.productionPriorityClass.preemptionPolicy }}
+description: {{ .Values.productionPriorityClass.description | quote }}

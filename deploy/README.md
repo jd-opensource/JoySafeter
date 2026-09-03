@@ -53,6 +53,7 @@ Docker socket / Compose 配置 / 常用端口，等待本地 Redis 就绪，并�
 | 入口层 | `frontend` | Next.js UI，连接 API 和 SSE | 可独立横向扩容；只依赖 `BACKEND_URL` / `FRONTEND_URL` |
 | 控制面 | `api` | Auth/RBAC、REST、任务创建、Skill 写入扫描、SSE 回放/实时桥接 | 可横向扩容；必须共享同一 PostgreSQL / Redis |
 | 调度面 | `orchestrator-rs` | DB 权威调度、任务租约、sandbox 生命周期、runner gRPC、事件发射 | 可多实例，但每个实例必须有唯一 `JOYSAFETER_INSTANCE_ID` |
+| Agent 边界控制面 | `agent-gateway` | 接收 Orchestrator 发布的策略、resolved headers 与节点归属，通过认证 ADS 向 Envoy 下发出站、LLM/MCP 路由 | ADS/管理面 Lease 主备；无 DB，仅持有可丢弃内存投影 |
 | 执行面 | sandbox container + `sandbox-runner` | 在隔离容器内运行 Claude/Codex/Native/Pi harness，所有出站经 Envoy | 按 session/task 动态创建；镜像由 agent runtime 镜像变量控制 |
 | 持久化面 | `worker` | 消费 Redis Stream，批量写入 `joysafeter_session_events`，写后再发布实时事件 | 可横向扩容；依赖 Redis consumer group 和 Postgres advisory lock 去重 |
 | 安全面 | `skillspector` | Skill 内容静态扫描；默认提示风险，可选仅在发布版本时强制 | CPU 密集，可用 `SKILLSPECTOR_WORKERS` / `SKILLSPECTOR_CPUS` 调整 |
@@ -64,6 +65,8 @@ Docker socket / Compose 配置 / 常用端口，等待本地 Redis 就绪，并�
 
 - API 只创建任务和发出 Redis 唤醒，不直接运行 harness，不直接创建 sandbox。
 - Orchestrator 从 PostgreSQL 认领 pending task；Redis list 只是唤醒信号，不是调度权威。
+- Orchestrator 的 PostgreSQL + vault 是唯一持久真相；Agent Gateway 仅保存可丢弃的内存 xDS 投影，启动或换主后由 Orchestrator 按 boot ID 和 generation 差异重放。
+- Envoy 是实际转发和拦截流量的数据面；Agent Gateway 不执行任务，也不访问 PostgreSQL、Redis、vault key 或存储。Orchestrator 将 UserToken/AgentToken 随策略安全下发并等待 Envoy ACK，BotToken 永不离开 Orchestrator。
 - Runner 只在 sandbox 内执行，并通过 gRPC `AgentBridge` 回连 orchestrator。
 - Worker 是事件可靠落库主路径；浏览器实时流可先收到 Pub/Sub，刷新后以 Postgres 事件日志回放为准。
 - SkillSpector 默认只提供风险 verdict；可选全局开关仅在发布时强制扫描，运行时只解析已发布版本。
@@ -147,9 +150,57 @@ Service FQDN、sandbox provider 配置和监控规则都从 `.Release.Namespace`
 维护第二份 namespace 字段。
 
 默认 `k8s verify` 只读验证 Deployment/Envoy rollout、每个 orchestrator Pod 的 live/ready/metrics
-契约、唯一 Ready xDS authority，以及 authority 观测到的 Envoy 节点数。显式 `--runtime-images` 时，验证器
+契约、独立 Agent Gateway xDS authority，以及 authority 观测到的 Envoy 节点数；还会验证所有 Gateway
+期望副本的 Running、live/ready、指标契约及其 Envoy 连接总数。显式 `--runtime-images` 时，验证器
 才会为四个 runtime 镜像逐一创建一次性 Pod、等待成功退出并清理；该模式会短暂修改 namespace，适合发布
 门禁和本地 Colima 集群，不应在未授权的共享生产 namespace 中随意运行。
+
+### Kubernetes Agent Gateway
+
+Helm 仅支持独立 Agent Gateway 拓扑，不再部署 Orchestrator 内嵌 xDS。部署前，在
+`externalSecret` 指向的 Secret 中配置以下互相独立的值：
+
+- `JOYSAFETER_XDS_AUTH_KEYRING`：key ID 到 xDS token 的 JSON 映射。
+- `JOYSAFETER_XDS_AUTH_WRITE_KEY_ID`：当前写 key ID；Envoy 使用的 `JOYSAFETER_XDS_AUTH_TOKEN` 必须等于该条目对应的 token。
+- `JOYSAFETER_AGENT_GATEWAY_MANAGEMENT_TOKEN`：Orchestrator 调用 Gateway 管理 API 的独立 Bearer token，至少 32 个非空白 ASCII 字符。
+- `JOYSAFETER_AGENT_GATEWAY_REPLICATION_TOKEN`：Gateway 副本间快照、增量和 ACK 协议的独立 Bearer token；不得与 management token 复用。
+
+生产 values 只引用 Secret，不应保存明文 token：
+
+```yaml
+agentGateway:
+  replicas: 3
+  hotStandbyMinAcks: 1       # replicas 必须至少为该值 + 1
+  replicationAckTimeoutMs: 1000
+  deliveryTimeoutSeconds: 30
+  requestTimeoutSeconds: 35  # 必须覆盖 delivery + replication ACK + 传输余量
+  nodeVisibility: node_scoped
+  podAnnotations:               # 示例：由已安装的 service mesh 注入 sidecar
+    sidecar.istio.io/inject: "true"
+```
+
+使用标准 Kubernetes `NetworkPolicy` 时还必须设置
+`agentGateway.kubernetesApiCidrs` 为集群 API Service/IP CIDR，否则 Lease
+访问会按最小权限原则保持拒绝。Cilium 模式使用 `kube-apiserver` entity。
+生产环境应由 service mesh 对 Envoy ↔ Gateway、Gateway ↔ Orchestrator 强制
+mTLS；应用层 token 作为纵深防御继续保留。
+
+然后通过统一入口发布和验证：
+
+```bash
+./deploy.sh --registry registry.example.com/your-org --tag v0.3.2 \
+  k8s deploy --sync-images --namespace joysafeter \
+  --values helm/joysafeter-orchestrator/values-prod.yaml
+./deploy.sh k8s verify --namespace joysafeter
+```
+
+Chart 不创建 Orchestrator xDS 监听端口、Service 或 xDS Lease 权限。`joysafeter-agent-gateway` Service 只选择 Lease leader，承载
+ADS 和管理流量。新 leader 使用已校验的热快照，并由
+进程内投影，Orchestrator 通过 `status → replay → ACK → recovery/complete` 恢复当前 generation；恢复期间
+Envoy 保留 last-good，再在 Ready 时精确清理过期资源。Deployment 使用零不可用滚动升级、PDB 与拓扑分散。
+Gateway 收到 SIGTERM 后先撤销 authority、摘除 leader label、释放 Lease，再在
+`agentGateway.shutdownGraceSeconds` 内排空 HTTP/gRPC 请求。Envoy Pod 自身终止时
+先调用 admin 接口停止 Ready 并 drain listener，避免滚动升级直接切断 agent 的在途出口请求。
 
 健康检查：
 
@@ -244,7 +295,7 @@ docker compose down
 `deploy/image-components.tsv` 是组件名、分组、发布 profile、默认镜像名、Dockerfile、context、runtime target、Compose
 环境变量和 CI build family 的唯一 Registry。`deploy.sh` 的 build/push/pull、Compose 镜像同步，以及
 `.github/workflows/docker-build.yml` / `.github/workflows/release.yml` 的 matrix 都从该文件加载。Helm 部署使用
-`--sync-images` 时，也从同一 Registry 生成 orchestrator、Claude、Codex、Native、Pi 五个镜像覆盖；新增镜像
+`--sync-images` 时，也从同一 Registry 生成 Agent Gateway、orchestrator、Claude、Codex、Native、Pi 六个镜像覆盖；新增镜像
 组件不得再在脚本、workflow 或 Kubernetes helper 中复制一套镜像名称。`deploy/lib/*.sh` 是入口内部
 capability module，对用户公开的部署入口仍只有 `deploy/deploy.sh`。
 
@@ -265,7 +316,7 @@ cd deploy
   k8s deploy --sync-images --namespace joysafeter
 ```
 
-`sandbox-plane` 包含 orchestrator 与 Claude Code、Codex、Native、Pi 四个 sandbox runtime；`non-app`
+`sandbox-plane` 包含 Agent Gateway、orchestrator 与 Claude Code、Codex、Native、Pi 四个 sandbox runtime；`non-app`
 在此基础上包含 SkillSpector，明确排除 frontend 和 backend（API/worker 共用 backend 镜像）。旧入口
 `deploy/scripts/build-push-amd64-images.sh` 仅作兼容转发，默认发布 `sandbox-plane`，所有构建、推送和验证
 逻辑仍由 `deploy.sh` 与 `deploy/lib/images.sh` 唯一持有。旧的目标参数（如 `orchestrator native`）、
@@ -280,7 +331,7 @@ digest、按 digest 拉取验证。Registry 健康检查默认读取 Docker daem
 这是 Docker 本地镜像存储的限制。
 
 `k8s deploy --sync-images` 是显式覆盖模式：全局 `--registry` / `--tag` 必须写在 `k8s` 前面，脚本把统一
-Registry 里的镜像名投影为 Helm `image.orchestrator` 与 `image.sandbox.*`。不传 `--sync-images` 时，Helm
+Registry 里的镜像名投影为 Helm `image.agentGateway`、`image.orchestrator` 与 `image.sandbox.*`。不传 `--sync-images` 时，Helm
 继续使用 values 文件中的镜像，便于已有生产 values 保持不变。升级已有 release 且只希望替换镜像时，
 同时传 `--reuse-values`。部署入口会使用 Helm 的 `--reset-then-reuse-values`：先加载当前 chart 默认值，
 再复用 release 已有覆盖并应用本次显式参数。这样既保留数据库、Redis、Secret 和存储配置，也不会遗漏
@@ -306,7 +357,7 @@ Agent runtime 的唯一构建定义是 `deploy/docker/runtime.Dockerfile`。其 
 - PostgreSQL 和 Redis 使用托管服务或独立高可用实例。
 - API / frontend 可放在反向代理后，只暴露 HTTPS。
 - `orchestrator-rs` 的 `9090` gRPC 和 Docker socket 所在宿主机不要暴露到公网。
-- 用预构建镜像部署，并固定 `BACKEND_FULL_IMAGE`、`FRONTEND_FULL_IMAGE`、`ORCHESTRATOR_RS_FULL_IMAGE`、`SKILLSPECTOR_FULL_IMAGE`。
+- 用预构建镜像部署，并固定 `BACKEND_FULL_IMAGE`、`FRONTEND_FULL_IMAGE`、`ORCHESTRATOR_RS_FULL_IMAGE`、`AGENT_GATEWAY_FULL_IMAGE`、`SKILLSPECTOR_FULL_IMAGE`。
 - 根据 CPU 调整 `SKILLSPECTOR_WORKERS` / `SKILLSPECTOR_CPUS`，避免扫描挤占 orchestrator 和 worker。
 
 ## 2026-08-15 凭据升级门禁
@@ -434,7 +485,7 @@ docker compose --profile rust-orchestrator up -d --no-build
 
 ## 注意
 
-- Python orchestrator 已移除；Rust `orchestrator-rs` 暴露 Runner gRPC `9090`、健康检查 `9091` 和认证 xDS `9092`，API/Worker 仍有 HTTP healthcheck。
+- Python orchestrator 已移除；Rust `orchestrator-rs` 只暴露 Runner gRPC `9090` 和健康检查 `9091`。独立 Agent Gateway 提供 xDS `9092`、管理/健康接口 `9093`，Orchestrator 不监听 xDS。
 - `orchestrator` 会挂载 Docker socket 创建 sandbox，生产只能放在可信机器。
 - 如果 sandbox 需要跨机器回连，修改 `deploy/.env` 里的 `JOYSAFETER_GRPC_PUBLIC_URL`。
 

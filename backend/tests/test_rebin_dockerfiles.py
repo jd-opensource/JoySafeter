@@ -169,7 +169,10 @@ def test_deploy_cli_registers_pi_as_a_first_class_runtime() -> None:
 
 def test_kubernetes_deployments_project_the_pi_runtime_image() -> None:
     values = (REPO_ROOT / "deploy/helm/joysafeter-orchestrator/values.yaml").read_text()
-    configmap = (REPO_ROOT / "deploy/helm/joysafeter-orchestrator/templates/configmap.yaml").read_text()
+    configmap = (
+        REPO_ROOT
+        / "deploy/helm/joysafeter-orchestrator/templates/orchestrator/configmap.yaml"
+    ).read_text()
 
     assert "pi: aisec-repo.jd.com/joysafeter/joysafeter-pi:latest" in values
     assert "JOYSAFETER_IMAGE_PI: {{ .Values.image.sandbox.pi | quote }}" in configmap

@@ -238,6 +238,7 @@ mod tests {
                 remove_headers: vec!["AUTHORIZATION".to_string()],
             }],
             proxy_auth_token: Some("proxy-secret".to_string()),
+            ephemeral_valid_for_seconds: None,
         }
     }
 
@@ -249,6 +250,7 @@ mod tests {
         });
         let first = DesiredNetworkPolicy::from_inputs(Some(&networking), &credentials()).unwrap();
         let mut reordered = credentials();
+        reordered.ephemeral_valid_for_seconds = Some(300);
         reordered.routes[0].id = "different-row-id".to_string();
         reordered.routes[0].cluster_name = "different-rendered-name".to_string();
         reordered.routes[0].vetted_addresses.reverse();

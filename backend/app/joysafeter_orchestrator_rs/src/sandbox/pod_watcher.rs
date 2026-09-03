@@ -169,6 +169,11 @@ impl PodWatcher {
         cache: Arc<RwLock<HashMap<String, CachedPod>>>,
         placement_events: Option<PlacementEventSink>,
     ) {
+        const PLACEMENT_RECONCILE_INTERVAL: std::time::Duration =
+            std::time::Duration::from_secs(15);
+        let mut cache_synced = false;
+        let mut placement_tick = tokio::time::interval(PLACEMENT_RECONCILE_INTERVAL);
+        placement_tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             info!("PodWatcher: starting watch stream");
             let stream = watcher::watcher(
@@ -181,19 +186,41 @@ impl PodWatcher {
             // atomically at InitDone (readers never see a partial cache).
             let mut staging: HashMap<String, CachedPod> = HashMap::new();
             loop {
-                match stream.try_next().await {
-                    Ok(Some(event)) => {
-                        Self::handle_event(&cache, &mut staging, event, placement_events.as_ref())
+                tokio::select! {
+                    event = stream.try_next() => match event {
+                        Ok(Some(event)) => {
+                            let init_done = matches!(event, Event::InitDone);
+                            Self::handle_event(
+                                &cache,
+                                &mut staging,
+                                event,
+                                placement_events.as_ref(),
+                            )
+                            .await;
+                            cache_synced |= init_done;
+                        }
+                        Ok(None) => {
+                            info!("PodWatcher: watch stream ended, restarting");
+                            break;
+                        }
+                        Err(e) => {
+                            warn!(error = %e, "PodWatcher: watch error, restarting in 5s");
+                            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                            break;
+                        }
+                    },
+                    _ = placement_tick.tick(), if cache_synced && placement_events.is_some() => {
+                        let assignments = cache
+                            .read()
                             .await
-                    }
-                    Ok(None) => {
-                        info!("PodWatcher: watch stream ended, restarting");
-                        break;
-                    }
-                    Err(e) => {
-                        warn!(error = %e, "PodWatcher: watch error, restarting in 5s");
-                        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                        break;
+                            .values()
+                            .filter_map(CachedPod::delivery_assignment)
+                            .collect();
+                        Self::publish_placement(
+                            placement_events.as_ref().expect("guarded above"),
+                            PlacementEvent::Reconciled { assignments },
+                        )
+                        .await;
                     }
                 }
             }

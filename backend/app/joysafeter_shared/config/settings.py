@@ -781,7 +781,6 @@ class JoySafeterConfig(BaseSettings):
     max_concurrent_tasks: int = 200
     max_scheduling_tasks: int = 50
     task_default_timeout: int = 7200
-    task_default_max_retries: int = 2
     task_retry_base_ms: int = 2000
     task_retry_max_ms: int = 30000
 
@@ -842,7 +841,6 @@ class JoySafeterConfig(BaseSettings):
     # max_cpu / max_memory_mb columns. Set to None to disable the limit.
     sandbox_cpu: Optional[float] = 2.0
     sandbox_memory_mb: Optional[int] = 4096
-    sandbox_disk_mb: Optional[int] = None
 
     # -- Sandbox container hardening ------------------------------------------
     # These default to the values from Anthropic's "Securely deploying AI agents"
@@ -889,7 +887,6 @@ class JoySafeterConfig(BaseSettings):
     # Sandbox - Kubernetes. Kubernetes itself owns Storage mounting through CSI
     # PVCs; the sandbox pod only receives volumeMounts and never Storage secrets.
     k8s_namespace: str = "joysafeter-sandboxes"
-    k8s_kubectl_path: str = "kubectl"
     k8s_orchestrator_url: Optional[str] = None
 
     # gRPC server
@@ -902,13 +899,8 @@ class JoySafeterConfig(BaseSettings):
     envoy_image: str = "envoyproxy/envoy:v1.37.1"
     envoy_socket_volume: str = "joysafeter-sockets"
     envoy_config_dir: str = "/tmp/joysafeter-envoy-config"
-    envoy_network: str = "joysafeter-net"
     envoy_grpc_host: str = "host.docker.internal"
     envoy_container_name: str = "joysafeter-envoy"
-
-    # Image builder
-    image_builder_enabled: bool = False
-    image_builder_base: str = "joysafeter-claudecode:latest"
 
     # Vault encryption
     vault_encryption_key: Optional[str] = None

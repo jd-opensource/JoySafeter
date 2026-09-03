@@ -546,8 +546,14 @@ def test_helm_renders_canonical_user_token_exchange_contract() -> None:
     values = yaml.safe_load((REPO_ROOT / "deploy/helm/joysafeter-orchestrator/values.yaml").read_text())[
         "agentIdentity"
     ]
-    configmap = (REPO_ROOT / "deploy/helm/joysafeter-orchestrator/templates/configmap.yaml").read_text()
-    deployment = (REPO_ROOT / "deploy/helm/joysafeter-orchestrator/templates/deployment.yaml").read_text()
+    configmap = (
+        REPO_ROOT
+        / "deploy/helm/joysafeter-orchestrator/templates/orchestrator/configmap.yaml"
+    ).read_text()
+    deployment = (
+        REPO_ROOT
+        / "deploy/helm/joysafeter-orchestrator/templates/orchestrator/deployment.yaml"
+    ).read_text()
 
     assert values["authType"] == CANONICAL_JD_DEFAULTS["JD_AGENT_IDENTITY_AUTH_TYPE"]
     assert values["identityType"] == CANONICAL_JD_DEFAULTS["JD_AGENT_IDENTITY_IDENTITY_TYPE"]
@@ -570,7 +576,10 @@ def test_agent_identity_trait_assigns_fail_closed_policy_to_application_boundary
 
 
 def test_preprod_helm_identity_values_do_not_capture_orchestrator_settings() -> None:
-    configmap = (REPO_ROOT / "deploy/helm/joysafeter-orchestrator/templates/configmap.yaml").read_text()
+    configmap = (
+        REPO_ROOT
+        / "deploy/helm/joysafeter-orchestrator/templates/orchestrator/configmap.yaml"
+    ).read_text()
     base_values = yaml.safe_load((REPO_ROOT / "deploy/helm/joysafeter-orchestrator/values.yaml").read_text())
     values = yaml.safe_load((REPO_ROOT / "deploy/helm/joysafeter-orchestrator/values-pre.yaml").read_text())
 
@@ -583,7 +592,7 @@ def test_preprod_helm_identity_values_do_not_capture_orchestrator_settings() -> 
     assert set(values["agentIdentity"]) <= {
         "provider",
         "baseUrl",
-        "allowedHosts",
+        "services",
         "cookieName",
         "contextTtlSeconds",
         "clientId",

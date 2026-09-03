@@ -1,0 +1,110 @@
+syntax = "proto3";
+
+package joysafeter.orchestrator.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Policy Stream Service - 加到现有 orchestrator gRPC server
+service PolicyStreamService {
+  // Gateway 订阅 policy 变更流(长连接,双向 stream)
+  rpc Subscribe(stream SubscribeMessage) returns (stream StreamMessage);
+
+  // Gateway 回报 delivery 结果
+  rpc ReportDelivery(DeliveryReport) returns (DeliveryAck);
+}
+
+// ========== 订阅相关 ==========
+
+message SubscribeMessage {
+  oneof message {
+    SubscribeRequest subscribe = 1;
+    StreamAck ack = 2;
+  }
+}
+
+message SubscribeRequest {
+  string instance_id = 1;
+  string boot_id = 2;
+  uint64 resume_from_seq = 3;
+}
+
+message StreamMessage {
+  oneof message {
+    SubscribeResponse subscribe_response = 1;
+    PolicyEvent event = 2;
+  }
+}
+
+message SubscribeResponse {
+  bool accepted = 1;
+  string session_id = 2;
+  uint64 current_seq = 3;
+}
+
+message StreamAck {
+  uint64 seq = 1;
+  uint32 pending_count = 2;
+}
+
+// ========== Policy 事件 ==========
+
+message PolicyEvent {
+  uint64 seq = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  string trace_id = 3;
+
+  oneof event {
+    ApplySandboxPolicy apply = 10;
+    RemoveSandboxPolicy remove = 11;
+    ReconcilePlacement placement = 12;
+  }
+}
+
+message ApplySandboxPolicy {
+  string sandbox_id = 1;
+  PolicyGeneration generation = 2;
+  bytes policy_payload = 3;  // JSON serialized SandboxEgressPolicy
+  uint64 authority_epoch = 4;
+}
+
+message RemoveSandboxPolicy {
+  string sandbox_id = 1;
+  PolicyGeneration expected_generation = 2;
+  uint64 authority_epoch = 3;
+}
+
+message ReconcilePlacement {
+  repeated SandboxPlacement placements = 1;
+  uint64 authority_epoch = 2;
+}
+
+message PolicyGeneration {
+  string policy_hash = 1;
+  uint64 policy_version = 2;
+}
+
+message SandboxPlacement {
+  string sandbox_id = 1;
+  string node_id = 2;
+}
+
+// ========== Delivery 回报 ==========
+
+message DeliveryReport {
+  string sandbox_id = 1;
+  PolicyGeneration generation = 2;
+  DeliveryStatus status = 3;
+  string error_message = 4;
+  google.protobuf.Timestamp delivered_at = 5;
+  string trace_id = 6;
+}
+
+enum DeliveryStatus {
+  DELIVERED = 0;
+  FAILED = 1;
+}
+
+message DeliveryAck {
+  bool accepted = 1;
+  string message = 2;
+}

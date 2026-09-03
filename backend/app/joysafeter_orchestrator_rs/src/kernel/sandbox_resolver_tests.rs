@@ -28,6 +28,14 @@ use tokio::sync::Mutex;
 use uuid::Uuid;
 
 use super::identity_policy::identity_lease_matches;
+
+#[test]
+fn agent_identity_refreshes_sixty_seconds_before_expiry() {
+    assert_eq!(context::identity_refresh_delay(Some(300)), Some(240));
+    assert_eq!(context::identity_refresh_delay(Some(60)), Some(1));
+    assert_eq!(context::identity_refresh_delay(Some(30)), Some(1));
+    assert_eq!(context::identity_refresh_delay(None), None);
+}
 use super::model::{ExpectedFingerprint, ResolveContext};
 use super::networking::PreparedSandboxNetworking;
 use super::runtime_plan::{
@@ -516,6 +524,7 @@ fn egress_policy_hash_tracks_header_secret_without_leaking_it() {
             remove_headers: vec![],
         }],
         proxy_auth_token: None,
+        ephemeral_valid_for_seconds: None,
     };
     let networking = serde_json::json!({"type": "limited"});
 
@@ -1059,6 +1068,10 @@ impl NetworkPolicyRuntime for RecordingProvider {
         Ok(())
     }
 
+    fn supports_ephemeral_credentials(&self) -> bool {
+        true
+    }
+
     async fn prune(
         &self,
         _live_sandbox_ids: &std::collections::HashSet<SandboxId>,
@@ -1100,6 +1113,7 @@ impl NetworkPolicyRuntime for RecordingProvider {
             .push(SandboxCredentials {
                 routes: policy.credential_routes,
                 proxy_auth_token: policy.proxy_auth_token,
+                ephemeral_valid_for_seconds: policy.ephemeral_credentials_valid_for_seconds,
             });
         if let Some(message) = self.networking_error.lock().await.clone() {
             anyhow::bail!(message);
@@ -1107,7 +1121,11 @@ impl NetworkPolicyRuntime for RecordingProvider {
         Ok(())
     }
 
-    async fn remove(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
+    async fn remove(
+        &self,
+        sandbox_id: SandboxId,
+        _generation: Option<&NetworkPolicyGeneration>,
+    ) -> anyhow::Result<()> {
         self.networking_teardowns.lock().await.push(sandbox_id);
         Ok(())
     }
@@ -1120,6 +1138,21 @@ struct PostgresTestNetworkPolicyMaterialResolver {
 #[async_trait]
 impl NetworkPolicyMaterialResolver for PostgresTestNetworkPolicyMaterialResolver {
     async fn resolve(&self, sandbox_id: SandboxId) -> anyhow::Result<DesiredNetworkPolicy> {
+        let sandbox = queries::get_sandbox(&self.pool, sandbox_id)
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("sandbox {sandbox_id} was not found"))?;
+        if sandbox
+            .config
+            .as_ref()
+            .and_then(|config| config.get("agent_identity_lease"))
+            .is_some_and(|lease| !lease.is_null())
+        {
+            anyhow::bail!("test resolver requires explicit base-policy resolution");
+        }
+        self.resolve_base(sandbox_id).await
+    }
+
+    async fn resolve_base(&self, sandbox_id: SandboxId) -> anyhow::Result<DesiredNetworkPolicy> {
         let sandbox = queries::get_sandbox(&self.pool, sandbox_id)
             .await?
             .ok_or_else(|| anyhow::anyhow!("sandbox {sandbox_id} was not found"))?;
@@ -1191,6 +1224,7 @@ async fn local_authority_applies_ephemeral_identity_credentials_without_rebuild(
             remove_headers: vec!["x-security-agenttoken".to_string()],
         }],
         proxy_auth_token: Some("runner-token".to_string()),
+        ephemeral_valid_for_seconds: Some(300),
     };
     let networking = serde_json::json!({
         "type": "limited",
@@ -1254,6 +1288,7 @@ async fn task_identity_cleanup_replaces_dynamic_policy_and_clears_lease() {
             remove_headers: vec!["x-security-agenttoken".to_string()],
         }],
         proxy_auth_token: Some("runner-token".to_string()),
+        ephemeral_valid_for_seconds: Some(300),
     };
     let dynamic_hash = DesiredNetworkPolicy::from_inputs(Some(&networking), &dynamic_credentials)
         .expect("dynamic policy")
@@ -1339,6 +1374,86 @@ async fn task_identity_cleanup_replaces_dynamic_policy_and_clears_lease() {
         sandbox.networking_applied_hash.as_deref(),
         Some(dynamic_hash.as_str())
     );
+
+    let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+        .bind(sandbox_id)
+        .execute(&pool)
+        .await;
+}
+
+#[tokio::test]
+async fn task_identity_cleanup_failure_marks_error_then_destroys_fail_closed() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let sandbox_id = SandboxId::new();
+    let task_id = TaskId::new();
+    let external_id = format!("external-identity-cleanup-failure-{sandbox_id}");
+    let networking = serde_json::json!({"type": "limited", "allowed_hosts": []});
+    let expected = ExpectedFingerprint {
+        image: "identity-cleanup-failure:latest".to_string(),
+        engine_kind: "claude".to_string(),
+        networking: Some(networking),
+        env: HashMap::new(),
+        mounts: vec![],
+        egress_policy_hash: "dynamic-identity-policy".to_string(),
+    };
+    let mut config =
+        provisioning_config("ready", 100, "Ready", true, &expected, Some("runner-token"));
+    config["agent_identity_lease"] = identity_lease_metadata(task_id, Some(120));
+    queries::create_sandbox(
+        &pool,
+        sandbox_id,
+        &external_id,
+        "recording",
+        "identity-cleanup-failure:latest",
+        None,
+        None,
+        None,
+        Some(&config),
+    )
+    .await
+    .expect("create failed-cleanup sandbox");
+    assert!(
+        queries::transition_sandbox_cas(&pool, sandbox_id, "creating", "idle")
+            .await
+            .expect("mark failed-cleanup sandbox idle")
+    );
+
+    let provider = Arc::new(RecordingProvider {
+        networking_error: Mutex::new(Some("synthetic base-policy rejection".to_string())),
+        destroy_status_probe: Mutex::new(Some((pool.clone(), sandbox_id))),
+        ..RecordingProvider::default()
+    });
+    let mut resolver_config = JoySafeterConfig::from_env();
+    resolver_config.sandbox_provider = "recording".to_string();
+    let resolver = recording_resolver(pool.clone(), provider.clone(), resolver_config);
+
+    let error = resolver
+        .identity_policy_service()
+        .clear_policy(sandbox_id, task_id)
+        .await
+        .expect_err("base-policy failure must destroy the sandbox");
+    assert!(error
+        .to_string()
+        .contains("synthetic base-policy rejection"));
+    assert_eq!(provider.destroyed.lock().await.as_slice(), &[external_id]);
+    assert_eq!(
+        provider.destroy_observed_statuses.lock().await.as_slice(),
+        &["stopping".to_string()]
+    );
+
+    let sandbox = queries::get_sandbox(&pool, sandbox_id)
+        .await
+        .expect("load destroyed sandbox")
+        .expect("destroyed sandbox remains recorded");
+    assert_eq!(sandbox.status, "destroyed");
+    assert!(sandbox
+        .config
+        .as_ref()
+        .and_then(|config| config.get("setup_error"))
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|reason| reason.contains("synthetic base-policy rejection")));
 
     let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
         .bind(sandbox_id)

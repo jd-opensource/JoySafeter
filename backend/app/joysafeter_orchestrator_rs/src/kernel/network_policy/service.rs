@@ -68,10 +68,10 @@ impl NetworkPolicyService {
         }
     }
 
-    pub fn uses_remote_authority(&self) -> bool {
-        self.managed
-            .as_ref()
-            .is_some_and(|managed| managed.queue.is_some())
+    pub fn supports_ephemeral_credentials(&self) -> bool {
+        self.managed.as_ref().is_some_and(|managed| {
+            managed.queue.is_none() && managed.runtime.supports_ephemeral_credentials()
+        })
     }
 
     pub fn can_reconcile_as_authority(&self) -> bool {
@@ -115,9 +115,9 @@ impl NetworkPolicyService {
         credentials: SandboxCredentials,
     ) -> anyhow::Result<NetworkingReconcileOutcome> {
         let managed = self.require_managed("apply task-scoped network policy")?;
-        if managed.queue.is_some() {
+        if managed.queue.is_some() || !managed.runtime.supports_ephemeral_credentials() {
             anyhow::bail!(
-                "task-scoped Agent Identity requires secure ephemeral delivery to the elected xDS authority"
+                "task-scoped Agent Identity requires a direct-xDS runtime with secure ephemeral credential delivery"
             );
         }
         let _application_lock = managed.authority.lock_application().await;
@@ -178,6 +178,34 @@ impl NetworkPolicyService {
         .await
     }
 
+    /// Replace a task-scoped Agent Identity policy with durable base material.
+    /// The caller deliberately keeps the identity lease persisted until this
+    /// method returns, so recovery remains fail-closed if delivery is lost.
+    pub async fn reconcile_base_as_authority(
+        &self,
+        sandbox: &JoySafeterSandbox,
+    ) -> anyhow::Result<NetworkingReconcileOutcome> {
+        let managed = self.require_managed("restore the base limited-network policy")?;
+        if managed.queue.is_some() || !managed.runtime.supports_ephemeral_credentials() {
+            anyhow::bail!(
+                "task-scoped Agent Identity cleanup requires a direct runtime with secure ephemeral credential delivery"
+            );
+        }
+        let _application_lock = managed.authority.lock_application().await;
+        let guard = managed
+            .authority
+            .mutation_guard()
+            .ok_or_else(|| anyhow::anyhow!("local network-policy authority is not ready"))?;
+        super::application::reconcile_base_as_authority(
+            &self.pool,
+            managed.runtime.as_ref(),
+            managed.material_resolver.as_ref(),
+            sandbox,
+            &guard,
+        )
+        .await
+    }
+
     pub async fn recover(&self, guard: &RecoveryAuthorityGuard) -> anyhow::Result<usize> {
         let managed = self.require_managed("recover limited networking")?;
         super::recovery::recover_as_authority(
@@ -209,6 +237,26 @@ impl NetworkPolicyService {
         managed.runtime.prune(&live_sandbox_ids).await
     }
 
+    pub async fn recover_runtime_if_required(&self) -> anyhow::Result<usize> {
+        let managed = self.require_managed("recover remote network-policy runtime")?;
+        if !managed.runtime.full_recovery_required().await? {
+            return Ok(0);
+        }
+        let guard = managed
+            .authority
+            .mutation_guard()
+            .ok_or_else(|| anyhow::anyhow!("local network-policy authority is not ready"))?;
+        let _application_lock = managed.authority.lock_application().await;
+        guard.validate()?;
+        super::recovery::resync_as_authority(
+            &self.pool,
+            managed.runtime.as_ref(),
+            managed.material_resolver.as_ref(),
+            &guard,
+        )
+        .await
+    }
+
     pub async fn apply_request(
         &self,
         request: NetworkPolicyRequest,
@@ -234,6 +282,9 @@ impl NetworkPolicyService {
                 .await?;
             }
             NetworkPolicyAction::Remove => {
+                let generation = request
+                    .generation
+                    .ok_or_else(|| anyhow::anyhow!("remove request is missing generation"))?;
                 if !queries::network_policy_removal_is_current(&self.pool, request.sandbox_id)
                     .await?
                 {
@@ -245,7 +296,12 @@ impl NetworkPolicyService {
                 if guard.validate().is_err() {
                     anyhow::bail!("xDS authority changed before networking removal");
                 }
-                managed.runtime.remove(request.sandbox_id).await?;
+                managed
+                    .runtime
+                    .remove(request.sandbox_id, Some(&generation))
+                    .await?;
+                queries::mark_generation_removed(&self.pool, request.sandbox_id, &generation)
+                    .await?;
             }
         }
         Ok(())
@@ -255,12 +311,20 @@ impl NetworkPolicyService {
         let Some(managed) = self.managed.as_ref() else {
             return Ok(NetworkPolicyCapability::Unsupported);
         };
-        if let Some(queue) = managed.queue.as_ref() {
-            queue
-                .publish(NetworkPolicyRequest::remove(sandbox_id))
-                .await?;
-        } else {
-            managed.runtime.remove(sandbox_id).await?;
+        let generation = queries::prepare_generation_removal(&self.pool, sandbox_id).await?;
+        match (managed.queue.as_ref(), generation.as_ref()) {
+            (Some(queue), Some(generation)) => {
+                queue
+                    .publish(NetworkPolicyRequest::remove(sandbox_id, generation.clone()))
+                    .await?;
+            }
+            (None, generation) => {
+                managed.runtime.remove(sandbox_id, generation).await?;
+                if let Some(generation) = generation {
+                    queries::mark_generation_removed(&self.pool, sandbox_id, generation).await?;
+                }
+            }
+            (Some(_), None) => {}
         }
         Ok(NetworkPolicyCapability::Managed)
     }
@@ -360,7 +424,11 @@ impl NetworkPolicyRuntime for TestNetworkPolicyRuntime {
         Ok(())
     }
 
-    async fn remove(&self, _sandbox_id: SandboxId) -> anyhow::Result<()> {
+    async fn remove(
+        &self,
+        _sandbox_id: SandboxId,
+        _generation: Option<&super::NetworkPolicyGeneration>,
+    ) -> anyhow::Result<()> {
         Ok(())
     }
 }

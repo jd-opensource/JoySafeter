@@ -261,6 +261,9 @@ pub struct SandboxEgressPolicy {
     pub allowlist_hosts: Vec<String>,
     pub credential_routes: Vec<EgressCredentialRoute>,
     pub proxy_auth_token: Option<String>,
+    /// Remaining lifetime of task-scoped credentials when the policy was
+    /// prepared. Operational metadata; deliberately excluded from revisions.
+    pub ephemeral_credentials_valid_for_seconds: Option<u64>,
 }
 
 impl std::fmt::Debug for SandboxEgressPolicy {
@@ -493,6 +496,8 @@ pub struct SandboxCredentials {
     /// Per-sandbox bearer material used only to authenticate local proxy access
     /// from the sandbox runner to its own Envoy HTTP listener.
     pub proxy_auth_token: Option<String>,
+    /// Shortest provider-advertised lifetime across task-scoped credentials.
+    pub ephemeral_valid_for_seconds: Option<u64>,
 }
 
 impl std::fmt::Debug for SandboxCredentials {
@@ -522,6 +527,7 @@ impl SandboxCredentials {
             allowlist_hosts,
             credential_routes: self.to_routes(sandbox_id),
             proxy_auth_token: self.proxy_auth_token.clone(),
+            ephemeral_credentials_valid_for_seconds: self.ephemeral_valid_for_seconds,
         }
     }
 

@@ -610,6 +610,12 @@ impl K8sProvider {
                 .map(|name| json!({ "name": name }))
                 .collect::<Vec<_>>());
         }
+        apply_pod_placement(
+            &mut pod_spec,
+            self.config.k8s_priority_class_name.as_deref(),
+            &self.config.k8s_node_selector,
+            &self.config.k8s_tolerations,
+        );
 
         Ok(json!({
             "apiVersion": "v1",
@@ -621,6 +627,23 @@ impl K8sProvider {
             },
             "spec": pod_spec
         }))
+    }
+}
+
+fn apply_pod_placement(
+    pod_spec: &mut Value,
+    priority_class_name: Option<&str>,
+    node_selector: &BTreeMap<String, String>,
+    tolerations: &[Value],
+) {
+    if let Some(priority_class_name) = priority_class_name {
+        pod_spec["priorityClassName"] = json!(priority_class_name);
+    }
+    if !node_selector.is_empty() {
+        pod_spec["nodeSelector"] = json!(node_selector);
+    }
+    if !tolerations.is_empty() {
+        pod_spec["tolerations"] = json!(tolerations);
     }
 }
 
@@ -787,30 +810,4 @@ fn socket_cleanup_plan(external_id: &str) -> anyhow::Result<Vec<String>> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn socket_cleanup_plan_uses_a_validated_sandbox_uuid_and_fixed_arguments() {
-        let plan = socket_cleanup_plan("joysafeter-01a05121-bff9-7b30-b70a-3b8916454456")
-            .expect("valid managed sandbox pod name");
-
-        assert_eq!(
-            plan,
-            vec![
-                "rm".to_string(),
-                "-rf".to_string(),
-                "--".to_string(),
-                "/sockets/01a05121-bff9-7b30-b70a-3b8916454456".to_string(),
-            ]
-        );
-    }
-
-    #[test]
-    fn socket_cleanup_plan_rejects_non_sandbox_external_ids() {
-        let error = socket_cleanup_plan("joysafeter-envoy-xddjx")
-            .expect_err("non-sandbox pod names must not become filesystem paths");
-
-        assert!(error.to_string().contains("invalid K8s sandbox pod name"));
-    }
-}
+mod tests;

@@ -1,0 +1,13 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: joysafeter-agent-gateway-leader
+  namespace: {{ .Release.Namespace }}
+subjects:
+- kind: ServiceAccount
+  name: joysafeter-agent-gateway
+  namespace: {{ .Release.Namespace }}
+roleRef:
+  kind: Role
+  name: joysafeter-agent-gateway-leader
+  apiGroup: rbac.authorization.k8s.io

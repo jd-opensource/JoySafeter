@@ -1,0 +1,11 @@
+# Development image lock. Keep every JoySafeter component on the dev channel.
+# Envoy is a version-pinned third-party dependency; it stays on the fixed tag
+# from values.yaml and is intentionally NOT listed here.
+image:
+  orchestrator: aisec-repo.jd.com/joysafeter/joysafeter-orchestrator-rs:dev
+  agentGateway: aisec-repo.jd.com/joysafeter/joysafeter-agent-gateway:dev
+  sandbox:
+    claude: aisec-repo.jd.com/joysafeter/joysafeter-claudecode:dev
+    codex: aisec-repo.jd.com/joysafeter/joysafeter-codex:dev
+    native: aisec-repo.jd.com/joysafeter/joysafeter-native:dev
+    pi: aisec-repo.jd.com/joysafeter/joysafeter-pi:dev

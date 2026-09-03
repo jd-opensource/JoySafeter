@@ -2,13 +2,14 @@
 
 use std::sync::Arc;
 
+use crate::agent_gateway::{AgentGatewayApi, AgentGatewayClient, AgentGatewayClientConfig};
 use crate::config::JoySafeterConfig;
 use crate::{db, events, grpc, kernel, runtime_config, xds};
 use tracing::{error, info, warn};
 
 use super::runtime_factories::{
     build_credential_store, build_runner_flows, build_sandbox_controller_tasks,
-    build_sandbox_runtime_services,
+    build_sandbox_runtime_services, build_task_identity_service,
 };
 use super::supervisor::{
     shutdown_signal, spawn_health_server, ReadinessGate, ServiceCriticality, TaskSupervisor,
@@ -161,18 +162,53 @@ impl OrchestratorApplication {
         let topology = resolved_provider.topology;
         let managed_xds_authority = config.ha_mode == "multi"
             && topology.managed_xds_authority_in_multi
-            && config.grpc_xds_enabled();
+            && config.embedded_xds_enabled();
         let xds_authority = if managed_xds_authority {
             xds::authority::XdsAuthority::managed()
         } else {
             xds::authority::XdsAuthority::standalone()
         };
-        let xds_control_plane = config.grpc_xds_enabled().then(|| {
+        let xds_control_plane = config.embedded_xds_enabled().then(|| {
             xds::control_plane::XdsControlPlane::new(
                 xds_authority.clone(),
                 topology.node_visibility,
             )
         });
+        let agent_gateway: Option<Arc<dyn AgentGatewayApi>> = match (
+            config.agent_gateway_url.as_deref(),
+            config.agent_gateway_management_token.clone(),
+        ) {
+            (Some(url), Some(token)) => {
+                // Prefer the gRPC management client when a gRPC endpoint is set;
+                // fall back to HTTP otherwise. gRPC is the high-performance path.
+                if let Some(grpc_endpoint) = config.agent_gateway_grpc_endpoint.clone() {
+                    info!(endpoint = %grpc_endpoint, "Agent Gateway using gRPC management client");
+                    Some(Arc::new(
+                        crate::agent_gateway::AgentGatewayGrpcClient::new(grpc_endpoint, token)
+                            .await?,
+                    ))
+                } else {
+                    info!(url = %url, "Agent Gateway using HTTP management client");
+                    Some(Arc::new(AgentGatewayClient::new(
+                        AgentGatewayClientConfig::new(url, token)?.with_request_timeout(
+                            std::time::Duration::from_secs(
+                                config.agent_gateway_request_timeout_seconds,
+                            ),
+                        )?,
+                    )?))
+                }
+            }
+            (None, None) => None,
+            _ => anyhow::bail!("Agent Gateway configuration is incomplete"),
+        };
+        // Policy stream: Redis Stream-backed event publisher for multi-replica correctness.
+        // Any orchestrator replica publishes to the shared Redis Stream;
+        // the replica serving a gateway subscription runs an XREAD loop to broadcast events.
+        let policy_event_publisher = Arc::new(grpc::policy_stream::RedisEventPublisher::new(
+            redis_client
+                .clone()
+                .expect("Redis is required for policy stream"),
+        ));
         let RuntimeComponents {
             sandbox_provider,
             network_policy_runtime,
@@ -185,12 +221,53 @@ impl OrchestratorApplication {
                 &RuntimeFactoryContext {
                     xds_authority: xds_authority.clone(),
                     xds_control_plane: xds_control_plane.clone(),
+                    agent_gateway: agent_gateway.clone(),
+                    policy_event_publisher: agent_gateway
+                        .as_ref()
+                        .map(|_| policy_event_publisher.clone()),
                 },
             )
             .await?;
+        let trusted_identity_services = if config.uses_kubernetes_sandbox()
+            && config.agent_identity_provider.eq_ignore_ascii_case("jd")
+        {
+            let registry = kernel::agent_identity_services::AgentIdentityServiceRegistry::default();
+            let kube_client = kube::Client::try_default().await.map_err(|error| {
+                anyhow::anyhow!(
+                    "Agent Identity CRD trust is enabled, but K8s client init failed: {error}"
+                )
+            })?;
+            let watcher = kernel::agent_identity_services::start_watcher(
+                kube_client,
+                &config.k8s_namespace,
+                &config.agent_identity_provider,
+                registry.clone(),
+            )
+            .await?;
+            supervisor
+                .register(
+                    "agent-identity-service-watcher",
+                    ServiceCriticality::Critical,
+                    watcher,
+                )?
+                .mark_ready();
+            registry
+        } else {
+            kernel::agent_identity_services::AgentIdentityServiceRegistry::from_static_hosts(
+                &config.agent_identity_provider,
+                &config.agent_identity_allowed_hosts,
+            )
+        };
+        let task_identity = build_task_identity_service(
+            db_pool.clone(),
+            &config,
+            identity_provider,
+            trusted_identity_services,
+        );
         let network_policy_material_resolver = build_network_policy_material_resolver(
             db_pool.clone(),
             config.llm_egress_allowed_hosts.clone(),
+            task_identity.clone(),
         );
         info!(
             provider = %resolved_provider.key.as_str(),
@@ -264,6 +341,7 @@ impl OrchestratorApplication {
         if config.ha_mode == "multi"
             && sandbox_provider.capabilities().has_egress_management
             && xds_leader_handle.is_none()
+            && agent_gateway.is_none()
         {
             anyhow::bail!(
                 "multi-replica managed egress requires the K8s leader-only xDS authority"
@@ -301,10 +379,13 @@ impl OrchestratorApplication {
             info!(addr = %config.xds_addr(), "authenticated xDS server started");
             Some(handle)
         } else {
-            if config.grpc_xds_enabled() {
+            if config.embedded_xds_enabled() {
                 anyhow::bail!(
                     "gRPC xDS is enabled but the selected sandbox provider has no xDS service"
                 );
+            }
+            if config.agent_gateway_enabled() {
+                info!("Embedded xDS server disabled; Agent Gateway owns ADS");
             }
             None
         };
@@ -317,12 +398,21 @@ impl OrchestratorApplication {
         if let Some(process) = envoy_process.as_ref() {
             process.initialize().await?;
         }
+        // An independent Agent Gateway already serializes mutations at its
+        // leader. Sending those requests through the legacy Redis queue would
+        // target the embedded xDS authority, whose consumer is intentionally
+        // disabled in this topology.
+        let network_policy_queue = if config.agent_gateway_enabled() {
+            None
+        } else {
+            ha.network_policy_queue.clone()
+        };
         let network_policy = match network_policy_runtime {
             Some(runtime) => kernel::network_policy::service::NetworkPolicyService::managed(
                 db_pool.clone(),
                 runtime,
                 network_policy_material_resolver,
-                ha.network_policy_queue.clone(),
+                network_policy_queue,
                 xds_authority.clone(),
             ),
             None => {
@@ -393,7 +483,7 @@ impl OrchestratorApplication {
             config.clone(),
             runtime_config.clone(),
             network_policy.clone(),
-            identity_provider,
+            task_identity,
         );
 
         // Orphaned sandbox cleanup
@@ -420,13 +510,38 @@ impl OrchestratorApplication {
             runner_coordinator,
             config.grpc_max_connections,
         ));
+        // Policy stream: orchestrator broadcasts policy events to subscribed
+        // agent gateways via Postgres LISTEN/NOTIFY and receives their delivery reports.
         let grpc_handle = grpc::server::start_grpc_server(
             config.grpc_addr(),
             config.runner_control_socket_host_dir.clone(),
             runner_transport,
+            Some(db_pool.clone()),
+            Some(policy_event_publisher.clone()),
         )
         .await?;
+        supervisor.register(
+            "grpc-runner-server",
+            ServiceCriticality::Critical,
+            grpc_handle,
+        )?;
         info!(addr = %config.grpc_addr(), "gRPC server started");
+
+        // Start the Redis Stream XREAD loop for policy events (this replica broadcasts
+        // events to its local subscribers when it receives new stream entries).
+        let policy_xread_handle = {
+            let publisher = policy_event_publisher.clone();
+            tokio::spawn(async move {
+                if let Err(e) = publisher.start_xread_loop().await {
+                    error!(error = %e, "Policy stream XREAD loop failed");
+                }
+            })
+        };
+        supervisor.register(
+            "policy-stream-xread",
+            ServiceCriticality::Critical,
+            policy_xread_handle,
+        )?;
 
         if managed_xds_authority {
             let request_source = Box::new(kernel::ha::RedisNetworkPolicyRequestSource::new(
@@ -565,14 +680,11 @@ impl OrchestratorApplication {
         #[cfg(not(unix))]
         let sighup_handle: Option<tokio::task::JoinHandle<()>> = None;
 
-        let total_tasks = 3
+        let total_tasks = 4
             + sandbox_controller_tasks.len()
             + subscriber_handles.len()
             + if cmd_listener_handle.is_some() { 1 } else { 0 };
         info!(total_tasks, "JoySafeter kernel fully started");
-        supervisor
-            .register("runner-grpc", ServiceCriticality::Critical, grpc_handle)?
-            .mark_ready();
         if let Some(handle) = xds_handle {
             supervisor
                 .register("xds-ads", ServiceCriticality::Critical, handle)?

@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "JoySafeter platform Helm values",
+  "type": "object",
+  "required": ["productionPriorityClass"],
+  "properties": {
+    "productionPriorityClass": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value", "preemptionPolicy", "description"],
+      "properties": {
+        "value": { "type": "integer", "minimum": 1 },
+        "preemptionPolicy": {
+          "type": "string",
+          "enum": ["PreemptLowerPriority", "Never"]
+        },
+        "description": { "type": "string", "minLength": 1 }
+      }
+    }
+  },
+  "additionalProperties": false
+}

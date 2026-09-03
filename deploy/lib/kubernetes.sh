@@ -18,7 +18,6 @@ kubernetes_usage() {
   --release NAME      Helm release（默认: joysafeter-orchestrator）
 
 deploy 选项:
-  --mode MODE         multi 或 leader（默认: multi）
   --replicas N        orchestrator 副本数
   -f, --values FILE   额外 values 文件
   --sync-images       从统一镜像 Registry 注入 orchestrator 和四个 runtime 镜像
@@ -73,7 +72,7 @@ kubernetes_validate_replicas() {
 kubernetes_component_image_overrides() {
     local record component helm_key
     while IFS= read -r record; do
-        IFS='|' read -r component _ _ _ _ _ _ _ _ _ _ _ helm_key <<< "$record"
+        IFS='|' read -r component _ _ _ _ _ _ _ _ _ _ _ helm_key _ <<< "$record"
         [ "$helm_key" = - ] && continue
         printf '%s=%s\n' "$helm_key" "$(component_image_ref "$component")"
     done < <(image_component_source_registry)
@@ -112,19 +111,13 @@ kubernetes_external_secret_name() {
 }
 
 kubernetes_deploy() {
-    local namespace=$1 release=$2 context=$3 mode=$4 replicas=$5 values_file=$6 dry_run=$7 timeout=$8 sync_images=$9 reuse_values=${10}
+    local namespace=$1 release=$2 context=$3 replicas=$4 values_file=$5 dry_run=$6 timeout=$7 sync_images=$8 reuse_values=$9
     local chart_dir="$SCRIPT_DIR/helm/joysafeter-orchestrator"
     local external_secret
     local -a helm_args=()
 
-    case "$mode" in
-        multi|leader) ;;
-        *) log_error "ha mode 只支持 multi 或 leader: $mode"; return 1 ;;
-    esac
     if [ -n "$replicas" ]; then
         kubernetes_validate_replicas "$replicas"
-    elif [ "$mode" = "leader" ]; then
-        replicas=2
     fi
     if [ -n "$values_file" ] && [ ! -f "$values_file" ]; then
         log_error "values 文件不存在: $values_file"
@@ -137,7 +130,7 @@ kubernetes_deploy() {
             log_error "--reuse-values 不能与 --dry-run 同时使用"
             return 1
         fi
-        helm_args=(template "$release" "$chart_dir" --namespace "$namespace" --set "haMode=$mode")
+        helm_args=(template "$release" "$chart_dir" --namespace "$namespace")
         [ -n "$replicas" ] && helm_args+=(--set "orchestrator.replicas=$replicas")
         [ -n "$values_file" ] && helm_args+=(-f "$values_file")
         if [ "$sync_images" = true ]; then
@@ -157,7 +150,7 @@ kubernetes_deploy() {
         return 1
     fi
 
-    helm_args=(upgrade --install "$release" "$chart_dir" --namespace "$namespace" --create-namespace --wait --timeout "$timeout" --set "haMode=$mode")
+    helm_args=(upgrade --install "$release" "$chart_dir" --namespace "$namespace" --create-namespace --wait --timeout "$timeout")
     [ "$reuse_values" = true ] && helm_args+=(--reset-then-reuse-values)
     [ -n "$replicas" ] && helm_args+=(--set "orchestrator.replicas=$replicas")
     [ -n "$values_file" ] && helm_args+=(-f "$values_file")
@@ -197,8 +190,13 @@ kubernetes_scale() {
 
 kubernetes_pod_http_get() {
     local context=$1 namespace=$2 pod=$3 path=$4
+    kubernetes_pod_http_get_on_port "$context" "$namespace" "$pod" 9091 "$path"
+}
+
+kubernetes_pod_http_get_on_port() {
+    local context=$1 namespace=$2 pod=$3 port=$4 path=$5
     kubernetes_kubectl "$context" exec -n "$namespace" "$pod" -- \
-        curl -fsS --max-time 5 "http://127.0.0.1:9091$path"
+        curl -fsS --max-time 5 "http://127.0.0.1:${port}${path}"
 }
 
 kubernetes_pod_http_body() {
@@ -268,8 +266,10 @@ kubernetes_verify_runtime_images() {
 kubernetes_verify() {
     local namespace=$1 context=$2 since=$3 timeout=$4 check_runtime_images=${5:-false}
     local deployment_ready daemon_ready daemon_desired critical_count pod pods metrics xds_health orchestrator_logs
+    local gateway_replicas gateway_http_port gateway_pods gateway_pod_count
     local xds_enabled_count=0 xds_ready_count=0 xds_health_ready_count=0
-    local authority_metrics="" active_envoy_nodes="" failures=0
+    local authority_metrics="" active_envoy_nodes="" gateway_active_envoy_nodes=0 failures=0
+    local expected_ready_authorities=1
 
     check_command kubectl || return 1
     kubernetes_kubectl "$context" rollout status deployment/joysafeter-orchestrator -n "$namespace" --timeout="$timeout" || failures=$((failures + 1))
@@ -278,8 +278,62 @@ kubernetes_verify() {
     deployment_ready="$(kubernetes_kubectl "$context" get deployment joysafeter-orchestrator -n "$namespace" -o jsonpath='{.status.availableReplicas}' 2>/dev/null || true)"
     daemon_ready="$(kubernetes_kubectl "$context" get daemonset joysafeter-envoy -n "$namespace" -o jsonpath='{.status.numberAvailable}' 2>/dev/null || true)"
     daemon_desired="$(kubernetes_kubectl "$context" get daemonset joysafeter-envoy -n "$namespace" -o jsonpath='{.status.desiredNumberScheduled}' 2>/dev/null || true)"
+    gateway_replicas="$(kubernetes_kubectl "$context" get deployment joysafeter-agent-gateway -n "$namespace" -o jsonpath='{.spec.replicas}' 2>/dev/null || true)"
     printf 'orchestrator available replicas: %s\n' "${deployment_ready:-0}"
     printf 'envoy available/desired: %s/%s\n' "${daemon_ready:-0}" "${daemon_desired:-0}"
+
+    if [ -n "$gateway_replicas" ]; then
+        gateway_http_port="$(kubernetes_kubectl "$context" get deployment joysafeter-agent-gateway \
+            -n "$namespace" \
+            -o 'jsonpath={.spec.template.spec.containers[?(@.name=="agent-gateway")].ports[?(@.name=="http")].containerPort}' \
+            2>/dev/null || true)"
+        if ! [[ "$gateway_http_port" =~ ^[0-9]+$ ]]; then
+            log_error "无法解析 Agent Gateway HTTP 容器端口: ${gateway_http_port:-missing}"
+            failures=$((failures + 1))
+        fi
+        kubernetes_kubectl "$context" rollout status deployment/joysafeter-agent-gateway \
+            -n "$namespace" --timeout="$timeout" || failures=$((failures + 1))
+        gateway_pods="$(kubernetes_kubectl "$context" get pods -n "$namespace" \
+            -l app=joysafeter-agent-gateway \
+            -o jsonpath='{range .items[?(@.status.phase=="Running")]}{.metadata.name}{"\n"}{end}')"
+        gateway_pod_count="$(printf '%s\n' "$gateway_pods" | awk 'NF { count++ } END { print count + 0 }')"
+        printf 'agent-gateway running/desired: %s/%s\n' "$gateway_pod_count" "$gateway_replicas"
+        if ! [[ "$gateway_replicas" =~ ^[1-9][0-9]*$ ]] \
+            || [ "$gateway_pod_count" -ne "$gateway_replicas" ]; then
+            log_error "Agent Gateway Running Pod 未达到期望副本数: ${gateway_pod_count}/${gateway_replicas}"
+            failures=$((failures + 1))
+        fi
+        if [[ "$gateway_replicas" =~ ^[1-9][0-9]*$ ]]; then
+            expected_ready_authorities=1
+        fi
+
+        while IFS= read -r pod; do
+            [ -z "$pod" ] && continue
+            if verify_agent_gateway_http_contract kubernetes_pod_http_get_on_port \
+                "$context" "$namespace" "$pod" "$gateway_http_port"; then
+                log_success "$pod Agent Gateway 健康与指标契约通过"
+            else
+                failures=$((failures + 1))
+                continue
+            fi
+
+            metrics="$(kubernetes_pod_http_get_on_port "$context" "$namespace" "$pod" "$gateway_http_port" /metrics)"
+            if printf '%s\n' "$metrics" | grep -qxF 'joysafeter_xds_enabled 1'; then
+                xds_enabled_count=$((xds_enabled_count + 1))
+            fi
+            if printf '%s\n' "$metrics" | grep -qxF 'joysafeter_xds_authority_phase{phase="ready"} 1'; then
+                xds_ready_count=$((xds_ready_count + 1))
+                xds_health_ready_count=$((xds_health_ready_count + 1))
+                active_envoy_nodes="$(printf '%s\n' "$metrics" | awk '$1 == "joysafeter_xds_active_envoy_nodes" {print $2; exit}')"
+                if [[ "$active_envoy_nodes" =~ ^[0-9]+$ ]]; then
+                    gateway_active_envoy_nodes=$((gateway_active_envoy_nodes + active_envoy_nodes))
+                else
+                    failures=$((failures + 1))
+                    log_error "$pod 无法解析 active Envoy 节点数"
+                fi
+            fi
+        done <<< "$gateway_pods"
+    fi
 
     pods="$(kubernetes_kubectl "$context" get pods -n "$namespace" -l app=joysafeter-orchestrator -o jsonpath='{range .items[?(@.status.phase=="Running")]}{.metadata.name}{"\n"}{end}')"
     if [ -z "$pods" ]; then
@@ -297,32 +351,39 @@ kubernetes_verify() {
             continue
         fi
 
-        metrics="$(kubernetes_pod_http_get "$context" "$namespace" "$pod" /metrics)"
-        if printf '%s\n' "$metrics" | grep -qxF 'joysafeter_xds_enabled 1'; then
-            xds_enabled_count=$((xds_enabled_count + 1))
+        if [ -z "$gateway_replicas" ]; then
+            metrics="$(kubernetes_pod_http_get "$context" "$namespace" "$pod" /metrics)"
+            if printf '%s\n' "$metrics" | grep -qxF 'joysafeter_xds_enabled 1'; then
+                xds_enabled_count=$((xds_enabled_count + 1))
+            fi
+            if printf '%s\n' "$metrics" | grep -qxF 'joysafeter_xds_authority_phase{phase="ready"} 1'; then
+                xds_ready_count=$((xds_ready_count + 1))
+                authority_metrics="$metrics"
+            fi
+            xds_health="$(kubernetes_pod_http_body "$context" "$namespace" "$pod" /healthz/xds 2>/dev/null || true)"
+            [ "$xds_health" = ready ] && xds_health_ready_count=$((xds_health_ready_count + 1))
         fi
-        if printf '%s\n' "$metrics" | grep -qxF 'joysafeter_xds_authority_phase{phase="ready"} 1'; then
-            xds_ready_count=$((xds_ready_count + 1))
-            authority_metrics="$metrics"
-        fi
-        xds_health="$(kubernetes_pod_http_body "$context" "$namespace" "$pod" /healthz/xds 2>/dev/null || true)"
-        [ "$xds_health" = ready ] && xds_health_ready_count=$((xds_health_ready_count + 1))
     done <<< "$pods"
 
     if [ "$xds_enabled_count" -eq 0 ]; then
         log_error "xDS control plane 未启用"
         failures=$((failures + 1))
     else
-        if [ "$xds_ready_count" -ne 1 ] || [ "$xds_health_ready_count" -ne 1 ]; then
-            log_error "xDS authority 必须恰好一个 Ready：metrics=$xds_ready_count health=$xds_health_ready_count"
+        if [ "$xds_ready_count" -ne "$expected_ready_authorities" ] \
+            || [ "$xds_health_ready_count" -ne "$expected_ready_authorities" ]; then
+            log_error "xDS Ready 副本数不匹配：metrics=$xds_ready_count health=$xds_health_ready_count expected=$expected_ready_authorities"
             failures=$((failures + 1))
         else
-            log_success "xDS authority 唯一且 Ready"
+            log_success "xDS authority 副本全部 Ready: $expected_ready_authorities"
         fi
     fi
 
-    if [ -n "$authority_metrics" ] && [[ "${daemon_ready:-}" =~ ^[0-9]+$ ]]; then
+    if [ -n "$gateway_replicas" ] && [[ "${daemon_ready:-}" =~ ^[0-9]+$ ]]; then
+        active_envoy_nodes=$gateway_active_envoy_nodes
+    elif [ -n "$authority_metrics" ] && [[ "${daemon_ready:-}" =~ ^[0-9]+$ ]]; then
         active_envoy_nodes="$(printf '%s\n' "$authority_metrics" | awk '$1 == "joysafeter_xds_active_envoy_nodes" {print $2; exit}')"
+    fi
+    if [ -n "$active_envoy_nodes" ] && [[ "${daemon_ready:-}" =~ ^[0-9]+$ ]]; then
         if [ "$active_envoy_nodes" != "$daemon_ready" ]; then
             log_error "xDS active Envoy 节点与可用 DaemonSet Pod 不一致: ${active_envoy_nodes:-missing}/${daemon_ready}"
             failures=$((failures + 1))
@@ -401,7 +462,6 @@ run_kubernetes_command() {
     local namespace="${KUBE_NAMESPACE:-joysafeter}"
     local release="${HELM_RELEASE:-joysafeter-orchestrator}"
     local context="${KUBE_CONTEXT:-}"
-    local mode="multi"
     local replicas=""
     local values_file=""
     local timeout="180s"
@@ -419,7 +479,6 @@ run_kubernetes_command() {
             --context) context="$2"; shift 2 ;;
             --namespace) namespace="$2"; shift 2 ;;
             --release) release="$2"; shift 2 ;;
-            --mode) mode="$2"; shift 2 ;;
             --replicas) replicas="$2"; shift 2 ;;
             -f|--values) values_file="$2"; shift 2 ;;
             --timeout) timeout="$2"; shift 2 ;;
@@ -454,7 +513,7 @@ run_kubernetes_command() {
 
     case "$action" in
         help|-h|--help) kubernetes_usage ;;
-        deploy) kubernetes_deploy "$namespace" "$release" "$context" "$mode" "$replicas" "$values_file" "$dry_run" "$timeout" "$sync_images" "$reuse_values" ;;
+        deploy) kubernetes_deploy "$namespace" "$release" "$context" "$replicas" "$values_file" "$dry_run" "$timeout" "$sync_images" "$reuse_values" ;;
         uninstall) kubernetes_uninstall "$namespace" "$release" "$context" ;;
         verify) kubernetes_verify "$namespace" "$context" "$since" "$timeout" "$runtime_images" ;;
         scale)

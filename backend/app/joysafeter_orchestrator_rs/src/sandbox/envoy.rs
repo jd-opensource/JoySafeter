@@ -46,23 +46,24 @@ pub struct EnvoyConfig {
 }
 
 pub struct EnvoyRuntime {
-    process: Arc<EnvoyProcessSupervisor>,
-    sockets: Arc<EgressSocketProvisioner>,
+    infrastructure: EnvoyInfrastructure,
     policy: Arc<EnvoyPolicyEngine>,
 }
 
-impl EnvoyRuntime {
-    pub fn new(
-        docker: Option<Arc<Docker>>,
-        config: EnvoyConfig,
-        delivery: Arc<dyn EnvoyDelivery>,
-    ) -> Self {
+#[derive(Clone)]
+pub struct EnvoyInfrastructure {
+    process: Arc<EnvoyProcessSupervisor>,
+    sockets: Arc<EgressSocketProvisioner>,
+}
+
+impl EnvoyInfrastructure {
+    pub fn new(docker: Option<Arc<Docker>>, config: &EnvoyConfig) -> Self {
         let sockets = Arc::new(EgressSocketProvisioner::new(
             docker.clone(),
             EgressSocketConfig {
-                envoy_image: config.envoy_image,
-                socket_volume: config.socket_volume,
-                socket_host_dir: config.socket_host_dir,
+                envoy_image: config.envoy_image.clone(),
+                socket_volume: config.socket_volume.clone(),
+                socket_host_dir: config.socket_host_dir.clone(),
                 container_name: config.container_name.clone(),
                 socket_ready_timeout_ms: config.socket_ready_timeout_ms,
                 externally_provisioned: config.skip_socket_dir_prep,
@@ -71,7 +72,7 @@ impl EnvoyRuntime {
         let process = Arc::new(EnvoyProcessSupervisor::new(
             docker,
             EnvoyProcessConfig {
-                container_name: config.container_name,
+                container_name: config.container_name.clone(),
                 health_check_interval: Duration::from_secs(if config.skip_socket_dir_prep {
                     0
                 } else {
@@ -81,15 +82,41 @@ impl EnvoyRuntime {
                 manage_bootstrap: config.manage_bootstrap,
                 config_dir: config.config_dir.clone(),
                 grpc_mode: config.xds_mode == "grpc",
-                grpc_target_host: config.grpc_target_host,
+                grpc_target_host: config.grpc_target_host.clone(),
                 grpc_target_port: config.grpc_target_port,
-                xds_auth_token: config.xds_auth_token,
-                node_id: config.node_id,
+                xds_auth_token: config.xds_auth_token.clone(),
+                node_id: config.node_id.clone(),
             },
         ));
+        Self { process, sockets }
+    }
+
+    pub fn process_supervisor(&self) -> Arc<EnvoyProcessSupervisor> {
+        self.process.clone()
+    }
+
+    pub fn socket_provisioner(&self) -> Arc<EgressSocketProvisioner> {
+        self.sockets.clone()
+    }
+}
+
+impl EnvoyRuntime {
+    pub fn new(
+        docker: Option<Arc<Docker>>,
+        config: EnvoyConfig,
+        delivery: Arc<dyn EnvoyDelivery>,
+    ) -> Self {
+        Self::with_infrastructure(EnvoyInfrastructure::new(docker, &config), config, delivery)
+    }
+
+    pub fn with_infrastructure(
+        infrastructure: EnvoyInfrastructure,
+        config: EnvoyConfig,
+        delivery: Arc<dyn EnvoyDelivery>,
+    ) -> Self {
         let policy = Arc::new(EnvoyPolicyEngine::new(
             delivery,
-            sockets.clone(),
+            infrastructure.sockets.clone(),
             EnvoyPolicyConfig {
                 grpc_mode: config.xds_mode == "grpc",
                 write_debug_entries: config.write_debug_entries,
@@ -99,18 +126,17 @@ impl EnvoyRuntime {
             },
         ));
         Self {
-            process,
-            sockets,
+            infrastructure,
             policy,
         }
     }
 
     pub fn process_supervisor(&self) -> Arc<EnvoyProcessSupervisor> {
-        self.process.clone()
+        self.infrastructure.process_supervisor()
     }
 
     pub fn socket_provisioner(&self) -> Arc<dyn SandboxSocketProvisioner> {
-        self.sockets.clone()
+        self.infrastructure.socket_provisioner()
     }
 
     pub fn network_policy_runtime(&self, authority: XdsAuthority) -> Arc<dyn NetworkPolicyRuntime> {
@@ -121,12 +147,16 @@ impl EnvoyRuntime {
     }
 
     pub async fn initialize(&self) -> anyhow::Result<()> {
-        self.process.initialize().await?;
+        self.infrastructure.process.initialize().await?;
         self.policy.initialize().await?;
-        self.process
+        self.infrastructure
+            .process
             .wait_until_ready(Duration::from_secs(15))
             .await?;
-        self.sockets.verify_socket_storage_consistency().await
+        self.infrastructure
+            .sockets
+            .verify_socket_storage_consistency()
+            .await
     }
 
     pub async fn add_sandbox_policy(

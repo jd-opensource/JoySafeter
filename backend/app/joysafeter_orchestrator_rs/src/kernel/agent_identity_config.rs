@@ -27,8 +27,12 @@ impl AgentIdentityProviderKind {
         Ok(self)
     }
 
-    pub fn validate_runtime_policy(self, allowed_hosts: &[String]) -> anyhow::Result<Self> {
-        if self == Self::Jd && allowed_hosts.is_empty() {
+    pub fn validate_runtime_policy(
+        self,
+        allowed_hosts: &[String],
+        dynamic_trust_enabled: bool,
+    ) -> anyhow::Result<Self> {
+        if self == Self::Jd && !dynamic_trust_enabled && allowed_hosts.is_empty() {
             anyhow::bail!(
                 "AGENT_IDENTITY_PROVIDER=jd requires AGENT_IDENTITY_ALLOWED_HOSTS to contain at least one trusted host"
             );
@@ -83,16 +87,20 @@ mod tests {
     #[test]
     fn jd_provider_requires_an_explicit_identity_injection_allowlist() {
         let error = AgentIdentityProviderKind::Jd
-            .validate_runtime_policy(&[])
+            .validate_runtime_policy(&[], false)
             .unwrap_err();
 
         assert!(error.to_string().contains("AGENT_IDENTITY_ALLOWED_HOSTS"));
         AgentIdentityProviderKind::Jd
-            .validate_runtime_policy(&["crm.example.com".to_string()])
+            .validate_runtime_policy(&["crm.example.com".to_string()], false)
             .unwrap();
         AgentIdentityProviderKind::None
-            .validate_runtime_policy(&[])
+            .validate_runtime_policy(&[], false)
             .unwrap();
+
+        AgentIdentityProviderKind::Jd
+            .validate_runtime_policy(&[], true)
+            .expect("Kubernetes CRD trust source may start with an empty snapshot");
     }
 
     #[cfg(not(feature = "jd-identity"))]

@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package joysafeter.gateway.v1;
+
+import "google/protobuf/timestamp.proto";
+
+// Gateway Management Service - gRPC API for orchestrator to manage policies
+service GatewayManagementService {
+  // Apply policy to a sandbox (replaces HTTP POST /v1/policies/{sandbox_id})
+  rpc ApplyPolicy(ApplyPolicyRequest) returns (ApplyPolicyResponse);
+
+  // Remove policy for a sandbox (replaces HTTP DELETE /v1/policies/{sandbox_id})
+  rpc RemovePolicy(RemovePolicyRequest) returns (RemovePolicyResponse);
+}
+
+message ApplyPolicyRequest {
+  string sandbox_id = 1;
+  PolicyGeneration generation = 2;
+  bytes policy_payload = 3;  // JSON serialized SandboxEgressPolicy
+  uint64 authority_epoch = 4;
+  string trace_id = 5;
+}
+
+message ApplyPolicyResponse {
+  bool success = 1;
+  string error_message = 2;
+  uint64 applied_epoch = 3;
+  google.protobuf.Timestamp applied_at = 4;
+}
+
+message RemovePolicyRequest {
+  string sandbox_id = 1;
+  PolicyGeneration expected_generation = 2;
+  uint64 authority_epoch = 3;
+  string trace_id = 4;
+}
+
+message RemovePolicyResponse {
+  bool success = 1;
+  string error_message = 2;
+  uint64 removed_epoch = 3;
+}
+
+message PolicyGeneration {
+  string policy_hash = 1;
+  uint64 policy_version = 2;
+}

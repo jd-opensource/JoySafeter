@@ -97,7 +97,11 @@ mod tests {
             Ok(())
         }
 
-        async fn remove(&self, _sandbox_id: SandboxId) -> anyhow::Result<()> {
+        async fn remove(
+            &self,
+            _sandbox_id: SandboxId,
+            _generation: Option<&super::super::NetworkPolicyGeneration>,
+        ) -> anyhow::Result<()> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
@@ -129,7 +133,16 @@ mod tests {
         let handler = NetworkPolicyAuthorityHandler::new(service);
 
         let error = handler
-            .apply(NetworkPolicyRequest::remove(SandboxId::new()), &guard)
+            .apply(
+                NetworkPolicyRequest::remove(
+                    SandboxId::new(),
+                    super::super::NetworkPolicyGeneration {
+                        policy_hash: "hash".to_string(),
+                        policy_version: 1,
+                    },
+                ),
+                &guard,
+            )
             .await
             .expect_err("revoked authority must be fenced");
 

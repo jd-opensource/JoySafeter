@@ -8,6 +8,7 @@ use crate::kernel::agent_identity_provider::{
     AgentIdentityInjection, AgentIdentityProvider, IdentityEgressRequestTarget,
     IdentityResolveContext, NoopAgentIdentityProvider,
 };
+use crate::kernel::agent_identity_services::AgentIdentityServiceRegistry;
 
 use super::error::TaskIdentityContextError;
 use super::material::{TaskIdentityMaterial, TaskIdentityMaterialError};
@@ -123,7 +124,8 @@ impl std::fmt::Debug for LoadedIdentityContext {
 pub(crate) struct TaskIdentityService {
     store: Arc<dyn TaskIdentityStore>,
     provider: Arc<dyn AgentIdentityProvider>,
-    allowed_hosts: Vec<String>,
+    provider_name: String,
+    trusted_services: AgentIdentityServiceRegistry,
     material: Arc<dyn TaskIdentityMaterial>,
 }
 
@@ -136,13 +138,20 @@ impl TaskIdentityService {
         Self {
             store,
             provider: Arc::new(NoopAgentIdentityProvider),
-            allowed_hosts: allowed_hosts
-                .into_iter()
-                .map(|host| host.trim().trim_end_matches('.').to_lowercase())
-                .filter(|host| !host.is_empty())
-                .collect(),
+            provider_name: "jd".to_string(),
+            trusted_services: AgentIdentityServiceRegistry::from_static_hosts("jd", &allowed_hosts),
             material,
         }
+    }
+
+    pub(crate) fn with_trusted_services(
+        mut self,
+        provider_name: impl Into<String>,
+        trusted_services: AgentIdentityServiceRegistry,
+    ) -> Self {
+        self.provider_name = provider_name.into().trim().to_ascii_lowercase();
+        self.trusted_services = trusted_services;
+        self
     }
 
     pub(crate) fn with_provider(mut self, provider: Arc<dyn AgentIdentityProvider>) -> Self {
@@ -157,7 +166,8 @@ impl TaskIdentityService {
 
     #[cfg(test)]
     pub(crate) fn set_allowed_hosts(&mut self, allowed_hosts: Vec<String>) {
-        self.allowed_hosts = allowed_hosts;
+        self.trusted_services =
+            AgentIdentityServiceRegistry::from_static_hosts(&self.provider_name, &allowed_hosts);
     }
 
     #[cfg(test)]
@@ -187,7 +197,7 @@ impl TaskIdentityService {
         if egress_targets.is_empty()
             || egress_targets
                 .iter()
-                .any(|target| !Self::host_allowed(&target.host, &self.allowed_hosts))
+                .any(|target| !self.trusted_services.allows(&self.provider_name, target))
         {
             return Err(TaskIdentityContextError::NoTrustedHosts);
         }
@@ -338,6 +348,7 @@ impl TaskIdentityService {
         Ok(injection)
     }
 
+    #[cfg(test)]
     pub(crate) fn host_allowed(host: &str, allowed_hosts: &[String]) -> bool {
         let host = host.trim().trim_end_matches('.').to_lowercase();
         allowed_hosts.iter().any(|allowed| {

@@ -1,0 +1,12 @@
+{{- if .Values.agentGateway.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: joysafeter-agent-gateway
+  namespace: {{ .Release.Namespace }}
+spec:
+  maxUnavailable: {{ .Values.agentGateway.podDisruptionBudget.maxUnavailable }}
+  selector:
+    matchLabels:
+      app: joysafeter-agent-gateway
+{{- end }}

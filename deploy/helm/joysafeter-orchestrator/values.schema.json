@@ -1,0 +1,242 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "JoySafeter Orchestrator Helm values",
+  "type": "object",
+  "required": [
+    "environment",
+    "image",
+    "resourceQuota"
+  ],
+  "properties": {
+    "environment": {
+      "type": "string",
+      "enum": ["dev", "pre", "production"]
+    },
+    "image": {
+      "type": "object",
+      "required": ["orchestrator", "agentGateway", "envoy", "sandbox"],
+      "properties": {
+        "orchestrator": { "type": "string", "minLength": 1 },
+        "agentGateway": { "type": "string", "minLength": 1 },
+        "envoy": { "type": "string", "minLength": 1 },
+        "sandbox": {
+          "type": "object",
+          "required": ["claude", "codex", "native", "pi"],
+          "properties": {
+            "claude": { "type": "string", "minLength": 1 },
+            "codex": { "type": "string", "minLength": 1 },
+            "native": { "type": "string", "minLength": 1 },
+            "pi": { "type": "string", "minLength": 1 }
+          }
+        }
+      }
+    },
+    "resourceQuota": {
+      "type": "object",
+      "required": ["enabled", "hard"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "hard": {
+          "type": "object",
+          "additionalProperties": {
+            "oneOf": [
+              { "type": "string", "minLength": 1 },
+              { "type": "integer", "minimum": 0 }
+            ]
+          }
+        }
+      }
+    },
+    "orchestrator": {
+      "type": "object",
+      "properties": {
+        "priorityClassName": { "type": "string" },
+        "nodeSelector": { "$ref": "#/definitions/nodeSelector" },
+        "tolerations": { "$ref": "#/definitions/tolerations" },
+        "sandboxPlacement": {
+          "type": "object",
+          "properties": {
+            "priorityClassName": { "type": "string" },
+            "nodeSelector": { "$ref": "#/definitions/nodeSelector" },
+            "tolerations": { "$ref": "#/definitions/tolerations" }
+          }
+        }
+      }
+    },
+    "agentGateway": {
+      "type": "object",
+      "properties": {
+        "priorityClassName": { "type": "string" },
+        "nodeSelector": { "$ref": "#/definitions/nodeSelector" },
+        "tolerations": { "$ref": "#/definitions/tolerations" }
+      }
+    },
+    "agentIdentity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "provider",
+        "baseUrl",
+        "services",
+        "clientId",
+        "platformId",
+        "authType",
+        "identityType",
+        "agentScene",
+        "userTokenCookieName",
+        "exchangeUserTokenEnabled",
+        "clientSecret"
+      ],
+      "properties": {
+        "provider": { "type": "string", "enum": ["none", "jd"] },
+        "baseUrl": { "type": "string" },
+        "services": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "host", "port", "tls"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
+                "maxLength": 63
+              },
+              "host": {
+                "type": "string",
+                "pattern": "^(\\*\\.)?([A-Za-z0-9]([-A-Za-z0-9]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z0-9]([-A-Za-z0-9]{0,61}[A-Za-z0-9])?\\.?$",
+                "maxLength": 255,
+                "not": { "pattern": "^(\\*\\.)?[0-9.]+$" }
+              },
+              "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
+              "tls": { "type": "boolean" },
+              "enabled": { "type": "boolean" }
+            }
+          }
+        },
+        "clientId": { "type": "string" },
+        "platformId": { "type": "string" },
+        "authType": { "type": "string" },
+        "identityType": { "type": "string" },
+        "agentScene": { "type": "string" },
+        "userTokenCookieName": { "type": "string" },
+        "exchangeUserTokenEnabled": { "type": "boolean" },
+        "clientSecret": { "type": "string" }
+      }
+    },
+    "envoy": {
+      "type": "object",
+      "properties": {
+        "priorityClassName": { "type": "string" },
+        "nodeSelector": { "$ref": "#/definitions/nodeSelector" },
+        "tolerations": { "$ref": "#/definitions/tolerations" }
+      }
+    }
+  },
+  "definitions": {
+    "immutableImage": {
+      "type": "string",
+      "allOf": [
+        { "pattern": "(^.+@sha256:[0-9a-fA-F]{64}$)|(^.+:[^/:@]+$)" },
+        { "not": { "pattern": ":latest($|@)" } }
+      ]
+    },
+    "nodeSelector": {
+      "type": "object",
+      "additionalProperties": { "type": "string", "minLength": 1 }
+    },
+    "tolerations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "operator", "effect"],
+        "properties": {
+          "key": { "type": "string", "minLength": 1 },
+          "operator": { "type": "string", "enum": ["Equal", "Exists"] },
+          "value": { "type": "string" },
+          "effect": { "type": "string", "enum": ["NoSchedule", "PreferNoSchedule", "NoExecute"] },
+          "tolerationSeconds": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "environment": { "enum": ["pre", "production"] }
+        },
+        "required": ["environment"]
+      },
+      "then": {
+        "properties": {
+          "image": {
+            "properties": {
+              "orchestrator": { "$ref": "#/definitions/immutableImage" },
+              "agentGateway": { "$ref": "#/definitions/immutableImage" },
+              "envoy": { "$ref": "#/definitions/immutableImage" },
+              "sandbox": {
+                "properties": {
+                  "claude": { "$ref": "#/definitions/immutableImage" },
+                  "codex": { "$ref": "#/definitions/immutableImage" },
+                  "native": { "$ref": "#/definitions/immutableImage" },
+                  "pi": { "$ref": "#/definitions/immutableImage" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "environment": { "enum": ["dev", "pre"] }
+        },
+        "required": ["environment"]
+      },
+      "then": {
+        "properties": {
+          "resourceQuota": {
+            "properties": {
+              "enabled": { "const": true },
+              "hard": { "minProperties": 1 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "environment": { "const": "production" }
+        },
+        "required": ["environment"]
+      },
+      "then": {
+        "properties": {
+          "orchestrator": {
+            "properties": {
+              "priorityClassName": { "const": "joysafeter-production" },
+              "sandboxPlacement": {
+                "properties": {
+                  "priorityClassName": { "const": "joysafeter-production" }
+                }
+              }
+            }
+          },
+          "agentGateway": {
+            "properties": {
+              "priorityClassName": { "const": "joysafeter-production" }
+            }
+          },
+          "envoy": {
+            "properties": {
+              "priorityClassName": { "const": "joysafeter-production" }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

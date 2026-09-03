@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::agent_gateway::{AgentGatewayNetworkPolicyRuntime, AgentGatewayPlacementAuthority};
 use crate::config::JoySafeterConfig;
 use crate::db::runner_auth_store::PostgresRunnerAuthStore;
 use crate::db::task_identity_store::PostgresTaskIdentityStore;
@@ -33,7 +34,7 @@ use crate::kernel::task_identity::TaskIdentityService;
 use crate::runtime_config::RuntimeConfig;
 use crate::sandbox;
 use crate::sandbox::envoy::process::EnvoyProcessSupervisor;
-use crate::sandbox::envoy::{EnvoyConfig, EnvoyRuntime};
+use crate::sandbox::envoy::{EnvoyConfig, EnvoyInfrastructure, EnvoyRuntime};
 use crate::sandbox::envoy_delivery::{ControlPlaneEnvoyDelivery, EnvoyDelivery};
 use crate::sandbox::envoy_filesystem::FilesystemEnvoyDelivery;
 use crate::sandbox::runtime::{PlacementEventSink, SandboxSocketProvisioner};
@@ -118,6 +119,21 @@ pub(super) struct SandboxRuntimeServices {
     pub(super) network_policy_reconciler: Option<Arc<NetworkPolicyReconciler>>,
 }
 
+pub(super) fn build_task_identity_service(
+    pool: PgPool,
+    config: &JoySafeterConfig,
+    identity_provider: Arc<dyn AgentIdentityProvider>,
+    trusted_services: crate::kernel::agent_identity_services::AgentIdentityServiceRegistry,
+) -> TaskIdentityService {
+    TaskIdentityService::new(
+        Arc::new(PostgresTaskIdentityStore::new(pool)),
+        build_task_identity_material(),
+        Vec::new(),
+    )
+    .with_trusted_services(config.agent_identity_provider.clone(), trusted_services)
+    .with_provider(identity_provider)
+}
+
 pub(super) fn build_sandbox_runtime_services(
     pool: PgPool,
     queue: TaskQueue,
@@ -127,7 +143,7 @@ pub(super) fn build_sandbox_runtime_services(
     config: JoySafeterConfig,
     runtime_config: Arc<RuntimeConfig>,
     network_policy: NetworkPolicyService,
-    identity_provider: Arc<dyn AgentIdentityProvider>,
+    identity: TaskIdentityService,
 ) -> SandboxRuntimeServices {
     let networking = SandboxNetworkingService::new(pool.clone(), network_policy.clone());
     let lifecycle =
@@ -146,12 +162,6 @@ pub(super) fn build_sandbox_runtime_services(
         networking.clone(),
         lifecycle.clone(),
     );
-    let identity = TaskIdentityService::new(
-        Arc::new(PostgresTaskIdentityStore::new(pool.clone())),
-        build_task_identity_material(),
-        config.agent_identity_allowed_hosts.clone(),
-    )
-    .with_provider(identity_provider);
     let context_builder = ResolveContextBuilder::new(
         pool.clone(),
         config.clone(),
@@ -252,6 +262,9 @@ fn build_delivery(
     if !config.envoy_enabled {
         return Ok(None);
     }
+    if config.agent_gateway_enabled() {
+        return Ok(None);
+    }
     if config.envoy_xds_mode == "grpc" {
         let control_plane = context
             .xds_control_plane
@@ -280,38 +293,62 @@ fn build_envoy_capabilities(
     skip_socket_dir_prep: bool,
     node_id: &str,
 ) -> anyhow::Result<Option<EnvoyCapabilities>> {
-    let Some(delivery) = build_delivery(config, context)? else {
+    if !config.envoy_enabled {
         return Ok(None);
-    };
-    let runtime = EnvoyRuntime::new(
-        docker,
-        EnvoyConfig {
-            envoy_image: config.envoy_image.clone(),
-            socket_volume: config.envoy_socket_volume.clone(),
-            socket_host_dir: config.envoy_socket_host_dir.clone(),
-            config_dir: config.envoy_config_dir.clone(),
-            grpc_target_host: config.envoy_grpc_host.clone(),
-            grpc_target_port: config.xds_port,
-            xds_auth_token: config
-                .grpc_xds_enabled()
-                .then(|| config.xds_auth_token.clone())
-                .flatten(),
-            container_name: config.envoy_container_name.clone(),
-            xds_mode: config.envoy_xds_mode.clone(),
-            write_debug_entries: config.envoy_write_debug_entries,
-            socket_ready_timeout_ms: config.envoy_socket_ready_timeout_ms,
-            health_check_interval_sec: config.envoy_health_check_interval_sec,
-            health_failure_threshold: config.envoy_health_failure_threshold,
-            manage_bootstrap: !skip_socket_dir_prep,
-            skip_socket_dir_prep,
-            node_id: node_id.to_string(),
+    }
+    let envoy_config = EnvoyConfig {
+        envoy_image: config.envoy_image.clone(),
+        socket_volume: config.envoy_socket_volume.clone(),
+        socket_host_dir: config.envoy_socket_host_dir.clone(),
+        config_dir: config.envoy_config_dir.clone(),
+        grpc_target_host: config.envoy_grpc_host.clone(),
+        grpc_target_port: if config.agent_gateway_enabled() {
+            config.agent_gateway_xds_port
+        } else {
+            config.xds_port
         },
-        delivery,
-    );
+        xds_auth_token: config
+            .grpc_xds_enabled()
+            .then(|| config.xds_auth_token.clone())
+            .flatten(),
+        container_name: config.envoy_container_name.clone(),
+        xds_mode: config.envoy_xds_mode.clone(),
+        write_debug_entries: config.envoy_write_debug_entries,
+        socket_ready_timeout_ms: config.envoy_socket_ready_timeout_ms,
+        health_check_interval_sec: config.envoy_health_check_interval_sec,
+        health_failure_threshold: config.envoy_health_failure_threshold,
+        manage_bootstrap: !skip_socket_dir_prep,
+        skip_socket_dir_prep,
+        node_id: node_id.to_string(),
+    };
+    let infrastructure = EnvoyInfrastructure::new(docker, &envoy_config);
+    let sockets = infrastructure.socket_provisioner();
+    let (network_policy_runtime, process, socket_provisioner) = if let Some(client) =
+        context.agent_gateway.clone()
+    {
+        (
+            Arc::new(AgentGatewayNetworkPolicyRuntime::new(
+                client,
+                sockets.clone(),
+                context.policy_event_publisher.clone(),
+            )) as Arc<dyn NetworkPolicyRuntime>,
+            infrastructure.process_supervisor(),
+            sockets as Arc<dyn SandboxSocketProvisioner>,
+        )
+    } else {
+        let delivery = build_delivery(config, context)?
+            .ok_or_else(|| anyhow::anyhow!("Envoy is enabled without a policy delivery backend"))?;
+        let runtime = EnvoyRuntime::with_infrastructure(infrastructure, envoy_config, delivery);
+        (
+            runtime.network_policy_runtime(context.xds_authority.clone()),
+            runtime.process_supervisor(),
+            runtime.socket_provisioner(),
+        )
+    };
     Ok(Some(EnvoyCapabilities {
-        network_policy_runtime: runtime.network_policy_runtime(context.xds_authority.clone()),
-        socket_provisioner: runtime.socket_provisioner(),
-        envoy_process: runtime.process_supervisor(),
+        network_policy_runtime,
+        socket_provisioner,
+        envoy_process: process,
     }))
 }
 
@@ -340,17 +377,21 @@ fn runtime_components(
 fn build_placement_runtime(
     context: &RuntimeFactoryContext,
 ) -> (Option<PlacementEventSink>, Option<PlacementReconciler>) {
-    context
-        .xds_control_plane
+    let authority: Option<Arc<dyn crate::xds::placement::PlacementAuthority>> = context
+        .agent_gateway
         .clone()
-        .map_or((None, None), |control_plane| {
-            let (sink, reconciler) = PlacementReconciler::new(
-                Arc::new(control_plane),
-                256,
-                PlacementRetryPolicy::default(),
-            );
-            (Some(sink), Some(reconciler))
-        })
+        .map(|client| Arc::new(AgentGatewayPlacementAuthority::new(client)) as Arc<_>)
+        .or_else(|| {
+            context
+                .xds_control_plane
+                .clone()
+                .map(|control_plane| Arc::new(control_plane) as Arc<_>)
+        });
+    authority.map_or((None, None), |authority| {
+        let (sink, reconciler) =
+            PlacementReconciler::new(authority, 256, PlacementRetryPolicy::default());
+        (Some(sink), Some(reconciler))
+    })
 }
 
 struct DockerFactory;

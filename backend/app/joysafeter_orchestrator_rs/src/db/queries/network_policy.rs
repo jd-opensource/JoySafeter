@@ -15,6 +15,21 @@ pub enum NetworkPolicyStatus {
     Failed,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetworkPolicyFailureStatus {
+    Nacked,
+    Failed,
+}
+
+impl NetworkPolicyFailureStatus {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Nacked => "nacked",
+            Self::Failed => "failed",
+        }
+    }
+}
+
 impl NetworkPolicyStatus {
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -224,6 +239,111 @@ pub async fn retry_generation(
     })
 }
 
+/// Read the current durable policy generation for credential resolution.
+/// A destroyed sandbox or one without an active desired generation resolves to
+/// `None`, which the internal credential API treats as fail-closed.
+pub async fn load_current_network_policy_generation(
+    pool: &PgPool,
+    sandbox_id: SandboxId,
+) -> Result<Option<NetworkPolicyGeneration>, sqlx::Error> {
+    let row = sqlx::query_as::<_, (String, i64)>(
+        r#"
+        SELECT networking_policy_hash, networking_policy_version
+        FROM joysafeter_sandboxes
+        WHERE id = $1
+          AND destroyed_at IS NULL
+          AND networking_policy_hash IS NOT NULL
+          AND networking_policy_version > 0
+        "#,
+    )
+    .bind(sandbox_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(
+        row.map(|(policy_hash, policy_version)| NetworkPolicyGeneration {
+            policy_hash,
+            policy_version,
+        }),
+    )
+}
+
+/// Fence a policy removal in durable state before publishing it to a remote
+/// control plane. The returned generation is the one that may be removed;
+/// the desired version is advanced first so a concurrent sandbox restart can
+/// only publish a strictly newer generation.
+pub async fn prepare_generation_removal(
+    pool: &PgPool,
+    sandbox_id: SandboxId,
+) -> Result<Option<NetworkPolicyGeneration>, sqlx::Error> {
+    let mut transaction = pool.begin().await?;
+    let current = sqlx::query_as::<_, (Option<String>, i64)>(
+        r#"
+        SELECT networking_policy_hash, networking_policy_version
+        FROM joysafeter_sandboxes
+        WHERE id = $1
+        FOR UPDATE
+        "#,
+    )
+    .bind(sandbox_id)
+    .fetch_optional(&mut *transaction)
+    .await?;
+    let Some((Some(policy_hash), policy_version)) = current else {
+        transaction.commit().await?;
+        return Ok(None);
+    };
+    if policy_version <= 0 {
+        transaction.commit().await?;
+        return Ok(None);
+    }
+
+    let removed = NetworkPolicyGeneration {
+        policy_hash: policy_hash.clone(),
+        policy_version,
+    };
+    sqlx::query(
+        r#"
+        UPDATE joysafeter_sandboxes
+        SET networking_status = 'pending',
+            networking_policy_version = networking_policy_version + 1,
+            networking_last_error = NULL,
+            networking_ready_at = NULL,
+            updated_at = NOW()
+        WHERE id = $1
+        "#,
+    )
+    .bind(sandbox_id)
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    Ok(Some(removed))
+}
+
+/// Clear the applied marker only when it still names the generation whose
+/// conditional deletion completed. A newer concurrent apply is left intact.
+pub async fn mark_generation_removed(
+    pool: &PgPool,
+    sandbox_id: SandboxId,
+    generation: &NetworkPolicyGeneration,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        UPDATE joysafeter_sandboxes
+        SET networking_applied_hash = NULL,
+            networking_applied_version = NULL,
+            updated_at = NOW()
+        WHERE id = $1
+          AND networking_applied_hash = $2
+          AND networking_applied_version = $3
+        "#,
+    )
+    .bind(sandbox_id)
+    .bind(&generation.policy_hash)
+    .bind(generation.policy_version)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 /// Reopen or advance a recovery generation only while the row still matches
 /// the snapshot used to render it. This prevents staging from publishing a
 /// policy derived from stale sandbox or credential state.
@@ -331,13 +451,14 @@ pub async fn mark_generation_applied(
 pub async fn record_generation_failure(
     pool: &PgPool,
     policy: UpsertNetworkPolicy<'_>,
+    status: NetworkPolicyFailureStatus,
     reason: &str,
 ) -> Result<NetworkPolicyFailureOutcome, sqlx::Error> {
     let result = sqlx::query(
         r#"
         WITH status_update AS (
             UPDATE joysafeter_sandboxes
-            SET networking_status = 'nacked',
+            SET networking_status = $10,
                 networking_last_error = $7,
                 updated_at = NOW()
             WHERE id = $1
@@ -362,9 +483,9 @@ pub async fn record_generation_failure(
                status_update.policy_version,
                $6,
                $8,
-               'nacked',
+               $10,
                $7,
-               $7,
+               CASE WHEN $10 = 'nacked' THEN $7 ELSE NULL END,
                NOW(),
                NOW()
         FROM status_update
@@ -374,7 +495,7 @@ pub async fn record_generation_failure(
             policy_hash = EXCLUDED.policy_hash,
             desired_policy_json = EXCLUDED.desired_policy_json,
             rendered_summary_json = EXCLUDED.rendered_summary_json,
-            status = 'nacked',
+            status = $10,
             last_error = EXCLUDED.last_error,
             last_nack_reason = EXCLUDED.last_nack_reason,
             updated_at = NOW()
@@ -389,6 +510,7 @@ pub async fn record_generation_failure(
     .bind(reason)
     .bind(policy.rendered_summary_json)
     .bind(policy.id)
+    .bind(status.as_str())
     .execute(pool)
     .await?;
 

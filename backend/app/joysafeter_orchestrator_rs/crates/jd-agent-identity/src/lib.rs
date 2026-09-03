@@ -8,16 +8,16 @@
 //! - 2.3 exchangeAgentToken — BotToken → short-lived agentToken
 //! - 2.7 destroyBotToken — revoke agent identity credential
 //!
-//! BotToken and UserToken are cached in Redis with their protocol-defined
-//! identity dimensions. AgentToken remains task-scoped. Tokens are injected
-//! only at the Envoy boundary and are never passed into the sandbox.
+//! BotToken, UserToken, and task-scoped AgentToken are cached in Redis with
+//! their protocol-defined identity dimensions. BotToken never leaves the
+//! provider; only UserToken and AgentToken may be projected to the egress
+//! boundary, and none of them are passed into the sandbox.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use anyhow::{anyhow, Context};
 use async_trait::async_trait;
-use redis::AsyncCommands;
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use tracing::{debug, info, warn};
@@ -26,6 +26,10 @@ use agent_identity_trait::{
     AgentIdentityInjection, AgentIdentityProvider, IdentityCleanupContext, IdentityEgressTarget,
     IdentityResolveContext,
 };
+
+mod token_cache;
+
+use token_cache::{agent_token_key, bot_token_key, user_token_key, CachedToken, RedisTokenCache};
 
 // ---------------------------------------------------------------------------
 // Protocol request/response types
@@ -170,21 +174,6 @@ impl std::fmt::Debug for AgentTokenData {
             .debug_struct("AgentTokenData")
             .field("agent_token", &"<redacted>")
             .field("expires_in", &self.expires_in)
-            .finish()
-    }
-}
-
-struct CachedToken {
-    value: String,
-    remaining_seconds: u64,
-}
-
-impl std::fmt::Debug for CachedToken {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        formatter
-            .debug_struct("CachedToken")
-            .field("value", &"<redacted>")
-            .field("remaining_seconds", &self.remaining_seconds)
             .finish()
     }
 }
@@ -403,7 +392,7 @@ fn collect_env_info(
 ///
 /// Implements the full credential exchange flow:
 /// 1. createBotToken (cached in Redis, keyed by platform+agent+auth+user)
-/// 2. exchangeAgentToken (per-task, short-lived)
+/// 2. exchangeAgentToken (per-task, short-lived, server-side cached)
 /// 3. exchangeUserToken (server-side cached, injected as a user credential)
 /// 4. destroyBotToken (cleanup on agent deletion)
 pub struct JdAgentIdentityProvider {
@@ -423,7 +412,7 @@ pub struct JdAgentIdentityProvider {
     user_token_cookie_name: String,
     pod_ip: Option<String>,
     app_name: Option<String>,
-    redis_client: redis::Client,
+    token_cache: RedisTokenCache,
 }
 
 impl std::fmt::Debug for JdAgentIdentityProvider {
@@ -445,7 +434,7 @@ impl std::fmt::Debug for JdAgentIdentityProvider {
             .field("user_token_cookie_name", &self.user_token_cookie_name)
             .field("pod_ip", &self.pod_ip)
             .field("app_name", &self.app_name)
-            .field("redis_client", &"<redacted>")
+            .field("token_cache", &"<redacted>")
             .finish()
     }
 }
@@ -601,7 +590,7 @@ impl JdAgentIdentityProvider {
             user_token_cookie_name,
             pod_ip,
             app_name,
-            redis_client,
+            token_cache: RedisTokenCache::new(redis_client),
         })
     }
 
@@ -1014,39 +1003,6 @@ impl JdAgentIdentityProvider {
 
     // --- Redis cache ---------------------------------------------------------
 
-    fn cache_key(
-        platform_id: &str,
-        tenant_scope: &str,
-        agent_id: &str,
-        auth_type: &str,
-        user_id: &str,
-        scope: &str,
-    ) -> String {
-        format!(
-            "joysafeter:bot_token:{}:{:x}:{}:{}:{:x}:{:x}",
-            platform_id,
-            md5::compute(tenant_scope.as_bytes()),
-            agent_id,
-            auth_type,
-            md5::compute(user_id.as_bytes()),
-            md5::compute(scope.as_bytes()),
-        )
-    }
-
-    /// UserToken cache key required by the identity protocol:
-    /// platformId + agentId + authType + identityType + userName.
-    fn user_token_cache_key(
-        platform_id: &str,
-        agent_id: &str,
-        auth_type: &str,
-        identity_type: &str,
-        user_name: &str,
-    ) -> String {
-        format!(
-            "joysafeter:user_token:{platform_id}:{agent_id}:{auth_type}:{identity_type}:{user_name}"
-        )
-    }
-
     fn egress_scope(targets: &[agent_identity_trait::IdentityEgressRequestTarget]) -> String {
         let mut hosts = targets
             .iter()
@@ -1055,70 +1011,6 @@ impl JdAgentIdentityProvider {
         hosts.sort_unstable();
         hosts.dedup();
         hosts.join(",")
-    }
-
-    async fn get_cached_token(&self, key: &str) -> Option<CachedToken> {
-        let mut conn = self
-            .redis_client
-            .get_multiplexed_async_connection()
-            .await
-            .ok()?;
-        // Fetch the value and its remaining lifetime in one Redis round trip.
-        // The entry may expire between commands; a missing value or
-        // non-positive TTL is therefore handled as a normal cache miss.
-        let (value, ttl): (Option<String>, i64) = redis::pipe()
-            .cmd("GET")
-            .arg(key)
-            .cmd("TTL")
-            .arg(key)
-            .query_async(&mut conn)
-            .await
-            .ok()?;
-        let value = value?;
-        if ttl <= 0 {
-            return None;
-        }
-        Some(CachedToken {
-            value,
-            remaining_seconds: ttl as u64,
-        })
-    }
-
-    async fn get_cached_bot_token(&self, key: &str) -> Option<CachedToken> {
-        self.get_cached_token(key).await
-    }
-
-    async fn cache_bot_token(&self, key: &str, value: &str, ttl_secs: u64) {
-        let Ok(mut conn) = self.redis_client.get_multiplexed_async_connection().await else {
-            warn!(
-                key = key,
-                "Redis connection failed for BotToken cache write"
-            );
-            return;
-        };
-        if let Err(e) = conn.set_ex::<_, _, ()>(key, value, ttl_secs).await {
-            warn!(key = key, error = %e, "Failed to cache BotToken");
-        }
-    }
-
-    async fn get_cached_user_token(&self, key: &str) -> Option<CachedToken> {
-        self.get_cached_token(key).await
-    }
-
-    async fn cache_user_token(&self, key: &str, value: &str, ttl_secs: u64) {
-        let Ok(mut conn) = self.redis_client.get_multiplexed_async_connection().await else {
-            warn!("Redis connection failed for UserToken cache write");
-            return;
-        };
-        if let Err(e) = conn.set_ex::<_, _, ()>(key, value, ttl_secs).await {
-            warn!(error = %e, "Failed to cache UserToken");
-        }
-    }
-
-    async fn delete_cache_key(&self, key: &str) {
-        if let Ok(mut conn) = self.redis_client.get_multiplexed_async_connection().await {
-            let _ = conn.del::<_, ()>(key).await;
-        }
     }
 
     // --- Core exchange flow --------------------------------------------------
@@ -1132,7 +1024,7 @@ impl JdAgentIdentityProvider {
         let tenant_scope = format!("{}:{}", ctx.project_id, config.tenant_code);
         let agent_id = ctx.agent_id.to_string();
         let user_id = ctx.user_id.to_string();
-        let key = Self::cache_key(
+        let key = bot_token_key(
             &self.platform_id,
             &tenant_scope,
             &agent_id,
@@ -1142,7 +1034,7 @@ impl JdAgentIdentityProvider {
         );
 
         // Cache hit
-        if let Some(cached) = self.get_cached_bot_token(&key).await {
+        if let Some(cached) = self.token_cache.get(&key).await? {
             info!(
                 provider = "jd",
                 agent_id = %ctx.agent_id,
@@ -1208,7 +1100,7 @@ impl JdAgentIdentityProvider {
 
         // Cache with a 60-second safety margin without exceeding expiry.
         let ttl = cache_ttl_seconds(data.expires_in);
-        self.cache_bot_token(&key, &data.bot_token, ttl).await;
+        self.token_cache.put(&key, &data.bot_token, ttl).await?;
         info!(
             agent_id = %ctx.agent_id,
             expires_in = data.expires_in,
@@ -1260,7 +1152,7 @@ impl JdAgentIdentityProvider {
             anyhow::bail!("exchangeUserToken returned an empty userName");
         }
 
-        let key = Self::user_token_cache_key(
+        let key = user_token_key(
             &self.platform_id,
             &context.agent_id.to_string(),
             &self.auth_type,
@@ -1271,7 +1163,9 @@ impl JdAgentIdentityProvider {
         // without an expiry is cached only briefly so a stale credential does
         // not become effectively permanent.
         let ttl = cache_ttl_seconds(data.expires_in);
-        self.cache_user_token(&key, &data.identity_token, ttl).await;
+        self.token_cache
+            .put(&key, &data.identity_token, ttl)
+            .await?;
         info!(
             provider = "jd",
             agent_id = %context.agent_id,
@@ -1297,7 +1191,7 @@ impl JdAgentIdentityProvider {
         if let Some(ref auth_code) = context.auth_code {
             let agent_id = context.agent_id.to_string();
             let user_id = context.user_id.to_string();
-            let cache_key = Self::cache_key(
+            let cache_key = bot_token_key(
                 &self.platform_id,
                 &format!("{}:{}", context.project_id, config.tenant_code),
                 &agent_id,
@@ -1311,7 +1205,11 @@ impl JdAgentIdentityProvider {
                 .api_exchange_bot_token_from_auth_code(auth_code, context)
                 .await?;
             let ttl = cache_ttl_seconds(data.expires_in);
-            self.cache_bot_token(&cache_key, &data.bot_token, ttl).await;
+            // BotAuthCode is one-time. Do not report resolution success until
+            // its exchanged BotToken is durably available to other replicas.
+            self.token_cache
+                .put(&cache_key, &data.bot_token, ttl)
+                .await?;
             info!(
                 agent_id = %context.agent_id,
                 source = "auth_code",
@@ -1349,6 +1247,64 @@ impl JdAgentIdentityProvider {
         }
         (inject_headers, remove_headers)
     }
+
+    async fn get_or_exchange_agent_token(
+        &self,
+        bot_token: &str,
+        context: &IdentityResolveContext,
+        endpoint: &str,
+        scope: &str,
+    ) -> anyhow::Result<CachedToken> {
+        let agent_id = context.agent_id.to_string();
+        let session_id = context.session_id.to_string();
+        let task_id = context.task_id.to_string();
+        let key = agent_token_key(
+            &self.platform_id,
+            &context.project_id.to_string(),
+            &context.user_id.to_string(),
+            &agent_id,
+            &session_id,
+            &task_id,
+            endpoint,
+            scope,
+        );
+        if let Some(cached) = self.token_cache.get(&key).await? {
+            info!(
+                provider = "jd",
+                agent_id = %context.agent_id,
+                session_id = %context.session_id,
+                task_id = %context.task_id,
+                project_id = %context.project_id,
+                domain = endpoint,
+                cache_status = "hit",
+                "AgentToken resolved from server cache"
+            );
+            return Ok(cached);
+        }
+        let data = self
+            .api_exchange_agent_token(bot_token, &agent_id, &session_id, &task_id, endpoint)
+            .await?;
+        if data.agent_token.trim().is_empty() {
+            anyhow::bail!("exchangeAgentToken returned an empty agentToken");
+        }
+        let ttl = cache_ttl_seconds(data.expires_in);
+        self.token_cache.put(&key, &data.agent_token, ttl).await?;
+        info!(
+            provider = "jd",
+            agent_id = %context.agent_id,
+            session_id = %context.session_id,
+            task_id = %context.task_id,
+            project_id = %context.project_id,
+            domain = endpoint,
+            cache_status = "miss",
+            expires_in = data.expires_in,
+            "Exchanged and cached AgentToken"
+        );
+        Ok(CachedToken {
+            value: data.agent_token,
+            remaining_seconds: ttl,
+        })
+    }
 }
 
 #[async_trait]
@@ -1385,7 +1341,7 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
         // parallel. On a fully warm path this removes one serialized Redis
         // round trip; on a BotToken exchange it hides the UserToken lookup
         // behind the remote identity call.
-        let user_token_cache_key = Self::user_token_cache_key(
+        let user_token_cache_key = user_token_key(
             &self.platform_id,
             &context.agent_id.to_string(),
             &self.auth_type,
@@ -1394,9 +1350,9 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
         );
         let cached_user_token_future = async {
             if self.exchange_user_token_enabled {
-                self.get_cached_user_token(&user_token_cache_key).await
+                self.token_cache.get(&user_token_cache_key).await
             } else {
-                None
+                Ok(None)
             }
         };
         let (bot_token, cached_user_token) = futures::join!(
@@ -1404,6 +1360,7 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
             cached_user_token_future,
         );
         let bot_token = bot_token?;
+        let cached_user_token = cached_user_token?;
 
         let requested_targets = context.egress_targets.clone();
         let first_target = requested_targets
@@ -1418,20 +1375,12 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
             .collect::<Vec<_>>();
         unique_endpoints.sort();
         unique_endpoints.dedup();
+        let egress_scope = Self::egress_scope(&requested_targets);
         let agent_token_futures = unique_endpoints.iter().map(|endpoint| async {
-            let agent_id = context.agent_id.to_string();
-            let session_id = context.session_id.to_string();
-            let task_id = context.task_id.to_string();
-            let data = self
-                .api_exchange_agent_token(
-                    &bot_token.value,
-                    &agent_id,
-                    &session_id,
-                    &task_id,
-                    endpoint,
-                )
+            let token = self
+                .get_or_exchange_agent_token(&bot_token.value, context, endpoint, &egress_scope)
                 .await?;
-            Ok::<_, anyhow::Error>((endpoint.clone(), data.agent_token, data.expires_in))
+            Ok::<_, anyhow::Error>((endpoint.clone(), token))
         });
         let user_token_future = async {
             if self.exchange_user_token_enabled {
@@ -1460,13 +1409,13 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
             futures::try_join!(user_token_future, agent_tokens_future)?;
         let valid_for_seconds = agent_tokens
             .iter()
-            .map(|(_, _, expires_in)| *expires_in)
+            .map(|(_, token)| token.remaining_seconds)
             .chain(user_token.iter().map(|token| token.remaining_seconds))
             .filter(|seconds| *seconds > 0)
             .min();
         let agent_tokens = agent_tokens
             .into_iter()
-            .map(|(endpoint, token, _)| (endpoint, token))
+            .map(|(endpoint, token)| (endpoint, token.value))
             .collect::<HashMap<_, _>>();
 
         let mut targets = Vec::with_capacity(requested_targets.len());
@@ -1519,43 +1468,27 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
             format!("joysafeter:bot_token:*:*:{}:*:*:*", context.agent_id)
         };
 
-        let Ok(mut conn) = self.redis_client.get_multiplexed_async_connection().await else {
-            warn!("Redis unavailable for BotToken cleanup");
-            return;
+        let keys = match self.token_cache.scan(&pattern).await {
+            Ok(keys) => keys,
+            Err(error) => {
+                warn!(%error, "Failed to scan BotToken keys for cleanup");
+                return;
+            }
         };
 
-        let mut keys = Vec::new();
-        let mut cursor = 0_u64;
-        loop {
-            let scan: redis::RedisResult<(u64, Vec<String>)> = redis::cmd("SCAN")
-                .arg(cursor)
-                .arg("MATCH")
-                .arg(&pattern)
-                .arg("COUNT")
-                .arg(100)
-                .query_async(&mut conn)
-                .await;
-            let (next_cursor, mut batch) = match scan {
-                Ok(result) => result,
-                Err(e) => {
-                    warn!(error = %e, "Failed to scan BotToken keys for cleanup");
-                    return;
-                }
-            };
-            keys.append(&mut batch);
-            cursor = next_cursor;
-            if cursor == 0 {
-                break;
-            }
-        }
-
         for key in &keys {
-            if let Some(bot_token) = self.get_cached_bot_token(key).await {
-                if let Err(e) = self.api_destroy_bot_token(&bot_token.value).await {
-                    warn!(error = %e, key = %key, "destroyBotToken failed (non-fatal)");
+            match self.token_cache.get(key).await {
+                Ok(Some(bot_token)) => {
+                    if let Err(e) = self.api_destroy_bot_token(&bot_token.value).await {
+                        warn!(error = %e, key = %key, "destroyBotToken failed (non-fatal)");
+                    }
                 }
+                Ok(None) => {}
+                Err(error) => warn!(%error, key = %key, "Failed to read BotToken for cleanup"),
             }
-            self.delete_cache_key(key).await;
+            if let Err(error) = self.token_cache.delete(key).await {
+                warn!(%error, key = %key, "Failed to delete BotToken cache entry");
+            }
         }
 
         // UserToken is derived from BotToken and must not outlive an agent
@@ -1563,39 +1496,42 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
         // UserToken for the agent because the protocol cache key uses userName
         // while IdentityCleanupContext carries the immutable user ID.
         let user_token_pattern = format!("joysafeter:user_token:*:{}:*:*:*", context.agent_id);
-        let mut user_token_keys = Vec::new();
-        let mut cursor = 0_u64;
-        loop {
-            let scan: redis::RedisResult<(u64, Vec<String>)> = redis::cmd("SCAN")
-                .arg(cursor)
-                .arg("MATCH")
-                .arg(&user_token_pattern)
-                .arg("COUNT")
-                .arg(100)
-                .query_async(&mut conn)
-                .await;
-            let (next_cursor, mut batch) = match scan {
-                Ok(result) => result,
-                Err(e) => {
-                    warn!(error = %e, "Failed to scan UserToken keys for cleanup");
-                    return;
-                }
-            };
-            user_token_keys.append(&mut batch);
-            cursor = next_cursor;
-            if cursor == 0 {
-                break;
+        let user_token_keys = match self.token_cache.scan(&user_token_pattern).await {
+            Ok(keys) => keys,
+            Err(error) => {
+                warn!(%error, "Failed to scan UserToken keys for cleanup");
+                return;
+            }
+        };
+        for key in &user_token_keys {
+            if let Err(error) = self.token_cache.delete(key).await {
+                warn!(%error, key = %key, "Failed to delete UserToken cache entry");
             }
         }
-        for key in &user_token_keys {
-            self.delete_cache_key(key).await;
+
+        // AgentToken is derived from BotToken and carries task authority. It
+        // must be evicted with the owning agent even if its short TTL has not
+        // elapsed yet.
+        let agent_token_pattern = format!("joysafeter:agent_token:*:*:{}:*", context.agent_id);
+        let agent_token_keys = match self.token_cache.scan(&agent_token_pattern).await {
+            Ok(keys) => keys,
+            Err(error) => {
+                warn!(%error, "Failed to scan AgentToken keys for cleanup");
+                return;
+            }
+        };
+        for key in &agent_token_keys {
+            if let Err(error) = self.token_cache.delete(key).await {
+                warn!(%error, key = %key, "Failed to delete AgentToken cache entry");
+            }
         }
 
-        if !keys.is_empty() || !user_token_keys.is_empty() {
+        if !keys.is_empty() || !user_token_keys.is_empty() || !agent_token_keys.is_empty() {
             info!(
                 agent_id = %context.agent_id,
                 bot_token_keys_cleaned = keys.len(),
                 user_token_keys_cleaned = user_token_keys.len(),
+                agent_token_keys_cleaned = agent_token_keys.len(),
                 "Agent identity token cleanup complete"
             );
         }
@@ -1604,11 +1540,12 @@ impl AgentIdentityProvider for JdAgentIdentityProvider {
 
 #[cfg(test)]
 mod tests {
+    use super::{agent_token_key, bot_token_key, user_token_key};
     use super::{
         cache_ttl_seconds, collect_env_info, default_user_token_cookie_name, diagnostic_message,
         validate_app_name, validate_enum_value, validate_pod_ip, AgentTokenData, ApiResponse,
         BotTokenData, CachedToken, CreateBotTokenRequest, ExchangeUserTokenRequest,
-        JdAgentIdentityProvider, JdIdentityConfig, UserIdentityData,
+        JdAgentIdentityProvider, JdIdentityConfig, RedisTokenCache, UserIdentityData,
     };
     use agent_identity_trait::{
         AgentId, AgentIdentityProvider, IdentityResolveContext, ProjectId, SessionId, TaskId,
@@ -1640,7 +1577,9 @@ mod tests {
             user_token_cookie_name: "sso.jd.com".to_string(),
             pod_ip: Some("127.0.0.1".to_string()),
             app_name: Some("joysafeter-orchestrator".to_string()),
-            redis_client: redis::Client::open("redis://127.0.0.1:1/").expect("create Redis client"),
+            token_cache: RedisTokenCache::new(
+                redis::Client::open("redis://127.0.0.1:1/").expect("create Redis client"),
+            ),
         }
     }
 
@@ -1853,7 +1792,7 @@ mod tests {
 
     #[test]
     fn cache_key_is_partitioned_by_tenant_user_and_scope() {
-        let base = JdAgentIdentityProvider::cache_key(
+        let base = bot_token_key(
             "platform",
             "project-a:tenant-a",
             "agent",
@@ -1863,7 +1802,7 @@ mod tests {
         );
         assert_ne!(
             base,
-            JdAgentIdentityProvider::cache_key(
+            bot_token_key(
                 "platform",
                 "project-b:tenant-a",
                 "agent",
@@ -1874,7 +1813,7 @@ mod tests {
         );
         assert_ne!(
             base,
-            JdAgentIdentityProvider::cache_key(
+            bot_token_key(
                 "platform",
                 "project-a:tenant-a",
                 "agent",
@@ -1885,7 +1824,7 @@ mod tests {
         );
         assert_ne!(
             base,
-            JdAgentIdentityProvider::cache_key(
+            bot_token_key(
                 "platform",
                 "project-a:tenant-a",
                 "agent",
@@ -1899,13 +1838,7 @@ mod tests {
     #[test]
     fn user_token_cache_key_uses_protocol_identity_dimensions() {
         assert_eq!(
-            JdAgentIdentityProvider::user_token_cache_key(
-                "platform",
-                "agent",
-                "sso",
-                "cookie",
-                "user@example.com",
-            ),
+            user_token_key("platform", "agent", "sso", "cookie", "user@example.com",),
             "joysafeter:user_token:platform:agent:sso:cookie:user@example.com"
         );
     }
@@ -2173,7 +2106,7 @@ mod tests {
             user_token_cookie_name: "sso.jd.com".to_string(),
             pod_ip: Some("127.0.0.1".to_string()),
             app_name: Some("joysafeter-orchestrator".to_string()),
-            redis_client: redis_client.clone(),
+            token_cache: RedisTokenCache::new(redis_client.clone()),
         };
         let context = IdentityResolveContext {
             project_id: ProjectId::new(),
@@ -2195,7 +2128,7 @@ mod tests {
             }],
         };
         let config = JdIdentityConfig::from_json(&context.provider_config);
-        let cache_key = JdAgentIdentityProvider::cache_key(
+        let cache_key = bot_token_key(
             &provider.platform_id,
             &format!("{}:{}", context.project_id, config.tenant_code),
             &context.agent_id.to_string(),
@@ -2203,12 +2136,22 @@ mod tests {
             &context.user_id.to_string(),
             &JdAgentIdentityProvider::egress_scope(&context.egress_targets),
         );
-        let user_token_cache_key = JdAgentIdentityProvider::user_token_cache_key(
+        let user_token_cache_key = user_token_key(
             &provider.platform_id,
             &context.agent_id.to_string(),
             &provider.auth_type,
             &provider.identity_type,
             &context.user_name,
+        );
+        let agent_token_cache_key = agent_token_key(
+            &provider.platform_id,
+            &context.project_id.to_string(),
+            &context.user_id.to_string(),
+            &context.agent_id.to_string(),
+            &context.session_id.to_string(),
+            &context.task_id.to_string(),
+            &context.egress_targets[0].endpoint,
+            &JdAgentIdentityProvider::egress_scope(&context.egress_targets),
         );
         let mut redis = redis_client
             .get_multiplexed_async_connection()
@@ -2229,6 +2172,11 @@ mod tests {
             .inject_headers
             .iter()
             .any(|(name, value)| name == "Cookie" && value == "sso.jd.com=cached-user-token"));
+        let cached_agent_token: String = redis
+            .get(&agent_token_cache_key)
+            .await
+            .expect("read cached AgentToken");
+        assert_eq!(cached_agent_token, "agent-token");
         server.await.expect("identity test server");
         let paths = observed_paths.lock().await.clone();
         assert_eq!(
@@ -2243,5 +2191,9 @@ mod tests {
             .del(user_token_cache_key)
             .await
             .expect("clean UserToken cache");
+        let _: () = redis
+            .del(agent_token_cache_key)
+            .await
+            .expect("clean AgentToken cache");
     }
 }

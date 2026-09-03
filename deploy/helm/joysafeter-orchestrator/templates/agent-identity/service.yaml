@@ -1,0 +1,21 @@
+{{- $provider := default "none" .Values.agentIdentity.provider | lower -}}
+{{- if eq $provider "jd" -}}
+{{- range $service := .Values.agentIdentity.services }}
+---
+apiVersion: security.joysafeter.io/v1alpha1
+kind: AgentIdentityService
+metadata:
+  name: {{ required "agentIdentity.services[].name is required" $service.name | quote }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: joysafeter-agent-identity
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+    app.kubernetes.io/environment: {{ $.Values.environment }}
+spec:
+  provider: {{ $provider | quote }}
+  host: {{ required "agentIdentity.services[].host is required" $service.host | quote }}
+  port: {{ required "agentIdentity.services[].port is required" $service.port }}
+  tls: {{ $service.tls }}
+  enabled: {{ if hasKey $service "enabled" }}{{ $service.enabled }}{{ else }}true{{ end }}
+{{- end }}
+{{- end }}

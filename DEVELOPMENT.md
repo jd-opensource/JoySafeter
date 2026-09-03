@@ -150,6 +150,10 @@ cd backend
   tests/test_typed_id_architecture.py
 cd ..
 
+cargo fmt --manifest-path backend/app/joysafeter_agent_gateway/Cargo.toml --all -- --check
+cargo check --all-targets --manifest-path backend/app/joysafeter_agent_gateway/Cargo.toml
+cargo test --manifest-path backend/app/joysafeter_agent_gateway/Cargo.toml
+
 cargo fmt --manifest-path backend/app/joysafeter_orchestrator_rs/Cargo.toml --all -- --check
 cargo check --all-targets --manifest-path backend/app/joysafeter_orchestrator_rs/Cargo.toml
 cargo test --manifest-path backend/app/joysafeter_orchestrator_rs/Cargo.toml \
@@ -194,7 +198,7 @@ kubectl get nodes
   --release joysafeter-local \
   --namespace joysafeter-local
 
-# 部署后验证控制面、唯一 xDS authority、Envoy 节点收敛和四个 runtime 镜像
+# 部署后验证所有控制面副本、Envoy 节点收敛和四个 runtime 镜像
 ./deploy/deploy.sh k8s verify \
   --release joysafeter-local \
   --namespace joysafeter-local \

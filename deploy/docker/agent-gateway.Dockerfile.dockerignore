@@ -1,0 +1,15 @@
+*
+
+!shared/
+!shared/rust/
+!shared/rust/joysafeter-entity-id/
+!shared/rust/joysafeter-entity-id/**
+!shared/rust/joysafeter-agent-gateway-contract/
+!shared/rust/joysafeter-agent-gateway-contract/**
+!backend/
+!backend/app/
+!backend/app/joysafeter_agent_gateway/
+!backend/app/joysafeter_agent_gateway/**
+
+**/target/
+**/.git/

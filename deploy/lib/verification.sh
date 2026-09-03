@@ -75,6 +75,54 @@ verify_orchestrator_http_contract() {
     verify_orchestrator_metrics_contract "$metrics"
 }
 
+verify_agent_gateway_metrics_contract() {
+    local metrics=$1 failures=0 metric
+    local required_metrics=(
+        joysafeter_xds_enabled
+        joysafeter_xds_authority_phase
+        joysafeter_xds_active_envoy_nodes
+        joysafeter_xds_pending_deliveries
+        joysafeter_agent_gateway_projected_sandboxes
+    )
+
+    for metric in "${required_metrics[@]}"; do
+        verification_require_metric_sample "$metrics" "$metric" "agent-gateway /metrics" \
+            || failures=$((failures + 1))
+    done
+    [ "$failures" -eq 0 ]
+}
+
+verify_agent_gateway_http_contract() {
+    local fetcher=$1
+    shift
+    local fetcher_args=("$@")
+    local live ready metrics
+
+    live="$($fetcher ${fetcher_args[@]+"${fetcher_args[@]}"} /health/live)" || {
+        log_error "agent-gateway /health/live 不可用"
+        return 1
+    }
+    [ "$live" = "live" ] || {
+        log_error "agent-gateway /health/live 返回异常: ${live:-<empty>}"
+        return 1
+    }
+
+    ready="$($fetcher ${fetcher_args[@]+"${fetcher_args[@]}"} /health/ready)" || {
+        log_error "agent-gateway /health/ready 不可用"
+        return 1
+    }
+    [ "$ready" = "ready" ] || {
+        log_error "agent-gateway xDS authority 未 ready: ${ready:-<empty>}"
+        return 1
+    }
+
+    metrics="$($fetcher ${fetcher_args[@]+"${fetcher_args[@]}"} /metrics)" || {
+        log_error "agent-gateway /metrics 不可用"
+        return 1
+    }
+    verify_agent_gateway_metrics_contract "$metrics"
+}
+
 runtime_component_image_ref() {
     local component=$1 deploy_env=$2 record env_keys env_key configured old_ifs
     record="$(image_component_record "$component")" || return 1

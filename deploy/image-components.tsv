@@ -2,6 +2,7 @@
 backend	core	后端	standard	BACKEND_IMAGE	joysafeter-backend	deploy/docker/backend.Dockerfile	backend	-	BACKEND_FULL_IMAGE	container	-	-	app
 frontend	core	前端	standard	FRONTEND_IMAGE	joysafeter-frontend	deploy/docker/frontend.Dockerfile	frontend	-	FRONTEND_FULL_IMAGE	container	-	-	app
 orchestrator	core	Rust Orchestrator	orchestrator	ORCHESTRATOR_RS_IMAGE	joysafeter-orchestrator-rs	deploy/docker/orchestrator-rs-{0}.Dockerfile	.	-	ORCHESTRATOR_RS_FULL_IMAGE	orchestrator	-	image.orchestrator	sandbox-plane,non-app
+agent-gateway	core	Agent Gateway	standard	AGENT_GATEWAY_IMAGE	joysafeter-agent-gateway	deploy/docker/agent-gateway.Dockerfile	.	-	AGENT_GATEWAY_FULL_IMAGE	container	-	image.agentGateway	sandbox-plane,non-app
 skillspector	core	SkillSpector	skillspector	SKILLSPECTOR_IMAGE	joysafeter-skillspector	deploy/docker/skillspector-service.Dockerfile	backend/joysafeter_skillspector	-	SKILLSPECTOR_FULL_IMAGE	container	skillspector=./.deps/SkillSpector	-	non-app
 claudecode	runtime	Claude Code 运行镜像	runtime	CLAUDECODE_IMAGE	joysafeter-claudecode	deploy/docker/runtime.Dockerfile	.	claudecode	JOYSAFETER_SANDBOX_IMAGE,JOYSAFETER_IMAGE_CLAUDE	container	-	image.sandbox.claude	sandbox-plane,non-app
 codex	runtime	Codex 运行镜像	runtime	CODEX_IMAGE	joysafeter-codex	deploy/docker/runtime.Dockerfile	.	codex	JOYSAFETER_IMAGE_CODEX	container	-	image.sandbox.codex	sandbox-plane,non-app

@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: joysafeter-agent-gateway
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    app: joysafeter-agent-gateway
+    joysafeter-agent-gateway-leader: "true"
+  ports:
+  - name: xds
+    port: {{ .Values.agentGateway.xdsPort }}
+    targetPort: xds
+  - name: http
+    port: {{ .Values.agentGateway.httpPort }}
+    targetPort: http
+  - name: mgmt-grpc
+    port: {{ .Values.agentGateway.managementGrpcPort }}
+    targetPort: mgmt-grpc

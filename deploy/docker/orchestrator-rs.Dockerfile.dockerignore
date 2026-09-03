@@ -6,6 +6,8 @@
 !shared/rust/
 !shared/rust/joysafeter-entity-id/
 !shared/rust/joysafeter-entity-id/**
+!shared/rust/joysafeter-agent-gateway-contract/
+!shared/rust/joysafeter-agent-gateway-contract/**
 !backend/
 !backend/app/
 !backend/app/joysafeter_orchestrator_rs/

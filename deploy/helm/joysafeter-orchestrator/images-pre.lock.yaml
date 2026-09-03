@@ -1,0 +1,11 @@
+# Pre-production image lock. Keep every JoySafeter component on the pre channel.
+# Envoy is a version-pinned third-party dependency; it stays on the fixed tag
+# from values.yaml and is intentionally NOT listed here.
+image:
+  orchestrator: aisec-repo.jd.com/joysafeter/joysafeter-orchestrator-rs:pre
+  agentGateway: aisec-repo.jd.com/joysafeter/joysafeter-agent-gateway:pre
+  sandbox:
+    claude: aisec-repo.jd.com/joysafeter/joysafeter-claudecode:pre
+    codex: aisec-repo.jd.com/joysafeter/joysafeter-codex:pre
+    native: aisec-repo.jd.com/joysafeter/joysafeter-native:pre
+    pi: aisec-repo.jd.com/joysafeter/joysafeter-pi:pre

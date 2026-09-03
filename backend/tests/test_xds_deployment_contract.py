@@ -12,55 +12,91 @@ def read(relative_path: str) -> str:
     return (REPO_ROOT / relative_path).read_text()
 
 
-def test_helm_declares_dedicated_xds_port_and_secret_contract() -> None:
+def test_helm_declares_independent_gateway_xds_and_secret_contract() -> None:
     values = read("deploy/helm/joysafeter-orchestrator/values.yaml")
-    configmap = read("deploy/helm/joysafeter-orchestrator/templates/configmap.yaml")
-    secret = read("deploy/helm/joysafeter-orchestrator/templates/secret.yaml")
-    deployment = read("deploy/helm/joysafeter-orchestrator/templates/deployment.yaml")
+    configmap = read(
+        "deploy/helm/joysafeter-orchestrator/templates/orchestrator/configmap.yaml"
+    )
+    secret = read(
+        "deploy/helm/joysafeter-orchestrator/templates/platform/secret.yaml"
+    )
+    deployment = read(
+        "deploy/helm/joysafeter-orchestrator/templates/agent-gateway/deployment.yaml"
+    )
 
-    assert "xds:\n    port: 9092" in values
-    assert "JOYSAFETER_XDS_HOST" in configmap
-    assert "JOYSAFETER_XDS_PORT" in configmap
+    assert "xdsPort: 9092" in values
+    assert "JOYSAFETER_AGENT_GATEWAY_URL" in configmap
+    assert "JOYSAFETER_AGENT_GATEWAY_XDS_PORT" in configmap
     assert "JOYSAFETER_ENVOY_GRPC_PORT" not in configmap
     assert "JOYSAFETER_XDS_AUTH_KEYRING" in secret
     assert "JOYSAFETER_XDS_AUTH_WRITE_KEY_ID" in secret
     assert "JOYSAFETER_XDS_AUTH_TOKEN" in secret
     assert "name: xds" in deployment
-    assert "containerPort: {{ .Values.orchestrator.xds.port }}" in deployment
+    assert "containerPort: {{ .Values.agentGateway.xdsPort }}" in deployment
+
+
+def test_helm_excludes_api_only_and_unconsumed_runtime_settings() -> None:
+    values = read("deploy/helm/joysafeter-orchestrator/values.yaml")
+    configmap = read(
+        "deploy/helm/joysafeter-orchestrator/templates/orchestrator/configmap.yaml"
+    )
+    secret = read(
+        "deploy/helm/joysafeter-orchestrator/templates/platform/secret.yaml"
+    )
+    remote_compose = read("deploy/docker-compose.remote.yml")
+
+    assert "\n  SECRET_KEY:" not in secret
+    assert "\n  JWT_SECRET_KEY:" not in remote_compose
+    assert "JOYSAFETER_VAULT_ENCRYPTION_KEY: ${JOYSAFETER_VAULT_ENCRYPTION_KEY:-}" in remote_compose
+    assert "JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING:" in remote_compose
+    assert "JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID:" in remote_compose
+    assert "POSTGRES_SSL:" not in secret
+    assert "cookieName:" not in values
+    assert "contextTtlSeconds:" not in values
+    assert "AGENT_IDENTITY_COOKIE_NAME" not in configmap
+    assert "AGENT_IDENTITY_CONTEXT_TTL_SECONDS" not in configmap
+    assert "DISABLE_TELEMETRY" not in configmap
 
 
 def test_xds_service_targets_only_the_dedicated_port() -> None:
-    service = read("deploy/helm/joysafeter-orchestrator/templates/service.yaml")
-    xds_service = service.split("name: joysafeter-orchestrator-xds", maxsplit=1)[1]
+    service = read(
+        "deploy/helm/joysafeter-orchestrator/templates/agent-gateway/service.yaml"
+    )
 
-    assert "port: {{ .Values.orchestrator.xds.port }}" in xds_service
-    assert "targetPort: xds" in xds_service
-    assert "targetPort: grpc" not in xds_service
+    assert "port: {{ .Values.agentGateway.xdsPort }}" in service
+    assert "targetPort: xds" in service
+    assert "targetPort: grpc" not in service
 
 
 def test_envoy_bootstrap_sends_only_the_selected_xds_token() -> None:
-    daemonset = read("deploy/helm/joysafeter-orchestrator/templates/envoy-daemonset.yaml")
+    daemonset = read(
+        "deploy/helm/joysafeter-orchestrator/templates/envoy/daemonset.yaml"
+    )
 
     assert '"key": "x-joysafeter-xds-token"' in daemonset
     assert '"value": "${JOYSAFETER_XDS_AUTH_TOKEN}"' in daemonset
     assert "secretKeyRef:" in daemonset
     assert "key: JOYSAFETER_XDS_AUTH_TOKEN" in daemonset
-    assert '"port_value": {{ .Values.orchestrator.xds.port }}' in daemonset
+    assert '"port_value": {{ .Values.agentGateway.xdsPort }}' in daemonset
 
 
 def test_network_policy_separates_sandbox_runner_and_envoy_xds_traffic() -> None:
-    policy = read("deploy/helm/joysafeter-orchestrator/templates/networkpolicy.yaml")
-    sandbox_policy, envoy_policy = policy.split("name: joysafeter-envoy-egress", maxsplit=1)
+    sandbox_policy = read(
+        "deploy/helm/joysafeter-orchestrator/templates/sandbox/networkpolicy.yaml"
+    )
+    envoy_policy = read(
+        "deploy/helm/joysafeter-orchestrator/templates/envoy/networkpolicy.yaml"
+    )
+    orchestrator_policy = read(
+        "deploy/helm/joysafeter-orchestrator/templates/orchestrator/networkpolicy.yaml"
+    )
 
     assert ".Values.orchestrator.grpc.port" in sandbox_policy
-    assert ".Values.orchestrator.xds.port" not in sandbox_policy
-    assert ".Values.orchestrator.xds.port" in envoy_policy
-    assert "name: joysafeter-orchestrator-ingress" in policy
-    ingress_policy = policy.split(
-        "name: joysafeter-orchestrator-ingress", maxsplit=1
-    )[1]
-    assert ".Values.orchestrator.grpc.port" in ingress_policy
-    assert ".Values.orchestrator.xds.port" in ingress_policy
+    assert ".Values.agentGateway.xdsPort" not in sandbox_policy
+    assert ".Values.agentGateway.xdsPort" in envoy_policy
+    assert "name: joysafeter-orchestrator-ingress" in orchestrator_policy
+    assert ".Values.orchestrator.grpc.port" in orchestrator_policy
+    assert ".Values.agentGateway.xdsPort" not in orchestrator_policy
 
 
 def test_compose_uses_internal_dedicated_authenticated_xds_port() -> None:
@@ -75,8 +111,12 @@ def test_compose_uses_internal_dedicated_authenticated_xds_port() -> None:
 
 def test_compose_and_kubernetes_use_explicit_socket_storage_modes() -> None:
     compose = read("deploy/docker-compose.yml")
-    configmap = read("deploy/helm/joysafeter-orchestrator/templates/configmap.yaml")
-    daemonset = read("deploy/helm/joysafeter-orchestrator/templates/envoy-daemonset.yaml")
+    configmap = read(
+        "deploy/helm/joysafeter-orchestrator/templates/orchestrator/configmap.yaml"
+    )
+    daemonset = read(
+        "deploy/helm/joysafeter-orchestrator/templates/envoy/daemonset.yaml"
+    )
     k8s_provider = read("backend/app/joysafeter_orchestrator_rs/src/sandbox/k8s.rs")
 
     volume_name = (
@@ -100,7 +140,9 @@ def test_compose_and_kubernetes_use_explicit_socket_storage_modes() -> None:
 
 def test_kubernetes_envoy_owns_socket_root_for_lifecycle_cleanup() -> None:
     values = read("deploy/helm/joysafeter-orchestrator/values.yaml")
-    daemonset = read("deploy/helm/joysafeter-orchestrator/templates/envoy-daemonset.yaml")
+    daemonset = read(
+        "deploy/helm/joysafeter-orchestrator/templates/envoy/daemonset.yaml"
+    )
 
     assert "runAsUser: 101" in values
     assert "runAsGroup: 101" in values
@@ -123,7 +165,7 @@ def test_obsolete_envoy_grpc_port_bridge_is_removed() -> None:
         "backend/env.example",
         "backend/app/joysafeter_shared/config/settings.py",
         "backend/app/joysafeter_orchestrator_rs/src/config.rs",
-        "deploy/helm/joysafeter-orchestrator/templates/configmap.yaml",
+        "deploy/helm/joysafeter-orchestrator/templates/orchestrator/configmap.yaml",
         "deploy/docker-compose.yml",
         "deploy/k8s/env-reference.md",
     ]
@@ -141,7 +183,9 @@ def test_xds_health_metrics_and_alerts_are_deployed_as_one_contract() -> None:
         "backend/app/joysafeter_orchestrator_rs/src/bootstrap/supervisor.rs"
     )
     values = read("deploy/helm/joysafeter-orchestrator/values.yaml")
-    rule = read("deploy/helm/joysafeter-orchestrator/templates/prometheusrule.yaml")
+    rule = read(
+        "deploy/helm/joysafeter-orchestrator/templates/agent-gateway/prometheusrule.yaml"
+    )
 
     assert "spawn_health_server(" in application
     assert '"/healthz/xds"' in supervisor

@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use crate::agent_gateway::AgentGatewayApi;
 use crate::config::JoySafeterConfig;
 use crate::kernel::agent_identity_provider::AgentIdentityProvider;
 use crate::kernel::network_policy::ports::NetworkPolicyRuntime;
@@ -41,6 +42,10 @@ pub struct SandboxRuntimeTopology {
 pub struct RuntimeFactoryContext {
     pub xds_authority: XdsAuthority,
     pub xds_control_plane: Option<XdsControlPlane>,
+    pub agent_gateway: Option<Arc<dyn AgentGatewayApi>>,
+    /// When set, the agent-gateway network-policy runtime publishes policy
+    /// events to the Redis Stream-backed policy stream.
+    pub policy_event_publisher: Option<Arc<crate::grpc::policy_stream::RedisEventPublisher>>,
 }
 
 pub struct RuntimeComponents {
@@ -82,7 +87,6 @@ impl IdentityProviderFactory for ProductionIdentityProviderFactory {
 
         match AgentIdentityProviderKind::parse(Some(&config.agent_identity_provider))?
             .validate_feature_availability()?
-            .validate_runtime_policy(&config.agent_identity_allowed_hosts)?
         {
             AgentIdentityProviderKind::None => Ok(Arc::new(
                 crate::kernel::agent_identity_provider::NoopAgentIdentityProvider,

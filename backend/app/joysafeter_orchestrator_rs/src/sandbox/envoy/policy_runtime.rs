@@ -16,6 +16,7 @@ use crate::kernel::network_policy::ports::{
     NetworkPolicyApplyRequest, NetworkPolicyRecoveryEntry, NetworkPolicyRecoveryFailure,
     NetworkPolicyRecoveryReport, NetworkPolicyRuntime,
 };
+use crate::kernel::network_policy::NetworkPolicyGeneration;
 use crate::xds::authority::{RecoveryAuthorityGuard, XdsAuthority};
 use crate::xds::delivery::DeliveryRequest;
 use crate::xds::inventory::{RecoveredSandbox, RecoveryDeliveryState, RecoveryInventory};
@@ -359,7 +360,11 @@ impl NetworkPolicyRuntime for EnvoyNetworkPolicyRuntime {
             .await
     }
 
-    async fn remove(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
+    async fn remove(
+        &self,
+        sandbox_id: SandboxId,
+        _generation: Option<&NetworkPolicyGeneration>,
+    ) -> anyhow::Result<()> {
         self.engine.remove(sandbox_id).await
     }
 }

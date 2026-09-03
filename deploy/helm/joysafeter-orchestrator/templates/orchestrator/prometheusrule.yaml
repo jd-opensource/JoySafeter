@@ -1,0 +1,40 @@
+{{- if .Values.monitoring.runnerAlerts.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: joysafeter-orchestrator-runner
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "joysafeter.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.runnerAlerts.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+  - name: joysafeter-runner-lifecycle
+    rules:
+    - alert: JoySafeterRunnerSetupFailures
+      expr: sum(increase(joysafeter_runner_setup_failures_total[{{ .Values.monitoring.runnerAlerts.setupFailureWindow }}])) > 0
+      for: {{ .Values.monitoring.runnerAlerts.setupFailureFor }}
+      labels:
+        severity: critical
+      annotations:
+        summary: JoySafeter runners are failing SetupSandbox
+        description: One or more authenticated runners failed the fail-closed SetupSandbox generation gate during the configured window.
+    - alert: JoySafeterRunnerReconnectRejected
+      expr: sum(increase(joysafeter_runner_reconnect_setup_total{result="rejected"}[{{ .Values.monitoring.runnerAlerts.reconnectRejectWindow }}])) > 0
+      for: {{ .Values.monitoring.runnerAlerts.reconnectRejectFor }}
+      labels:
+        severity: warning
+      annotations:
+        summary: JoySafeter runner reconnect proofs are being rejected
+        description: Reconnecting runners reported missing, stale, or otherwise invalid applied runtime generations.
+    - alert: JoySafeterRunnerStaleSetupResults
+      expr: sum(increase(joysafeter_runner_setup_stale_results_total[{{ .Values.monitoring.runnerAlerts.staleResultWindow }}])) > 0
+      for: {{ .Values.monitoring.runnerAlerts.staleResultFor }}
+      labels:
+        severity: warning
+      annotations:
+        summary: JoySafeter received stale SetupSandbox results
+        description: Runner SetupSandbox results did not match the active setup identifier or runtime generation and were ignored.
+{{- end }}

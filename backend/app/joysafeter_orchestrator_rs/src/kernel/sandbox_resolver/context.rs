@@ -204,6 +204,7 @@ impl ResolveContextBuilder {
 
         let mut credentials = SandboxCredentials::default();
         let mut identity_refresh_after_seconds = None;
+        let mut identity_valid_for_seconds = None;
         if network_mode == EffectiveNetworkMode::Limited {
             let mut routes = Vec::new();
             routes.extend(extract_llm_egress(
@@ -230,9 +231,9 @@ impl ResolveContextBuilder {
             routes.extend(external_routes);
 
             if !identity_targets.is_empty() {
-                if self.networking.uses_remote_authority() {
+                if !self.networking.supports_ephemeral_credentials() {
                     anyhow::bail!(
-                        "task-scoped Agent Identity requires secure ephemeral delivery to the elected xDS authority"
+                        "task-scoped Agent Identity requires a direct-xDS runtime with secure ephemeral credential delivery"
                     );
                 }
                 if !self.identity.enabled() {
@@ -251,7 +252,11 @@ impl ResolveContextBuilder {
                     )
                     .await?
                 {
-                    identity_refresh_after_seconds = injection.valid_for_seconds;
+                    // Refresh before the exchanged token expires so a slow
+                    // sandbox update cannot leave Envoy serving stale identity.
+                    identity_refresh_after_seconds =
+                        identity_refresh_delay(injection.valid_for_seconds);
+                    identity_valid_for_seconds = injection.valid_for_seconds;
                     merge_identity_injection(&mut routes, injection)?;
                 }
             }
@@ -259,6 +264,7 @@ impl ResolveContextBuilder {
             credentials = SandboxCredentials {
                 routes,
                 proxy_auth_token: None,
+                ephemeral_valid_for_seconds: identity_valid_for_seconds,
             };
         }
         let egress_policy_hash =
@@ -372,4 +378,8 @@ impl ResolveContextBuilder {
         }
         Ok(serde_json::Value::Object(map))
     }
+}
+
+pub(super) fn identity_refresh_delay(valid_for_seconds: Option<u64>) -> Option<u64> {
+    valid_for_seconds.map(|seconds| seconds.saturating_sub(60).max(1))
 }

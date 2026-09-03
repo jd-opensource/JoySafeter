@@ -7,7 +7,10 @@ use super::envoy_model::{
     rendered_egress_policy_summary, validate_egress_policy, SandboxCredentials, SandboxEgressPolicy,
 };
 use super::material::NetworkPolicyMaterialResolver;
-use super::ports::{NetworkPolicyApplyRequest, NetworkPolicyRequestQueue, NetworkPolicyRuntime};
+use super::ports::{
+    NetworkPolicyApplyError, NetworkPolicyApplyRequest, NetworkPolicyRequestQueue,
+    NetworkPolicyRuntime,
+};
 use super::request::NetworkPolicyRequest;
 use super::{DesiredNetworkPolicy, NetworkPolicyGeneration};
 use crate::db::models::JoySafeterSandbox;
@@ -97,6 +100,41 @@ pub async fn reconcile_as_authority(
         material_resolver,
         sandbox.id,
         &generation,
+        authority,
+    )
+    .await
+}
+
+pub async fn reconcile_base_as_authority(
+    pool: &PgPool,
+    runtime: &dyn NetworkPolicyRuntime,
+    material_resolver: &dyn NetworkPolicyMaterialResolver,
+    sandbox: &JoySafeterSandbox,
+    authority: &MutationAuthorityGuard,
+) -> anyhow::Result<NetworkingReconcileOutcome> {
+    let Some(networking) = sandbox_networking(sandbox) else {
+        return Ok(NetworkingReconcileOutcome::NotLimited);
+    };
+    if networking.get("type").and_then(serde_json::Value::as_str) != Some("limited") {
+        return Ok(NetworkingReconcileOutcome::NotLimited);
+    }
+
+    let desired = material_resolver.resolve_base(sandbox.id).await?;
+    let policy_hash = desired.revision().to_string();
+    let prepared = queries::prepare_generation(pool, sandbox.id, &policy_hash).await?;
+    if prepared.is_already_ready() {
+        return Ok(NetworkingReconcileOutcome::AlreadyReady { policy_hash });
+    }
+    let generation = prepared.into_generation();
+    let current = queries::get_sandbox(pool, sandbox.id)
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("sandbox {} was not found", sandbox.id))?;
+    apply_generation_with_desired_as_authority(
+        pool,
+        runtime,
+        current,
+        &generation,
+        desired,
         authority,
     )
     .await
@@ -227,6 +265,7 @@ async fn apply_generation_with_desired_as_authority(
             "recorded_on": "failure",
         });
         let reason = format!("{error:#}");
+        let failure_status = classify_failure_status(&error);
         let _ = queries::record_generation_failure(
             pool,
             queries::UpsertNetworkPolicy {
@@ -238,6 +277,7 @@ async fn apply_generation_with_desired_as_authority(
                 desired_policy_json: &desired_policy,
                 rendered_summary_json: &rendered_summary,
             },
+            failure_status,
             &reason,
         )
         .await;
@@ -260,6 +300,17 @@ async fn apply_generation_with_desired_as_authority(
     }
 
     Ok(NetworkingReconcileOutcome::Refreshed { policy_hash })
+}
+
+fn classify_failure_status(error: &anyhow::Error) -> queries::NetworkPolicyFailureStatus {
+    let envoy_nacked = error
+        .chain()
+        .any(|cause| cause.downcast_ref::<NetworkPolicyApplyError>().is_some());
+    if envoy_nacked {
+        queries::NetworkPolicyFailureStatus::Nacked
+    } else {
+        queries::NetworkPolicyFailureStatus::Failed
+    }
 }
 
 pub async fn ensure_ready(
@@ -406,3 +457,7 @@ pub(crate) async fn apply_ephemeral(
         ))
     })
 }
+
+#[cfg(test)]
+#[path = "../../../tests/unit/network_policy/application_test.rs"]
+mod tests;

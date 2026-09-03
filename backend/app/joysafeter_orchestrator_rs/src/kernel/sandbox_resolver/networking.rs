@@ -103,8 +103,8 @@ impl SandboxNetworkingService {
         Ok(())
     }
 
-    pub(crate) fn uses_remote_authority(&self) -> bool {
-        self.policy.uses_remote_authority()
+    pub(crate) fn supports_ephemeral_credentials(&self) -> bool {
+        self.policy.supports_ephemeral_credentials()
     }
 
     pub(crate) async fn refresh_reused(
@@ -194,7 +194,7 @@ impl SandboxNetworkingService {
         &self,
         sandbox: &JoySafeterSandbox,
     ) -> anyhow::Result<String> {
-        match self.policy.reconcile(sandbox).await? {
+        match self.policy.reconcile_base_as_authority(sandbox).await? {
             NetworkingReconcileOutcome::Refreshed { policy_hash }
             | NetworkingReconcileOutcome::AlreadyReady { policy_hash } => Ok(policy_hash),
             NetworkingReconcileOutcome::NotLimited => {

@@ -1,0 +1,253 @@
+{{- if .Values.envoy.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: joysafeter-envoy
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      app: joysafeter-envoy
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: joysafeter-envoy
+        app.kubernetes.io/environment: {{ .Values.environment }}
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: {{ .Values.envoy.terminationGracePeriodSeconds }}
+      {{- with .Values.envoy.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.envoy.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.envoy.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.image.imagePullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+
+      initContainers:
+      - name: prepare-socket-root
+        image: {{ .Values.image.envoy }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command: ["sh", "-c"]
+        args:
+        - |
+          set -eu
+          mkdir -p /sockets
+          chown 0:0 /sockets
+          chmod 0750 /sockets
+          chown {{ .Values.envoy.runAsUser }}:{{ .Values.envoy.runAsGroup }} /sockets
+        securityContext:
+          runAsUser: 0
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+            add: ["CHOWN"]
+        volumeMounts:
+        - name: envoy-sockets
+          mountPath: /sockets
+
+      containers:
+      - name: envoy
+        image: {{ .Values.image.envoy }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        command: ["sh", "-c"]
+        args:
+        - |
+          set -eu
+          mkdir -p /sockets
+
+          cat > /tmp/bootstrap.json << BOOTSTRAP
+          {
+            "node": {
+              "cluster": "joysafeter-proxy",
+              "id": "${NODE_NAME}"
+            },
+            "dynamic_resources": {
+              "lds_config": { "ads": {} },
+              "cds_config": { "ads": {} },
+              "ads_config": {
+                "api_type": "DELTA_GRPC",
+                "transport_api_version": "V3",
+                "grpc_services": [{
+                  "envoy_grpc": { "cluster_name": "xds_cluster" },
+                  "initial_metadata": [{
+                    "key": "x-joysafeter-xds-token",
+                    "value": "${JOYSAFETER_XDS_AUTH_TOKEN}"
+                  }]
+                }]
+              }
+            },
+            "static_resources": {
+              "clusters": [
+                {
+                  "name": "dynamic_forward_proxy",
+                  "connect_timeout": "10s",
+                  "lb_policy": "CLUSTER_PROVIDED",
+                  "cluster_type": {
+                    "name": "envoy.clusters.dynamic_forward_proxy",
+                    "typed_config": {
+                      "@type": "type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig",
+                      "dns_cache_config": {
+                        "name": "dynamic_forward_proxy_cache",
+                        "dns_lookup_family": "V4_ONLY"
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "dynamic_forward_proxy_tls",
+                  "connect_timeout": "10s",
+                  "lb_policy": "CLUSTER_PROVIDED",
+                  "cluster_type": {
+                    "name": "envoy.clusters.dynamic_forward_proxy",
+                    "typed_config": {
+                      "@type": "type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig",
+                      "dns_cache_config": {
+                        "name": "dynamic_forward_proxy_cache",
+                        "dns_lookup_family": "V4_ONLY"
+                      }
+                    }
+                  },
+                  "transport_socket": {
+                    "name": "envoy.transport_sockets.tls",
+                    "typed_config": {
+                      "@type": "type.googleapis.com/envoy.extensions.transport_sockets.tls.v3.UpstreamTlsContext",
+                      "common_tls_context": {
+                        "validation_context": {
+                          "trusted_ca": { "filename": "/etc/ssl/certs/ca-certificates.crt" }
+                        }
+                      }
+                    }
+                  }
+                },
+                {
+                  "name": "xds_cluster",
+                  "connect_timeout": "5s",
+                  "type": "STRICT_DNS",
+                  "lb_policy": "ROUND_ROBIN",
+                  "typed_extension_protocol_options": {
+                    "envoy.extensions.upstreams.http.v3.HttpProtocolOptions": {
+                      "@type": "type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions",
+                      "explicit_http_config": {
+                        "http2_protocol_options": {}
+                      }
+                    }
+                  },
+                  "load_assignment": {
+                    "cluster_name": "xds_cluster",
+                    "endpoints": [{
+                      "lb_endpoints": [{
+                        "endpoint": {
+                          "address": {
+                            "socket_address": {
+                              "address": "joysafeter-agent-gateway.{{ .Release.Namespace }}.svc.cluster.local",
+                              "port_value": {{ .Values.agentGateway.xdsPort }}
+                            }
+                          }
+                        }
+                      }]
+                    }]
+                  }
+                }
+              ]
+            },
+            "admin": {
+              "address": {
+                "socket_address": {
+                  "address": "127.0.0.1",
+                  "port_value": 9901
+                }
+              }
+            }
+          }
+          BOOTSTRAP
+
+          exec envoy -c /tmp/bootstrap.json --log-level info
+
+        env:
+        - name: NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: JOYSAFETER_XDS_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.externalSecret }}
+              key: JOYSAFETER_XDS_AUTH_TOKEN
+
+        lifecycle:
+          preStop:
+            exec:
+              # Stop readiness first, then drain active proxy connections.
+              command:
+              - /bin/bash
+              - -ec
+              - |
+                exec 3<>/dev/tcp/127.0.0.1/9901 || exit 0
+                printf 'POST /healthcheck/fail HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n' >&3
+                cat <&3 >/dev/null || true
+                exec 3<>/dev/tcp/127.0.0.1/9901 || exit 0
+                printf 'POST /drain_listeners?graceful HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n' >&3
+                cat <&3 >/dev/null || true
+                sleep {{ .Values.envoy.drainSeconds }}
+
+        securityContext:
+          runAsUser: {{ .Values.envoy.runAsUser }}
+          runAsGroup: {{ .Values.envoy.runAsGroup }}
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+
+        resources:
+          {{- toYaml .Values.envoy.resources | nindent 10 }}
+
+        livenessProbe:
+          # ADS may still be synchronizing while the Envoy process and admin
+          # listener are healthy. Keep config readiness out of liveness.
+          exec:
+            command:
+            - /bin/bash
+            - -ec
+            - exec 3<>/dev/tcp/127.0.0.1/9901
+          periodSeconds: 5
+          failureThreshold: 3
+          initialDelaySeconds: 5
+
+        readinessProbe:
+          exec:
+            command:
+            - /bin/bash
+            - -ec
+            - |
+              exec 3<>/dev/tcp/127.0.0.1/9901
+              printf 'GET /ready HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n' >&3
+              IFS= read -r status <&3
+              [[ "$status" == *" 200 "* ]]
+          periodSeconds: 3
+          failureThreshold: 2
+          initialDelaySeconds: 3
+
+        volumeMounts:
+        - name: envoy-sockets
+          mountPath: /sockets
+
+      volumes:
+      - name: envoy-sockets
+        hostPath:
+          path: {{ .Values.envoy.socketHostDir }}
+          type: DirectoryOrCreate
+{{- end }}

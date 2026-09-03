@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::net::SocketAddr;
 use std::{env, path::Path};
 
@@ -7,8 +8,8 @@ pub const DEFAULT_XDS_PORT: u16 = 9092;
 
 /// JoySafeter kernel configuration.
 ///
-/// Matches the Python `JoySafeterConfig` from `joysafeter_shared/config/settings.py`,
-/// reading from `JOYSAFETER_*` environment variables.
+/// Contains only settings consumed by the Rust orchestrator. Shared Python
+/// services own their worker-specific settings independently.
 #[derive(Debug, Clone)]
 pub struct JoySafeterConfig {
     pub instance_id: String,
@@ -18,7 +19,6 @@ pub struct JoySafeterConfig {
     pub max_concurrent_tasks: usize,
     pub max_scheduling_tasks: usize,
     pub task_default_timeout: u64,
-    pub task_default_max_retries: u32,
     pub task_retry_base_ms: u64,
     pub task_retry_max_ms: u64,
     pub task_lease_ttl_sec: i64,
@@ -48,7 +48,6 @@ pub struct JoySafeterConfig {
     pub sandbox_workspace_root: Option<String>,
     pub sandbox_cpu: Option<f64>,
     pub sandbox_memory_mb: Option<u64>,
-    pub sandbox_disk_mb: Option<u64>,
     // -- Sandbox container hardening -----------------------------------------
     // Matches the Python `Settings.sandbox_*` block of the same name. See
     // backend/app/joysafeter_shared/config/settings.py for the full rationale.
@@ -72,17 +71,12 @@ pub struct JoySafeterConfig {
     pub image_pi: String,
 
     // Event batching
-    pub event_batch_enabled: bool,
     pub event_batch_max_size: usize,
     pub event_batch_max_delay_ms: u64,
     pub event_stream_enabled: bool,
     pub event_stream_key: String,
-    pub event_stream_group: String,
     pub event_stream_max_len: usize,
-    pub event_stream_batch_size: usize,
-    pub event_stream_block_ms: u64,
     pub event_stream_fallback_to_db: bool,
-    pub event_stream_pending_idle_ms: u64,
 
     // gRPC server
     pub grpc_host: String,
@@ -95,6 +89,17 @@ pub struct JoySafeterConfig {
     pub xds_auth_keyring: Option<String>,
     pub xds_auth_write_key_id: Option<String>,
     pub xds_auth_token: Option<String>,
+
+    // Independent Agent Gateway management plane. When configured, Envoy ADS
+    // and network-policy delivery are owned by that service rather than this
+    // orchestrator process.
+    pub agent_gateway_url: Option<String>,
+    pub agent_gateway_management_token: Option<String>,
+    /// gRPC endpoint for the gateway management service (apply/remove policy).
+    /// When set, the orchestrator uses gRPC instead of the HTTP management API.
+    pub agent_gateway_grpc_endpoint: Option<String>,
+    pub agent_gateway_xds_port: u16,
+    pub agent_gateway_request_timeout_seconds: u64,
 
     // gRPC server capacity
     pub grpc_max_connections: usize,
@@ -119,7 +124,6 @@ pub struct JoySafeterConfig {
     pub envoy_socket_volume: String,
     pub envoy_socket_host_dir: Option<String>,
     pub envoy_config_dir: String,
-    pub envoy_network: String,
     pub envoy_grpc_host: String,
     pub envoy_container_name: String,
     /// LDS transport: `"grpc"` (default, Delta xDS) or explicit compatibility
@@ -150,15 +154,6 @@ pub struct JoySafeterConfig {
     /// receives this parsed policy from bootstrap and never reads process env.
     pub agent_identity_allowed_hosts: Vec<String>,
 
-    // Image builder
-    pub image_builder_enabled: bool,
-    pub image_builder_base: String,
-
-    // Vault
-    pub vault_encryption_key: Option<String>,
-    pub credential_encryption_keyring: Option<String>,
-    pub credential_encryption_write_key_id: Option<String>,
-
     // HA
     pub heartbeat_interval: u64,
     pub heartbeat_ttl: u64,
@@ -176,9 +171,11 @@ pub struct JoySafeterConfig {
 
     // Sandbox - Kubernetes
     pub k8s_namespace: String,
-    pub k8s_kubectl_path: String,
     pub k8s_orchestrator_url: Option<String>,
     pub k8s_image_pull_secrets: Vec<String>,
+    pub k8s_priority_class_name: Option<String>,
+    pub k8s_node_selector: BTreeMap<String, String>,
+    pub k8s_tolerations: Vec<serde_json::Value>,
 
     // Leader Election (K8s Lease-based HA)
     pub leader_election_enabled: bool,
@@ -212,7 +209,6 @@ impl JoySafeterConfig {
             max_concurrent_tasks: env_usize("JOYSAFETER_MAX_CONCURRENT_TASKS", 200),
             max_scheduling_tasks: env_usize("JOYSAFETER_MAX_SCHEDULING_TASKS", 50),
             task_default_timeout: env_u64("JOYSAFETER_TASK_DEFAULT_TIMEOUT", 7200),
-            task_default_max_retries: env_u32("JOYSAFETER_TASK_DEFAULT_MAX_RETRIES", 2),
             task_retry_base_ms: env_u64("JOYSAFETER_TASK_RETRY_BASE_MS", 2000),
             task_retry_max_ms: env_u64("JOYSAFETER_TASK_RETRY_MAX_MS", 30000),
             task_lease_ttl_sec: env_i64("JOYSAFETER_TASK_LEASE_TTL_SEC", 45),
@@ -244,9 +240,6 @@ impl JoySafeterConfig {
             sandbox_memory_mb: env::var("JOYSAFETER_SANDBOX_MEMORY_MB")
                 .ok()
                 .and_then(|v| v.parse().ok()),
-            sandbox_disk_mb: env::var("JOYSAFETER_SANDBOX_DISK_MB")
-                .ok()
-                .and_then(|v| v.parse().ok()),
             // Hardening defaults — keep the secure defaults; only flip these
             // off for targeted debugging. See settings.py for rationale.
             sandbox_drop_all_caps: env_bool("JOYSAFETER_SANDBOX_DROP_ALL_CAPS", true),
@@ -261,7 +254,6 @@ impl JoySafeterConfig {
             image_native: env_str("JOYSAFETER_IMAGE_NATIVE", ""),
             image_pi: env_str("JOYSAFETER_IMAGE_PI", ""),
 
-            event_batch_enabled: env_bool("JOYSAFETER_EVENT_BATCH_ENABLED", true),
             event_batch_max_size: env_usize("JOYSAFETER_EVENT_BATCH_MAX_SIZE", 200),
             event_batch_max_delay_ms: env_u64("JOYSAFETER_EVENT_BATCH_MAX_DELAY_MS", 100),
             event_stream_enabled: env_bool("JOYSAFETER_EVENT_STREAM_ENABLED", false),
@@ -269,15 +261,8 @@ impl JoySafeterConfig {
                 "JOYSAFETER_EVENT_STREAM_KEY",
                 "joysafeter:orchestrator:events",
             ),
-            event_stream_group: env_str(
-                "JOYSAFETER_EVENT_STREAM_GROUP",
-                "joysafeter-orchestrator-event-workers",
-            ),
             event_stream_max_len: env_usize("JOYSAFETER_EVENT_STREAM_MAX_LEN", 100_000),
-            event_stream_batch_size: env_usize("JOYSAFETER_EVENT_STREAM_BATCH_SIZE", 100),
-            event_stream_block_ms: env_u64("JOYSAFETER_EVENT_STREAM_BLOCK_MS", 1000),
             event_stream_fallback_to_db: env_bool("JOYSAFETER_EVENT_STREAM_FALLBACK_TO_DB", true),
-            event_stream_pending_idle_ms: env_u64("JOYSAFETER_EVENT_STREAM_PENDING_IDLE_MS", 60000),
 
             grpc_host: env_str("JOYSAFETER_GRPC_HOST", "0.0.0.0"),
             grpc_port: env_u16("JOYSAFETER_GRPC_PORT", 9090),
@@ -294,6 +279,20 @@ impl JoySafeterConfig {
             xds_auth_token: env::var("JOYSAFETER_XDS_AUTH_TOKEN")
                 .ok()
                 .filter(|value| !value.trim().is_empty()),
+            agent_gateway_url: env::var("JOYSAFETER_AGENT_GATEWAY_URL")
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
+            agent_gateway_management_token: env::var("JOYSAFETER_AGENT_GATEWAY_MANAGEMENT_TOKEN")
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
+            agent_gateway_grpc_endpoint: env::var("JOYSAFETER_AGENT_GATEWAY_GRPC_ENDPOINT")
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
+            agent_gateway_xds_port: env_u16("JOYSAFETER_AGENT_GATEWAY_XDS_PORT", DEFAULT_XDS_PORT),
+            agent_gateway_request_timeout_seconds: env_u64(
+                "JOYSAFETER_AGENT_GATEWAY_REQUEST_TIMEOUT_SECS",
+                25,
+            ),
 
             grpc_max_connections: env_usize("JOYSAFETER_GRPC_MAX_CONNECTIONS", 2000),
             grpc_max_executions: env_usize("JOYSAFETER_GRPC_MAX_EXECUTIONS", 1000),
@@ -325,7 +324,6 @@ impl JoySafeterConfig {
                 "JOYSAFETER_ENVOY_CONFIG_DIR",
                 "/tmp/joysafeter-envoy-config",
             ),
-            envoy_network: env_str("JOYSAFETER_ENVOY_NETWORK", "joysafeter-net"),
             envoy_grpc_host: env_str("JOYSAFETER_ENVOY_GRPC_HOST", "host.docker.internal"),
             envoy_container_name: env_str("JOYSAFETER_ENVOY_CONTAINER_NAME", "joysafeter-envoy"),
             envoy_xds_mode: env_str("JOYSAFETER_ENVOY_XDS_MODE", default_envoy_xds_mode()),
@@ -344,20 +342,6 @@ impl JoySafeterConfig {
             agent_identity_provider: env_str("AGENT_IDENTITY_PROVIDER", "none"),
             agent_identity_allowed_hosts: env_list("AGENT_IDENTITY_ALLOWED_HOSTS"),
 
-            image_builder_enabled: env_bool("JOYSAFETER_IMAGE_BUILDER_ENABLED", false),
-            image_builder_base: env_str(
-                "JOYSAFETER_IMAGE_BUILDER_BASE",
-                "joysafeter-claudecode:latest",
-            ),
-
-            vault_encryption_key: env::var("JOYSAFETER_VAULT_ENCRYPTION_KEY").ok(),
-            credential_encryption_keyring: env::var("JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING")
-                .ok(),
-            credential_encryption_write_key_id: env::var(
-                "JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID",
-            )
-            .ok(),
-
             heartbeat_interval: env_u64("JOYSAFETER_HEARTBEAT_INTERVAL", 15),
             heartbeat_ttl: env_u64("JOYSAFETER_HEARTBEAT_TTL", 30),
 
@@ -371,11 +355,15 @@ impl JoySafeterConfig {
             e2b_template_id: env_str("JOYSAFETER_E2B_TEMPLATE_ID", ""),
 
             k8s_namespace: env_str("JOYSAFETER_K8S_NAMESPACE", "joysafeter-sandboxes"),
-            k8s_kubectl_path: env_str("JOYSAFETER_K8S_KUBECTL_PATH", "kubectl"),
             k8s_orchestrator_url: env::var("JOYSAFETER_K8S_ORCHESTRATOR_URL")
                 .ok()
                 .filter(|v| !v.trim().is_empty()),
             k8s_image_pull_secrets: env_list("JOYSAFETER_K8S_IMAGE_PULL_SECRETS"),
+            k8s_priority_class_name: env::var("JOYSAFETER_K8S_PRIORITY_CLASS_NAME")
+                .ok()
+                .filter(|value| !value.trim().is_empty()),
+            k8s_node_selector: env_json("JOYSAFETER_K8S_NODE_SELECTOR"),
+            k8s_tolerations: env_json("JOYSAFETER_K8S_TOLERATIONS"),
 
             leader_election_enabled: env_bool("JOYSAFETER_LEADER_ELECTION_ENABLED", false),
             leader_lease_name: env_str(
@@ -417,6 +405,21 @@ impl JoySafeterConfig {
         self.envoy_enabled && self.envoy_xds_mode == "grpc"
     }
 
+    pub fn agent_gateway_enabled(&self) -> bool {
+        self.agent_gateway_url.is_some()
+    }
+
+    pub fn embedded_xds_enabled(&self) -> bool {
+        self.grpc_xds_enabled() && !self.agent_gateway_enabled()
+    }
+
+    pub fn uses_kubernetes_sandbox(&self) -> bool {
+        matches!(
+            self.sandbox_provider.trim().to_ascii_lowercase().as_str(),
+            "k8s" | "kubernetes"
+        )
+    }
+
     pub fn parse_xds_auth_keyring(&self) -> anyhow::Result<XdsAuthKeyring> {
         let raw = self.xds_auth_keyring.as_deref().ok_or_else(|| {
             anyhow::anyhow!("JOYSAFETER_XDS_AUTH_KEYRING is required when gRPC xDS is enabled")
@@ -432,7 +435,10 @@ impl JoySafeterConfig {
             &self.agent_identity_provider,
         ))?
         .validate_feature_availability()?
-        .validate_runtime_policy(&self.agent_identity_allowed_hosts)?;
+        .validate_runtime_policy(
+            &self.agent_identity_allowed_hosts,
+            self.uses_kubernetes_sandbox(),
+        )?;
         if self.runner_admission_ttl_seconds == 0 {
             anyhow::bail!("JOYSAFETER_RUNNER_ADMISSION_TTL_SECONDS must be greater than zero");
         }
@@ -476,7 +482,41 @@ impl JoySafeterConfig {
                 self.envoy_xds_mode
             );
         }
-        if self.grpc_xds_enabled() {
+        if self.agent_gateway_enabled() {
+            if self.agent_gateway_request_timeout_seconds == 0
+                || self.agent_gateway_request_timeout_seconds > 600
+            {
+                anyhow::bail!(
+                    "JOYSAFETER_AGENT_GATEWAY_REQUEST_TIMEOUT_SECS must be between 1 and 600"
+                );
+            }
+            if !self.grpc_xds_enabled() {
+                anyhow::bail!(
+                    "JOYSAFETER_AGENT_GATEWAY_URL requires JOYSAFETER_ENVOY_ENABLED=true and JOYSAFETER_ENVOY_XDS_MODE=grpc"
+                );
+            }
+            let token = self.agent_gateway_management_token.as_deref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "JOYSAFETER_AGENT_GATEWAY_MANAGEMENT_TOKEN is required when JOYSAFETER_AGENT_GATEWAY_URL is set"
+                )
+            })?;
+            validate_agent_gateway_endpoint(
+                self.agent_gateway_url
+                    .as_deref()
+                    .expect("URL checked above"),
+                token,
+            )?;
+            if self.xds_auth_token.is_none() {
+                anyhow::bail!(
+                    "JOYSAFETER_XDS_AUTH_TOKEN is required for Envoy to authenticate to Agent Gateway ADS"
+                );
+            }
+        } else if self.agent_gateway_management_token.is_some() {
+            anyhow::bail!(
+                "JOYSAFETER_AGENT_GATEWAY_MANAGEMENT_TOKEN requires JOYSAFETER_AGENT_GATEWAY_URL"
+            );
+        }
+        if self.embedded_xds_enabled() {
             if self.grpc_port == self.xds_port {
                 anyhow::bail!(
                     "JOYSAFETER_GRPC_PORT and JOYSAFETER_XDS_PORT must use different ports"
@@ -495,8 +535,7 @@ impl JoySafeterConfig {
         let uses_k8s_lease = self.leader_election_enabled
             || (self.ha_mode == "multi"
                 && matches!(self.sandbox_provider.as_str(), "k8s" | "kubernetes")
-                && self.envoy_enabled
-                && self.envoy_xds_mode == "grpc");
+                && self.embedded_xds_enabled());
         if uses_k8s_lease
             && (self.leader_renew_interval_sec == 0
                 || self.leader_lease_duration_sec == 0
@@ -539,6 +578,31 @@ impl JoySafeterConfig {
             _ => Ok(self.sandbox_image.clone()),
         }
     }
+}
+
+fn validate_agent_gateway_endpoint(base_url: &str, token: &str) -> anyhow::Result<()> {
+    let url = url::Url::parse(base_url)
+        .map_err(|error| anyhow::anyhow!("invalid JOYSAFETER_AGENT_GATEWAY_URL: {error}"))?;
+    if !matches!(url.scheme(), "http" | "https")
+        || url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+    {
+        anyhow::bail!(
+            "JOYSAFETER_AGENT_GATEWAY_URL must be an http(s) origin or path without credentials, query, or fragment"
+        );
+    }
+    if !(32..=512).contains(&token.len())
+        || !token.is_ascii()
+        || token.bytes().any(|byte| byte.is_ascii_whitespace())
+    {
+        anyhow::bail!(
+            "JOYSAFETER_AGENT_GATEWAY_MANAGEMENT_TOKEN must contain 32-512 non-whitespace ASCII bytes"
+        );
+    }
+    Ok(())
 }
 
 fn default_envoy_xds_mode() -> &'static str {
@@ -638,6 +702,17 @@ fn env_list(key: &str) -> Vec<String> {
         .ok()
         .map(|v| parse_env_list(&v))
         .unwrap_or_default()
+}
+
+fn env_json<T>(key: &str) -> T
+where
+    T: serde::de::DeserializeOwned + Default,
+{
+    match env::var(key) {
+        Ok(value) if !value.trim().is_empty() => serde_json::from_str(&value)
+            .unwrap_or_else(|error| panic!("{key} must contain valid JSON: {error}")),
+        _ => T::default(),
+    }
 }
 
 fn parse_env_list(value: &str) -> Vec<String> {
@@ -773,6 +848,7 @@ fn build_redis_url() -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+
     use super::build_database_url_from_values;
     use super::default_envoy_xds_mode;
     use super::parse_env_list;
@@ -903,9 +979,10 @@ mod tests {
 
     #[cfg(feature = "jd-identity")]
     #[test]
-    fn jd_identity_requires_injection_hosts_during_config_validation() {
+    fn non_k8s_jd_identity_requires_static_injection_hosts() {
         let mut cfg = JoySafeterConfig::from_env();
         cfg.agent_identity_provider = "jd".to_string();
+        cfg.sandbox_provider = "docker".to_string();
         cfg.agent_identity_allowed_hosts.clear();
 
         let error = cfg
@@ -913,6 +990,18 @@ mod tests {
             .expect_err("JD identity must fail before runtime composition without trusted hosts");
 
         assert!(error.to_string().contains("AGENT_IDENTITY_ALLOWED_HOSTS"));
+    }
+
+    #[cfg(feature = "jd-identity")]
+    #[test]
+    fn k8s_jd_identity_accepts_empty_static_hosts_for_crd_snapshot() {
+        let mut cfg = JoySafeterConfig::from_env();
+        cfg.agent_identity_provider = "jd".to_string();
+        cfg.sandbox_provider = "k8s".to_string();
+        cfg.agent_identity_allowed_hosts.clear();
+
+        cfg.validate()
+            .expect("Kubernetes uses AgentIdentityService resources as its trust source");
     }
 
     #[test]
@@ -950,6 +1039,55 @@ mod tests {
 
         cfg.envoy_xds_mode = "polling".to_string();
         assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn external_agent_gateway_does_not_require_embedded_xds_keyring() {
+        let mut cfg = JoySafeterConfig::from_env();
+        cfg.envoy_enabled = true;
+        cfg.envoy_xds_mode = "grpc".to_string();
+        cfg.agent_gateway_url = Some("http://agent-gateway:9093".to_string());
+        cfg.agent_gateway_management_token = Some("a".repeat(32));
+        cfg.xds_auth_token = Some("b".repeat(32));
+        cfg.xds_auth_keyring = None;
+        cfg.xds_auth_write_key_id = None;
+
+        cfg.validate().expect("valid external Agent Gateway config");
+        assert!(cfg.grpc_xds_enabled());
+        assert!(!cfg.embedded_xds_enabled());
+    }
+
+    #[test]
+    fn external_agent_gateway_request_timeout_is_bounded() {
+        let mut cfg = JoySafeterConfig::from_env();
+        cfg.envoy_enabled = true;
+        cfg.envoy_xds_mode = "grpc".to_string();
+        cfg.agent_gateway_url = Some("http://agent-gateway:9093".to_string());
+        cfg.agent_gateway_management_token = Some("a".repeat(32));
+        cfg.xds_auth_token = Some("b".repeat(32));
+
+        cfg.agent_gateway_request_timeout_seconds = 0;
+        assert!(cfg.validate().is_err());
+
+        cfg.agent_gateway_request_timeout_seconds = 601;
+        assert!(cfg.validate().is_err());
+
+        cfg.agent_gateway_request_timeout_seconds = 35;
+        cfg.validate().expect("valid Agent Gateway request timeout");
+    }
+
+    #[test]
+    fn agent_gateway_management_token_without_url_is_rejected() {
+        let mut cfg = JoySafeterConfig::from_env();
+        cfg.agent_gateway_url = None;
+        cfg.agent_gateway_management_token = Some("a".repeat(32));
+
+        let error = cfg
+            .validate()
+            .expect_err("orphaned management token must fail closed");
+        assert!(error
+            .to_string()
+            .contains("requires JOYSAFETER_AGENT_GATEWAY_URL"));
     }
 
     #[test]

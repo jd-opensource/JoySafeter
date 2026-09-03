@@ -1,0 +1,4 @@
+productionPriorityClass:
+  value: 1000000
+  preemptionPolicy: PreemptLowerPriority
+  description: JoySafeter production workloads; may preempt lower-priority dev/pre workloads.

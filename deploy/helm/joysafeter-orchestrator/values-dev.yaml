@@ -1,0 +1,33 @@
+# Development environment. Secrets and release state remain namespace-scoped.
+environment: dev
+# This Secret must point REDIS_HOST at the dedicated dev Redis instance.
+externalSecret: joysafeter-secrets-dev
+
+orchestrator:
+  replicas: 1
+  redis:
+    keyPrefix: joysafeter:dev
+  eventStream:
+    key: joysafeter:dev:orchestrator:events
+  pool:
+    minSize: 1
+  logLevel: debug
+
+# ── Agent Identity 信任目标 ──
+agentIdentity:
+  services:
+    - name: jd-wildcard-http
+      host: "*.jd.com"
+      port: 80
+      tls: false
+    - name: jd-wildcard-https
+      host: "*.jd.com"
+      port: 443
+      tls: true
+
+agentGateway:
+  replicas: 2
+  leaderLeaseName: joysafeter-agent-gateway-dev
+
+envoy:
+  socketHostDir: /data/joysafeter-dev/envoy-sockets

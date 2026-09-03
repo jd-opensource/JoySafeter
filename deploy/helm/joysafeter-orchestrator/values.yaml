@@ -1,18 +1,28 @@
 # =============================================================================
 # JoySafeter Orchestrator Helm Values — 默认值 (通用基础)
 # =============================================================================
-# 使用方式:
-#   helm install joysafeter-test . -f values-test.yaml
-#   helm install joysafeter-prod . -f values-prod.yaml
+# 使用对应环境 values 与镜像锁文件安装，完整命令见 README.md。
 # =============================================================================
 
 # ── 全局 ──
-environment: production   # test / production
+environment: dev   # dev / pre / production
 timezone: Asia/Shanghai
+
+# Namespace-level safety ceiling. CPU/memory quota is intentionally not enabled
+# until every dynamically-created sandbox/init container declares requests.
+resourceQuota:
+  enabled: true
+  hard:
+    pods: "50"
+    services: "20"
+    configmaps: "100"
+    secrets: "100"
+    persistentvolumeclaims: "20"
 
 # ── 镜像 ──
 image:
   orchestrator: aisec-repo.jd.com/joysafeter/joysafeter-orchestrator-rs:latest
+  agentGateway: aisec-repo.jd.com/joysafeter/joysafeter-agent-gateway:latest
   envoy: aisec-repo.jd.com/joysafeter/joysafeter-envoy:v1.37.1
   sandbox:
     claude: aisec-repo.jd.com/joysafeter/joysafeter-claudecode:latest
@@ -69,8 +79,54 @@ xdsAuth:
   writeKeyId: ""
   token: ""
 
-# ── HA 模式 ──
-haMode: multi   # standalone / leader / multi
+# 独立 Agent Gateway。Orchestrator 是唯一持久真相；Gateway 保存可丢弃的
+# 内存 xDS 投影，resolved UserToken/AgentToken 只经管理面进入 Gateway/Envoy 内存。
+agentGateway:
+  replicas: 3
+  managementToken: ""
+  # Dedicated replica-to-replica token. Snapshots contain credential
+  # material, so isolate this channel and enable mesh mTLS in production.
+  replicationToken: ""
+  hotStandbyMinAcks: 1
+  replicationAckTimeoutMs: 1000
+  deliveryTimeoutSeconds: 20
+  # Orchestrator HTTP timeout must cover Gateway Envoy-ACK delivery plus
+  # follower replication acknowledgement and transport overhead.
+  requestTimeoutSeconds: 25
+  shutdownGraceSeconds: 10
+  leaderLeaseName: joysafeter-agent-gateway
+  leaderLeaseDurationSeconds: 15
+  leaderRenewIntervalSeconds: 5
+  # Required with standard NetworkPolicy; use the Kubernetes Service/API CIDR.
+  # Cilium installations use the kube-apiserver entity instead.
+  kubernetesApiCidrs: []
+  nodeVisibility: node_scoped
+  xdsPort: 9092
+  httpPort: 9093
+  # gRPC management port. Orchestrator calls ApplyPolicy/RemovePolicy here
+  # (type-safe, high-performance path replacing the HTTP management API).
+  managementGrpcPort: 9094
+  # gRPC policy stream endpoint (optional). When set, gateway subscribes to
+  # real-time policy events from orchestrator instead of polling HTTP.
+  # Example: "grpc://joysafeter-orchestrator.default.svc.cluster.local:50051"
+  policyStreamEndpoint: ""
+  # Transport identity and certificate rotation are delegated to the mesh.
+  # Add its sidecar injection annotation here and enforce strict mTLS in the
+  # mesh policy; application-level tokens remain enabled as defense in depth.
+  podAnnotations: {}
+  priorityClassName: ""
+  nodeSelector: {}
+  tolerations: []
+  podDisruptionBudget:
+    enabled: true
+    maxUnavailable: 1
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "128Mi"
+    limits:
+      cpu: "2"
+      memory: "512Mi"
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Orchestrator Deployment
@@ -78,6 +134,17 @@ haMode: multi   # standalone / leader / multi
 
 orchestrator:
   replicas: 3
+
+  priorityClassName: ""
+  nodeSelector: {}
+  tolerations: []
+
+  # Applied to dynamically-created sandbox Pods. Keep this aligned with the
+  # Envoy DaemonSet because managed egress uses a node-local Unix socket.
+  sandboxPlacement:
+    priorityClassName: ""
+    nodeSelector: {}
+    tolerations: []
 
   # ── 文件存储 ──
   # API 写文件，orchestrator-rs 读 session 文件；两边必须使用同一套配置。
@@ -124,19 +191,15 @@ orchestrator:
     maxConnections: 5000
     maxExecutions: 2000
 
-  xds:
-    port: 9092
-
   # ── 调度 ──
   scheduling:
     maxConcurrentTasks: 500
     maxSchedulingTasks: 300
     batchSize: 10
 
-  # ── 任务重试/租约 ──
+  # ── 任务超时/租约 ──
   task:
     defaultTimeout: 7200
-    defaultMaxRetries: 2
     leaseTtlSec: 45
     leaseRenewIntervalSec: 10
 
@@ -159,7 +222,6 @@ orchestrator:
   sandboxResources:
     cpu: ""                  # 如 "2" (核数)
     memoryMb: ""             # 如 4096
-    diskMb: ""               # 如 10240
 
   # ── 沙箱内存存储上限 ──
   maxMemoriesPerStore: 2000
@@ -182,10 +244,7 @@ orchestrator:
   eventStream:
     enabled: true
     key: "joysafeter:orchestrator:events"
-    group: "joysafeter-orchestrator-event-workers"
     maxLen: 100000
-    batchSize: 100
-    blockMs: 1000
     fallbackToDb: true
 
   # ── 数据库连接池 ──
@@ -193,17 +252,15 @@ orchestrator:
     poolSize: 20
     minConnections: 5
 
+  # Every environment must use a dedicated Redis instance. The prefix remains
+  # a defense-in-depth boundary against accidental endpoint misconfiguration.
+  redis:
+    keyPrefix: "joysafeter:dev"
+
   # ── 心跳 ──
   heartbeat:
     interval: 15
     ttl: 30
-
-  # ── Leader 模式 (仅 haMode=leader 时) ──
-  leader:
-    leaseName: joysafeter-orchestrator-leader
-    xdsLeaseName: joysafeter-orchestrator-xds-leader
-    leaseDurationSec: 10
-    renewIntervalSec: 3
 
   # ── 日志 ──
   logLevel: info
@@ -212,9 +269,19 @@ orchestrator:
 agentIdentity:
   provider: none
   baseUrl: ""
-  allowedHosts: []
-  cookieName: ""
-  contextTtlSeconds: 300
+  # Namespace-scoped AgentIdentityService resources. Exact DNS names and
+  # leading wildcards such as *.dataagent.example.com are supported.
+  services: []
+  # services:
+  #   - name: icc-dataagent-http
+  #     host: icc-dataagent-api.jd.com
+  #     port: 80
+  #     tls: false
+  #   - name: trusted-dataagents-https
+  #     host: "*.dataagent.jd.com"
+  #     port: 443
+  #     tls: true
+  #     enabled: true
   clientId: ""
   platformId: ""
   authType: SSO
@@ -230,10 +297,14 @@ agentIdentity:
 
 envoy:
   enabled: true
-  xdsMode: grpc
   socketHostDir: /data/joysafeter/envoy-sockets
+  priorityClassName: ""
+  nodeSelector: {}
+  tolerations: []
   runAsUser: 101
   runAsGroup: 101
+  terminationGracePeriodSeconds: 40
+  drainSeconds: 20
 
   resources:
     requests:

@@ -1,0 +1,198 @@
+{{- if hasKey .Values.agentGateway "enabled" }}
+{{- fail "agentGateway.enabled has been removed; the Helm architecture always deploys the independent Agent Gateway" }}
+{{- end }}
+{{- if hasKey .Values "haMode" }}
+{{- fail "haMode has been removed; Helm always runs stateless multi-replica Orchestrator with Agent Gateway owning xDS leadership" }}
+{{- end }}
+{{- if not .Values.envoy.enabled }}
+{{- fail "the independent Agent Gateway architecture requires envoy.enabled=true" }}
+{{- end }}
+{{- if lt (int .Values.agentGateway.replicas) 1 }}
+{{- fail "agentGateway.replicas must be at least 1" }}
+{{- end }}
+{{- if or (lt (int .Values.agentGateway.hotStandbyMinAcks) 0) (gt (int .Values.agentGateway.hotStandbyMinAcks) 32) }}
+{{- fail "agentGateway.hotStandbyMinAcks must be between 0 and 32" }}
+{{- end }}
+{{- if lt (int .Values.agentGateway.replicas) (add (int .Values.agentGateway.hotStandbyMinAcks) 1) }}
+{{- fail "agentGateway.replicas must be at least hotStandbyMinAcks + 1" }}
+{{- end }}
+{{- if or (lt (int .Values.agentGateway.deliveryTimeoutSeconds) 1) (gt (int .Values.agentGateway.deliveryTimeoutSeconds) 300) }}
+{{- fail "agentGateway.deliveryTimeoutSeconds must be between 1 and 300" }}
+{{- end }}
+{{- if or (lt (int .Values.agentGateway.replicationAckTimeoutMs) 100) (gt (int .Values.agentGateway.replicationAckTimeoutMs) 30000) }}
+{{- fail "agentGateway.replicationAckTimeoutMs must be between 100 and 30000" }}
+{{- end }}
+{{- $replicationAckSeconds := div (add (int .Values.agentGateway.replicationAckTimeoutMs) 999) 1000 }}
+{{- $minimumRequestTimeout := add (int .Values.agentGateway.deliveryTimeoutSeconds) $replicationAckSeconds 2 }}
+{{- if or (lt (int .Values.agentGateway.requestTimeoutSeconds) $minimumRequestTimeout) (gt (int .Values.agentGateway.requestTimeoutSeconds) 600) }}
+{{- fail (printf "agentGateway.requestTimeoutSeconds must be between %d and 600 to cover delivery and replication timeouts" $minimumRequestTimeout) }}
+{{- end }}
+{{- if or (lt (int .Values.agentGateway.leaderRenewIntervalSeconds) 1) (ge (int .Values.agentGateway.leaderRenewIntervalSeconds) (int .Values.agentGateway.leaderLeaseDurationSeconds)) }}
+{{- fail "agentGateway.leaderRenewIntervalSeconds must be positive and lower than leaderLeaseDurationSeconds" }}
+{{- end }}
+{{- if not (has .Values.agentGateway.nodeVisibility (list "node_scoped" "unscoped")) }}
+{{- fail "agentGateway.nodeVisibility must be node_scoped or unscoped" }}
+{{- end }}
+{{- if and .Values.networkPolicy.enabled (eq .Values.networkPolicy.type "standard") (eq (len .Values.agentGateway.kubernetesApiCidrs) 0) }}
+{{- fail "agentGateway.kubernetesApiCidrs must contain the Kubernetes API CIDR when standard NetworkPolicy is enabled" }}
+{{- end }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: joysafeter-agent-gateway
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: {{ .Values.agentGateway.replicas }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: joysafeter-agent-gateway
+  template:
+    metadata:
+      labels:
+        app: joysafeter-agent-gateway
+        app.kubernetes.io/environment: {{ .Values.environment }}
+      annotations:
+        checksum/secret: {{ include (print $.Template.BasePath "/platform/secret.yaml") . | sha256sum }}
+        {{- with .Values.agentGateway.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: joysafeter-agent-gateway
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: {{ add .Values.agentGateway.shutdownGraceSeconds 10 }}
+      {{- with .Values.agentGateway.priorityClassName }}
+      priorityClassName: {{ . | quote }}
+      {{- end }}
+      {{- with .Values.agentGateway.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.agentGateway.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.image.imagePullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . }}
+        {{- end }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: kubernetes.io/hostname
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels:
+            app: joysafeter-agent-gateway
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels:
+            app: joysafeter-agent-gateway
+      containers:
+      - name: agent-gateway
+        image: {{ .Values.image.agentGateway }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - name: xds
+          containerPort: {{ .Values.agentGateway.xdsPort }}
+        - name: http
+          containerPort: {{ .Values.agentGateway.httpPort }}
+        - name: mgmt-grpc
+          containerPort: {{ .Values.agentGateway.managementGrpcPort }}
+        env:
+        - name: JOYSAFETER_AGENT_GATEWAY_INSTANCE_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: JOYSAFETER_AGENT_GATEWAY_LEADER_ELECTION_ENABLED
+          value: "true"
+        - name: JOYSAFETER_AGENT_GATEWAY_LEADER_LEASE_NAME
+          value: {{ .Values.agentGateway.leaderLeaseName | quote }}
+        - name: JOYSAFETER_AGENT_GATEWAY_LEADER_LEASE_DURATION_SECS
+          value: {{ .Values.agentGateway.leaderLeaseDurationSeconds | quote }}
+        - name: JOYSAFETER_AGENT_GATEWAY_LEADER_RENEW_INTERVAL_SECS
+          value: {{ .Values.agentGateway.leaderRenewIntervalSeconds | quote }}
+        - name: JOYSAFETER_AGENT_GATEWAY_REPLICATION_URL
+          value: "http://joysafeter-agent-gateway.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.agentGateway.httpPort }}"
+        - name: JOYSAFETER_AGENT_GATEWAY_REPLICATION_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.externalSecret }}
+              key: JOYSAFETER_AGENT_GATEWAY_REPLICATION_TOKEN
+        - name: JOYSAFETER_AGENT_GATEWAY_HOT_STANDBY_MIN_ACKS
+          value: {{ .Values.agentGateway.hotStandbyMinAcks | quote }}
+        - name: JOYSAFETER_AGENT_GATEWAY_REPLICATION_ACK_TIMEOUT_MS
+          value: {{ .Values.agentGateway.replicationAckTimeoutMs | quote }}
+        - name: JOYSAFETER_AGENT_GATEWAY_XDS_PORT
+          value: {{ .Values.agentGateway.xdsPort | quote }}
+        - name: JOYSAFETER_AGENT_GATEWAY_HTTP_PORT
+          value: {{ .Values.agentGateway.httpPort | quote }}
+        - name: JOYSAFETER_AGENT_GATEWAY_MANAGEMENT_GRPC_PORT
+          value: {{ .Values.agentGateway.managementGrpcPort | quote }}
+        - name: JOYSAFETER_AGENT_GATEWAY_NODE_VISIBILITY
+          value: {{ .Values.agentGateway.nodeVisibility | quote }}
+        # Keep the boundary process least-privileged: reference only protocol
+        # credentials; never inject DB, Redis, vault, or product storage keys.
+        - name: JOYSAFETER_XDS_AUTH_KEYRING
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.externalSecret }}
+              key: JOYSAFETER_XDS_AUTH_KEYRING
+        - name: JOYSAFETER_XDS_AUTH_WRITE_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.externalSecret }}
+              key: JOYSAFETER_XDS_AUTH_WRITE_KEY_ID
+        - name: JOYSAFETER_AGENT_GATEWAY_MANAGEMENT_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.externalSecret }}
+              key: JOYSAFETER_AGENT_GATEWAY_MANAGEMENT_TOKEN
+        - name: JOYSAFETER_AGENT_GATEWAY_DELIVERY_TIMEOUT_SECS
+          value: {{ .Values.agentGateway.deliveryTimeoutSeconds | quote }}
+        - name: JOYSAFETER_AGENT_GATEWAY_SHUTDOWN_GRACE_SECS
+          value: {{ .Values.agentGateway.shutdownGraceSeconds | quote }}
+        {{- if .Values.agentGateway.policyStreamEndpoint }}
+        - name: JOYSAFETER_AGENT_GATEWAY_POLICY_STREAM_ENDPOINT
+          value: {{ .Values.agentGateway.policyStreamEndpoint | quote }}
+        {{- end }}
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: http
+          periodSeconds: 3
+          failureThreshold: 3
+          initialDelaySeconds: 2
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: http
+          periodSeconds: 10
+          failureThreshold: 3
+          initialDelaySeconds: 5
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+          readOnlyRootFilesystem: true
+        resources:
+          {{- toYaml .Values.agentGateway.resources | nindent 10 }}

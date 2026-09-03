@@ -1,0 +1,48 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- if eq .Values.networkPolicy.type "cilium" }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: joysafeter-orchestrator-ingress
+  namespace: {{ .Release.Namespace }}
+spec:
+  endpointSelector:
+    matchLabels:
+      app: joysafeter-orchestrator
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app.kubernetes.io/name: joysafeter-sandbox
+    toPorts:
+    - ports:
+      - port: "{{ .Values.orchestrator.grpc.port }}"
+        protocol: TCP
+  - fromEntities:
+    - host
+    - remote-node
+    toPorts:
+    - ports:
+      - port: "9091"
+        protocol: TCP
+{{- else }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: joysafeter-orchestrator-ingress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: joysafeter-orchestrator
+  policyTypes:
+  - Ingress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app.kubernetes.io/name: joysafeter-sandbox
+    ports:
+    - port: {{ .Values.orchestrator.grpc.port }}
+      protocol: TCP
+{{- end }}
+{{- end }}

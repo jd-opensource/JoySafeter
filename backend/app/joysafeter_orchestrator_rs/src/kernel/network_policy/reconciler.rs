@@ -25,6 +25,17 @@ impl NetworkPolicyReconciler {
         info!("Network policy reconciler started (adaptive 2s/15s)");
 
         loop {
+            match self.service.recover_runtime_if_required().await {
+                Ok(recovered) if recovered > 0 => {
+                    info!(recovered, "Recovered restarted network-policy runtime");
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    error!(error = %error, "Remote network-policy runtime recovery failed");
+                    tokio::time::sleep(FAST).await;
+                    continue;
+                }
+            }
             let repaired = match self.reconcile_batch(BATCH).await {
                 Ok(count) => count,
                 Err(error) => {

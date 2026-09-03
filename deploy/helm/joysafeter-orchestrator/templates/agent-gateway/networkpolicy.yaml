@@ -1,0 +1,134 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- if eq .Values.networkPolicy.type "cilium" }}
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: joysafeter-agent-gateway-ingress
+  namespace: {{ .Release.Namespace }}
+spec:
+  endpointSelector:
+    matchLabels:
+      app: joysafeter-agent-gateway
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        app: joysafeter-agent-gateway
+    toPorts:
+    - ports:
+      - port: {{ .Values.agentGateway.httpPort | quote }}
+        protocol: TCP
+  - toEntities:
+    - kube-apiserver
+    # The kube-apiserver entity remains correct after Service translation,
+    # where policy may observe the backend port instead of Service port 443.
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: kube-system
+        k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: "53"
+        protocol: UDP
+      - port: "53"
+        protocol: TCP
+      rules:
+        dns:
+        - matchPattern: "*"
+  ingress:
+  - fromEndpoints:
+    - matchLabels:
+        app: joysafeter-envoy
+    toPorts:
+    - ports:
+      - port: "{{ .Values.agentGateway.xdsPort }}"
+        protocol: TCP
+  - fromEndpoints:
+    - matchLabels:
+        app: joysafeter-orchestrator
+    toPorts:
+    - ports:
+      - port: "{{ .Values.agentGateway.httpPort }}"
+        protocol: TCP
+  - fromEndpoints:
+    - matchLabels:
+        app: joysafeter-agent-gateway
+    toPorts:
+    - ports:
+      - port: "{{ .Values.agentGateway.httpPort }}"
+        protocol: TCP
+  - fromEntities:
+    - host
+    - remote-node
+    toPorts:
+    - ports:
+      - port: "{{ .Values.agentGateway.httpPort }}"
+        protocol: TCP
+{{- else }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: joysafeter-agent-gateway-ingress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: joysafeter-agent-gateway
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - podSelector:
+        matchLabels:
+          app: joysafeter-envoy
+    ports:
+    - port: {{ .Values.agentGateway.xdsPort }}
+      protocol: TCP
+  - from:
+    - podSelector:
+        matchLabels:
+          app: joysafeter-orchestrator
+    ports:
+    - port: {{ .Values.agentGateway.httpPort }}
+      protocol: TCP
+    - port: {{ .Values.agentGateway.managementGrpcPort }}
+      protocol: TCP
+  - from:
+    - podSelector:
+        matchLabels:
+          app: joysafeter-agent-gateway
+    ports:
+    - port: {{ .Values.agentGateway.httpPort }}
+      protocol: TCP
+  # The Gateway only calls replica peers, Kubernetes Lease API, and DNS.
+  # Business upstream traffic remains in Envoy.
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: joysafeter-agent-gateway
+    ports:
+    - port: {{ .Values.agentGateway.httpPort }}
+      protocol: TCP
+  {{- range .Values.agentGateway.kubernetesApiCidrs }}
+  - to:
+    - ipBlock:
+        cidr: {{ . | quote }}
+    ports:
+    - port: 443
+      protocol: TCP
+  {{- end }}
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+{{- end }}
+{{- end }}

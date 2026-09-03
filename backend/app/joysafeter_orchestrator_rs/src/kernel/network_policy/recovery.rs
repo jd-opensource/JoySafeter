@@ -2,7 +2,7 @@ use sqlx::PgPool;
 
 use crate::db::queries;
 use crate::ids::SandboxId;
-use crate::xds::authority::RecoveryAuthorityGuard;
+use crate::xds::authority::{MutationAuthorityGuard, RecoveryAuthorityGuard};
 
 use super::envoy_model::validate_egress_policy;
 use super::material::NetworkPolicyMaterialResolver;
@@ -16,12 +16,55 @@ pub async fn recover_as_authority(
     material_resolver: &dyn NetworkPolicyMaterialResolver,
     authority: &RecoveryAuthorityGuard,
 ) -> anyhow::Result<usize> {
-    authority.validate()?;
+    recover_inventory(pool, runtime, material_resolver, authority).await
+}
+
+pub async fn resync_as_authority(
+    pool: &PgPool,
+    runtime: &dyn NetworkPolicyRuntime,
+    material_resolver: &dyn NetworkPolicyMaterialResolver,
+    authority: &MutationAuthorityGuard,
+) -> anyhow::Result<usize> {
+    recover_inventory(pool, runtime, material_resolver, authority).await
+}
+
+trait InventoryAuthorityGuard {
+    fn validate_inventory(&self) -> anyhow::Result<()>;
+    fn epoch(&self) -> u64;
+}
+
+impl InventoryAuthorityGuard for RecoveryAuthorityGuard {
+    fn validate_inventory(&self) -> anyhow::Result<()> {
+        self.validate().map_err(Into::into)
+    }
+
+    fn epoch(&self) -> u64 {
+        RecoveryAuthorityGuard::epoch(self)
+    }
+}
+
+impl InventoryAuthorityGuard for MutationAuthorityGuard {
+    fn validate_inventory(&self) -> anyhow::Result<()> {
+        self.validate().map_err(Into::into)
+    }
+
+    fn epoch(&self) -> u64 {
+        MutationAuthorityGuard::epoch(self)
+    }
+}
+
+async fn recover_inventory(
+    pool: &PgPool,
+    runtime: &dyn NetworkPolicyRuntime,
+    material_resolver: &dyn NetworkPolicyMaterialResolver,
+    authority: &(impl InventoryAuthorityGuard + Sync),
+) -> anyhow::Result<usize> {
+    authority.validate_inventory()?;
     let sandboxes = queries::load_recovery_inventory(pool).await?;
     let mut entries = Vec::new();
 
     for sandbox in sandboxes {
-        authority.validate()?;
+        authority.validate_inventory()?;
         let networking = sandbox
             .config
             .as_ref()
@@ -113,10 +156,10 @@ pub async fn recover_as_authority(
     }
 
     let report = runtime.recover(authority.epoch(), entries).await?;
-    authority.validate()?;
+    authority.validate_inventory()?;
     let mut recovered = 0usize;
     for (sandbox_id, generation) in report.ready {
-        authority.validate()?;
+        authority.validate_inventory()?;
         match queries::mark_generation_applied(pool, sandbox_id, &generation).await? {
             queries::NetworkPolicyAckOutcome::Applied
             | queries::NetworkPolicyAckOutcome::AlreadyReady => recovered += 1,

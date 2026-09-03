@@ -27,5 +27,7 @@
 # target/. Ship ONLY those binaries — never the multi-GB incremental build tree.
 !target/x86_64-unknown-linux-gnu/release/joysafeter-runner
 !target/x86_64-unknown-linux-gnu/release/joysafeter-orchestrator
+!target/x86_64-unknown-linux-gnu/release/joysafeter-agent-gateway
 !target/aarch64-unknown-linux-gnu/release/joysafeter-runner
 !target/aarch64-unknown-linux-gnu/release/joysafeter-orchestrator
+!target/aarch64-unknown-linux-gnu/release/joysafeter-agent-gateway

@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use std::collections::HashSet;
+use thiserror::Error;
 
 use super::envoy_model::SandboxEgressPolicy;
 use super::request::NetworkPolicyRequest;
@@ -11,6 +12,15 @@ pub struct NetworkPolicyApplyRequest {
     pub authority_epoch: u64,
     pub sandbox_id: SandboxId,
     pub generation: NetworkPolicyGeneration,
+}
+
+/// Semantic failure returned by a policy runtime. Only an explicit Envoy NACK
+/// may be persisted as `nacked`; timeouts and infrastructure failures remain
+/// operational failures.
+#[derive(Debug, Error)]
+pub enum NetworkPolicyApplyError {
+    #[error("Envoy rejected the network policy: {0}")]
+    Nacked(#[source] anyhow::Error),
 }
 
 #[derive(Clone)]
@@ -38,6 +48,18 @@ pub struct NetworkPolicyRecoveryReport {
 pub trait NetworkPolicyRuntime: Send + Sync {
     async fn initialize(&self) -> anyhow::Result<()>;
 
+    /// Whether this runtime can receive task-scoped credential values without
+    /// persisting them in the durable policy source.
+    fn supports_ephemeral_credentials(&self) -> bool {
+        true
+    }
+
+    /// Returns true when the remote policy runtime lost its in-memory world and
+    /// needs the authoritative PostgreSQL inventory to be replayed.
+    async fn full_recovery_required(&self) -> anyhow::Result<bool> {
+        Ok(false)
+    }
+
     async fn prune(&self, live_sandbox_ids: &HashSet<SandboxId>) -> anyhow::Result<usize>;
 
     async fn recover(
@@ -52,7 +74,11 @@ pub trait NetworkPolicyRuntime: Send + Sync {
         policy: SandboxEgressPolicy,
     ) -> anyhow::Result<()>;
 
-    async fn remove(&self, sandbox_id: SandboxId) -> anyhow::Result<()>;
+    async fn remove(
+        &self,
+        sandbox_id: SandboxId,
+        generation: Option<&NetworkPolicyGeneration>,
+    ) -> anyhow::Result<()>;
 }
 
 /// Durable wakeup channel for the elected xDS authority.

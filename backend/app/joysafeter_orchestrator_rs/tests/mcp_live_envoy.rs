@@ -396,6 +396,7 @@ fn policy(fixture_ip: &str, bearer: &str) -> SandboxCredentials {
             ),
         ],
         proxy_auth_token: None,
+        ephemeral_valid_for_seconds: None,
     }
 }
 

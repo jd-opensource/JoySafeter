@@ -1,0 +1,93 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- if eq .Values.networkPolicy.type "cilium" }}
+# Envoy reaches the xDS authority, cluster DNS, and public upstreams. Its admin
+# API is loopback-only and Pod-network ingress is denied as a second boundary.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: joysafeter-envoy-egress
+  namespace: {{ .Release.Namespace }}
+spec:
+  endpointSelector:
+    matchLabels:
+      app: joysafeter-envoy
+  ingressDeny:
+  - fromEntities:
+    - all
+  egress:
+  - toEndpoints:
+    - matchLabels:
+        app: joysafeter-agent-gateway
+    toPorts:
+    - ports:
+      - port: "{{ .Values.agentGateway.xdsPort }}"
+        protocol: TCP
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: kube-system
+        k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: "53"
+        protocol: UDP
+      - port: "53"
+        protocol: TCP
+      rules:
+        dns:
+        - matchPattern: "*"
+  - toEntities:
+    - world
+    toPorts:
+    - ports:
+      - port: "443"
+        protocol: TCP
+      - port: "80"
+        protocol: TCP
+{{- else }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: joysafeter-envoy-egress
+  namespace: {{ .Release.Namespace }}
+spec:
+  podSelector:
+    matchLabels:
+      app: joysafeter-envoy
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress: []
+  egress:
+  - to:
+    - podSelector:
+        matchLabels:
+          app: joysafeter-agent-gateway
+    ports:
+    - port: {{ .Values.agentGateway.xdsPort }}
+      protocol: TCP
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: kube-system
+      podSelector:
+        matchLabels:
+          k8s-app: kube-dns
+    ports:
+    - port: 53
+      protocol: UDP
+    - port: 53
+      protocol: TCP
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+    ports:
+    - port: 443
+      protocol: TCP
+    - port: 80
+      protocol: TCP
+{{- end }}
+{{- end }}

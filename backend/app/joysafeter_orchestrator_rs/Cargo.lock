@@ -611,6 +611,8 @@ dependencies = [
  "http 1.4.2",
  "http-body 1.0.1",
  "http-body-util",
+ "hyper 1.10.1",
+ "hyper-util",
  "itoa",
  "matchit",
  "memchr",
@@ -619,10 +621,15 @@ dependencies = [
  "pin-project-lite",
  "rustversion",
  "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "serde_urlencoded",
  "sync_wrapper",
+ "tokio",
  "tower 0.5.3",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]
@@ -643,6 +650,7 @@ dependencies = [
  "sync_wrapper",
  "tower-layer",
  "tower-service",
+ "tracing",
 ]
 
 [[package]]
@@ -2180,6 +2188,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "joysafeter-agent-gateway-contract"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "joysafeter-entity-id"
 version = "0.1.0"
 dependencies = [
@@ -2200,6 +2215,7 @@ dependencies = [
  "aws-config",
  "aws-credential-types",
  "aws-sdk-s3",
+ "axum",
  "base64",
  "bollard",
  "chrono",
@@ -2211,6 +2227,7 @@ dependencies = [
  "gethostname",
  "hex",
  "jd-agent-identity",
+ "joysafeter-agent-gateway-contract",
  "joysafeter-entity-id",
  "k8s-openapi",
  "kube",
@@ -3581,6 +3598,17 @@ dependencies = [
  "serde",
  "serde_core",
  "zmij",
+]
+
+[[package]]
+name = "serde_path_to_error"
+version = "0.1.20"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "10a9ff822e371bb5403e391ecd83e182e0e77ba7f6fe0160b795797109d1b457"
+dependencies = [
+ "itoa",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]

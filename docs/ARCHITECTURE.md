@@ -15,10 +15,9 @@ persisted, and pushed to the browser live over **SSE**.
 
 ## 1. Deployment topology
 
-JoySafeter runs as **two Python FastAPI services, one Rust orchestrator, and supporting
-infrastructure**. The Python API and Worker share one codebase and select behavior at boot
-from `JOYSAFETER_SERVICE_ROLE` (`api` / `worker`). The orchestrator is the Rust binary in
-`app/joysafeter_orchestrator_rs`.
+JoySafeter runs as **two Python FastAPI services, one Rust orchestrator, an optional Rust
+Agent Gateway, and supporting infrastructure**. The Python API and Worker share one codebase
+and select behavior at boot from `JOYSAFETER_SERVICE_ROLE` (`api` / `worker`).
 
 ```mermaid
 flowchart TB
@@ -32,8 +31,12 @@ flowchart TB
     subgraph ORCH_S["Rust Orchestrator service"]
         SCHED["Task scheduler<br/>DB pull · FOR UPDATE SKIP LOCKED"]
         GRPC["gRPC AgentBridge :9090"]
-        XDS["Authenticated Delta ADS :9092"]
+        XDS["Embedded Delta ADS :9092<br/>(default mode)"]
         BUS["Two-phase event bus<br/>persist ∥ broadcast"]
+    end
+
+    subgraph GW_S["Agent Gateway deployment　optional"]
+        GWCP["Lease leader<br/>management + Delta ADS"]
     end
 
     WK["Worker service　role=worker<br/>Stream consume → persist → republish"]
@@ -66,6 +69,9 @@ flowchart TB
     ENVOY <-->|"unix socket → TCP"| GRPC
     RUN -->|"outbound HTTP"| ENVOY
     ENVOY -->|"allowlist"| EXT
+    ENVOY -.->|"ADS when embedded"| XDS
+    ENVOY -.->|"ADS when extracted"| GWCP
+    SCHED -.->|"policy replay / management"| GWCP
 
     %% two-phase event bus
     GRPC -->|"harness events"| BUS
@@ -84,6 +90,7 @@ flowchart TB
     style SCHED fill:#fff3e0
     style GRPC fill:#fff3e0
     style BUS fill:#fff3e0
+    style GWCP fill:#fff8e1
     style WK fill:#fce4ec
     style RLIST fill:#ffebee
     style RSTREAM fill:#ffebee
@@ -98,6 +105,7 @@ flowchart TB
 |---|---|---|---|
 | **API** | `api` | `JOYSAFETER_SERVICE_ROLE=api` | REST `/api/v1/*`, SSE execution stream, notification WebSocket, auth |
 | **Orchestrator (Rust)** | `orchestrator-rs` (profile `rust-orchestrator`) | — | gRPC `AgentBridge` server, task scheduler, sandbox lifecycle, event bus |
+| **Agent Gateway (Rust, optional)** | Kubernetes Deployment | — | Lease-fenced ADS/management and in-memory direct-xDS projection |
 | **Worker** | `worker` | `worker` | Consumes the Redis event Stream, batch-persists events to `joysafeter_session_events`, republishes for SSE |
 | **Frontend** | `frontend` | — | Next.js App Router UI |
 | **PostgreSQL** | `db` | — | System of record for all state |
@@ -121,7 +129,8 @@ contracts instead of recreating older in-process shortcuts.
 |---|---|---|---|---|
 | Frontend | Product UI state, auth redirects, SSE subscriptions | REST responses, SSE events, notification WS | User commands through REST | Talk to Redis, Postgres, orchestrator gRPC, or sandbox containers directly |
 | API | Auth/RBAC, REST validation, CRUD, task creation, SSE replay/live bridge, skill write-time scan calls | Browser requests, DB state, Redis Pub/Sub for live events | DB rows, Redis task wakeup, Redis command relay | Run agent harnesses, create sandboxes, consume durable event streams |
-| Rust orchestrator | Scheduling, task leases, sandbox lifecycle, runner gRPC, the elected xDS authority, control ACKs, event emission | Pending DB tasks, Redis wakeups/commands, runner gRPC streams, Envoy ACK/NACK | Task/sandbox/session state, Redis Stream events, Redis Pub/Sub broadcasts, leader-owned xDS resources | Serve product REST APIs, own browser auth, batch-persist event logs as the primary path, or let non-authority replicas mutate provider-local xDS state |
+| Rust orchestrator | Scheduling, task leases, sandbox lifecycle, runner gRPC, durable policy intent/material resolution, event emission | Pending DB tasks, Redis wakeups/commands, runner gRPC streams, Agent Gateway acknowledgements | Task/sandbox/session state, Redis Stream events, Redis Pub/Sub broadcasts, authenticated policy and placement commands | Serve product REST APIs, own browser auth, batch-persist event logs as the primary path, or mutate an external Gateway's xDS resource store directly |
+| Agent Gateway | Authenticated Delta ADS, disposable in-memory policy projection, per-sandbox xDS resources, Envoy ACK/NACK, placement ownership, policy rendering and boundary credential injection | Versioned policies with resolved headers from Orchestrator, Envoy subscriptions and ACK/NACK | Listener/cluster snapshots and process-local delivery status | Schedule tasks, own sandbox lifecycle, access PostgreSQL/Redis/vault keys, or persist credentials |
 | Sandbox runner | In-container harness execution, tool/MCP invocation, memory/file sync from inside the sandbox | `SetupSandbox` and `StartTask` over gRPC, sandbox env, task-scoped files | Runner events/results over gRPC, memory sync messages | Receive generic secret maps or remote MCP authentication material, reach the host network directly, mutate platform DB/Redis, bypass Envoy egress policy |
 | Worker | Durable event persistence, `seq` assignment, Redis Stream recovery/redelivery | Redis Stream consumer group | `joysafeter_session_events`, replay Pub/Sub after DB write | Schedule tasks, create sandboxes, expose user-facing APIs |
 | SkillSpector | Static skill security scanning service | Skill content sent by API/domain service | Advisory verdicts and optional publish-time enforcement | Decide runtime packaging or invalidate already-published versions |
@@ -256,7 +265,9 @@ Runtime communication uses several purpose-built channels. This table is the def
 | **Durable event bus** | Redis **Streams** `joysafeter:orchestrator:events` + consumer group | Orchestrator `XADD` → Worker `XREADGROUP` → DB persist | `joysafeter_orchestrator_rs/src/events/stream_publisher.rs`, `joysafeter_worker/events/stream_consumer.py` |
 | **Live event fan-out** | Redis **Pub/Sub** `joysafeter:session_events:{id}` | Cross-instance SSE delivery via `SessionBroadcaster` | `joysafeter_orchestrator_rs/src/kernel/session_broadcaster.rs`, `joysafeter_shared/orchestrator_bridge/session_broadcaster.py` |
 | Control/cancel relay | Redis **Pub/Sub** `joysafeter:cmd:{instance}` | Route cancel/input/shutdown to the instance owning the sandbox | `joysafeter_shared/orchestrator_bridge/runtime_commands.py`, `joysafeter_orchestrator_rs/src/kernel/command_listener.rs` |
-| Network-policy wakeup | Redis **Stream** `joysafeter:network-policy:requests` | Wake the elected xDS authority for an exact PostgreSQL policy generation or teardown | `joysafeter_orchestrator_rs/src/kernel/ha/redis_impl.rs`, `joysafeter_orchestrator_rs/src/xds/authority.rs` |
+| Network-policy wakeup | Redis **Stream** `joysafeter:network-policy:requests` | Compatibility path for the embedded elected xDS authority | `joysafeter_orchestrator_rs/src/kernel/ha/redis_impl.rs`, `joysafeter_orchestrator_rs/src/xds/authority.rs` |
+| Orchestrator → Agent Gateway | Authenticated HTTP `/internal/v1/*` | Apply/remove exact policy generations, placement reconciliation, restart detection | `joysafeter_orchestrator_rs/src/agent_gateway`, `joysafeter_agent_gateway/src/adapters/inbound/management_http.rs` |
+| Envoy → Agent Gateway | Authenticated Delta ADS gRPC `:9092` | Receive per-node listener/cluster snapshots and return ACK/NACK | `joysafeter_agent_gateway/src/xds` |
 | Orchestrator ↔ runner | **gRPC** `AgentBridge` (bidi stream, :9090) | The agent execution protocol | `proto/joysafeter.proto`, `joysafeter_orchestrator_rs/src/grpc/server.rs` |
 | Runner egress | Envoy proxy (unix socket) | Per-sandbox domain allowlist, deny-all default | `joysafeter_orchestrator_rs/src/sandbox/envoy.rs` |
 | Skill scan | HTTP → skillspector `:8010` | Informational scans on writes; optional fresh fail-closed scan only when publishing | `joysafeter_skill_security.py` |
@@ -264,6 +275,37 @@ Runtime communication uses several purpose-built channels. This table is the def
 **API ↔ orchestrator is Redis, not direct gRPC.** Python API/worker processes use
 `joysafeter_shared.orchestrator_bridge` only for lightweight API-side helpers and optional test seams; runtime control flows through
 Redis command relay and ACKs. gRPC is used *only* for the Rust orchestrator ↔ in-sandbox-runner hop.
+
+The standalone Agent Gateway uses Kubernetes Lease to elect one ADS/management
+authority; the Lease transition count is the fencing epoch and a leader-only
+Service selects its Pod label. Gateway replicas have no database: xDS resources,
+placement, delivery attempts, and applied generations are process-local projections.
+
+The leader replicates a complete semantic snapshot followed by strictly ordered
+deltas to hot followers. The protocol fences ACKs with leader term, replica
+session, source instance, revision, and canonical snapshot digest. The replicated
+policy contains resolved header material sent by Orchestrator, matching the
+embedded 0814 behavior so promotion needs no resolver round trip. Rendered
+protobuf remains excluded; each follower re-renders xDS.
+Promotion retains only a complete digest-verified snapshot and still waits for
+the Orchestrator's PostgreSQL-derived generation inventory before becoming
+Ready. Missing, stale, or corrupt snapshots use the same cold replay path as
+process restart.
+
+The Orchestrator's PostgreSQL policy generation and vault are the only durable
+truth. It observes `(boot_id, authority_epoch, generations)` from the Gateway,
+replays missing or mismatched generations through the normal apply/Envoy-ACK
+path, prunes stale sandboxes, and explicitly completes recovery. Reconnecting
+Envoys keep client-only last-good resources during recovery; the Ready
+transition performs the authoritative removal reconciliation. Lease loss
+revokes the old epoch and closes ADS streams, so stale in-flight mutations fail
+closed. Task identity is prepared before sandbox attachment: BotToken, UserToken,
+and task/endpoint-scoped AgentToken are cached in Redis; only UserToken and
+AgentToken are copied into the generation-scoped xDS projection. BotToken never
+leaves Orchestrator. Policy publication and Envoy ACK/socket readiness must complete before
+`StartTask`, so an Agent cannot outrun its egress authorization. Redis loss
+fails identity egress closed; it does not turn Redis into scheduling or policy
+truth.
 
 ---
 
@@ -314,13 +356,11 @@ over gRPC.
 | Event bus | `src/events/bus.rs` | In-process event bus feeding stream persistence and realtime fan-out |
 | Session broadcaster | `src/kernel/session_broadcaster.rs` | Live SSE fan-out via Redis Pub/Sub |
 
-Startup order (`src/bootstrap/application.rs`; `src/main.rs` only delegates): config + database + Redis coordinator → one process-wide xDS authority and
-`XdsControlPlane` → provider adapters receive the control plane → dedicated authenticated ADS on `:9092` → provider initialization →
-`Staging` / `RecoveryServing` PostgreSQL recovery → `Ready` → runner `AgentBridge` on `:9090` → task and
-lifecycle background loops. In multi mode, the Lease owner publishes its endpoint at `RecoveryServing` so
-Envoy can ACK recovery; mutation guards remain unavailable until `Ready`. Lease loss and shutdown enter
-`Revoked` before endpoint removal and transport shutdown. Multi mode fails closed when managed egress is
-enabled without the Kubernetes leader-only xDS authority.
+Startup order (`src/bootstrap/application.rs`; `src/main.rs` only delegates): config + database + Redis
+coordinator → sandbox provider and Agent Gateway client → runner `AgentBridge` on `:9090` → task and
+lifecycle background loops. The Kubernetes deployment does not start Orchestrator's compatibility xDS
+authority; the independent Agent Gateway owns ADS, Lease fencing, hot-standby replication, and Envoy
+delivery acknowledgements.
 
 After a bridge is registered, every session exit follows one finalization path. Protocol/setup/execution
 failures first delegate durable quarantine, credential revocation, and task repair to `RunnerFailureService`;
@@ -443,8 +483,10 @@ Provider failure, malformed material, or route mismatch releases the matching cl
 occur; a concurrent live claim returns `ClaimConflict`; expiry changes the row to `expired` and erases
 material; terminal task transitions change unresolved material to `discarded`. The captured identity token,
 auth code, and browser-header map are not copied into `ResolveContext` or sandbox environment. Only the
-provider-derived per-route injection headers enter the in-memory desired policy/xDS world; their debug and
-metric surfaces remain redacted, and refresh/teardown replaces or removes them. `sandbox_resolver/context.rs`
+provider-derived UserToken/AgentToken values enter the authenticated direct-xDS policy, matching the
+embedded behavior. BotToken remains inside the provider and never enters Gateway or Envoy.
+Debug and metric surfaces remain redacted, and refresh/teardown replaces or removes the projection.
+`sandbox_resolver/context.rs`
 consumes `TaskIdentityService`; it no longer owns or re-exports the identity implementation.
 
 Managed credentials follow a different, reusable flow:
@@ -791,7 +833,7 @@ Provider code submits explicitly owned resources through `EnvoyDelivery`; it nei
 Delta transport internals nor infers ownership from listener or cluster names. The removed
 `sandbox/lds_backend.rs` compatibility facade must not be reintroduced.
 
-### 6.4 MCP runtime plan and xDS authority
+### 6.4 MCP runtime plan and Agent Gateway authority
 
 The Rust orchestrator resolves each agent's MCP configuration into one immutable runtime plan.
 The plan is the common source for the runner-safe projection and the secret-bearing Envoy
@@ -821,49 +863,42 @@ or network mode.
   PostgreSQL `ready` marker alone never proves that the sandbox is executable. A failed network
   restore destroys the restarted runtime and fails the resolve operation closed.
 
-Multi-replica xDS follows one topology only:
+The Kubernetes xDS path follows one topology:
 
 ```text
 PostgreSQL desired generation/status
         ↓
-Redis network-policy wakeup (not state)
+Orchestrator authenticated management request
         ↓
-single Kubernetes Lease-elected xDS authority
+Kubernetes Lease-elected Agent Gateway leader
+        ↓
+leader snapshot/increment replication to hot followers
         ↓
 Envoy ACK/NACK
         ↓
 PostgreSQL generation CAS
 ```
 
-All orchestrator replicas may schedule tasks, own runner bridges, and publish exact-generation
-wakeups. Only the authority replica may recover, apply, remove, or prune provider-local xDS
-resources. Envoy DaemonSet pods connect to `joysafeter-orchestrator-xds`, whose selector contains
-`joysafeter-xds-leader=true`; runner traffic continues through the ordinary load-balanced
-orchestrator Service.
+All Orchestrator replicas may schedule tasks and submit exact-generation policy operations to the
+leader-only Gateway Service. Only the Lease holder accepts management mutations and ADS streams.
+Envoy DaemonSet pods connect to `joysafeter-agent-gateway`; its Service selects the Pod labelled
+`joysafeter-agent-gateway-leader=true`. Runner traffic remains on the ordinary load-balanced
+Orchestrator Service.
 
-Authority activation is ordered and fenced: the pod acquires the dedicated Lease, enters `Staging`,
-recovers the complete live limited-networking inventory from PostgreSQL, atomically installs that
-world, enters `RecoveryServing`, publishes the leader endpoint, waits for Envoy ACKs, and then marks
-the epoch `Ready`. A valid recovery generation whose Kubernetes data plane is not initialized is
-excluded from the active resource world and classified as deferred, not quarantined; its exact
-generation remains `pending` for the PostgreSQL-driven degraded-policy reconciler. Quarantine is
-reserved for invalid policy state or terminal delivery failure. Standby and `Staging` ADS calls fail closed. Losing the Lease or shutting down
-revokes the epoch, disables ADS, actively closes existing ADS streams, and removes the label; the
-design does not rely on Kubernetes endpoint removal to terminate established HTTP/2 connections.
-Every mutation is serialized by one authority application lock and carries an epoch guard. ACK and
-NACK persistence are terminal compare-and-set transitions from `pending`, so a late failure cannot
-overwrite an acknowledged generation. Teardown requests are revalidated against the sandbox's
-current PostgreSQL lifecycle/network mode before touching provider-local xDS state. NACK, timeout,
-generation drift, or persistence failure leaves the sandbox non-ready.
+Gateway mutations are serialized and epoch-fenced. Before an apply succeeds, the leader publishes
+the exact resource revision, waits for the target Envoy ACK, and replicates the resulting in-memory
+world to the configured follower quorum. Followers continuously install full snapshots and ordered
+increments, so promotion starts from a hot snapshot. The promoted replica remains unavailable for
+mutations until its authority handshake completes. Lease loss or shutdown revokes authority and
+removes the leader label. Orchestrator remains the durable source of policy generation and status;
+the Gateway never reads PostgreSQL or Redis, and its in-memory state may be rebuilt by Orchestrator.
 
-Redis delivery is deliberately non-authoritative. Missed reconcile messages are repaired by the
-leader-only degraded-policy loop using PostgreSQL. Missed teardown messages are bounded by the
-authority's periodic prune, which removes only xDS resources absent from the live PostgreSQL
-inventory without republishing healthy generations. A new leader always rebuilds from PostgreSQL
-and never depends on replaying Redis history.
+Orchestrator persists ACK/NACK outcomes with generation compare-and-set, so a late response cannot
+overwrite a newer policy. NACK, timeout, generation drift, or persistence failure leaves the sandbox
+non-ready and execution fails closed.
 
-The health port exposes `/healthz/xds` and `/metrics`. `/healthz/xds` is 200 only in `Ready`; all
-other authority phases and disabled xDS return 503. Metrics use bounded labels and cover authority
+The Agent Gateway management port exposes readiness and `/metrics`; readiness succeeds only for the
+active authority after promotion barriers pass. Metrics use bounded labels and cover authority
 phase/epoch, recovery result and duration, authenticated/rejected ADS streams, active Envoy nodes,
 pending delivery age, ACK/NACK totals, reconnect removals, ownership transitions, stale-session
 closures, and durable degraded inventory. Sandbox IDs, resource names, hashes, tokens, payloads,
@@ -880,8 +915,10 @@ authoritative. Helm owns optional alerts under `monitoring.runnerAlerts` for set
 rejected reconnect proofs, and stale setup results, separately from `monitoring.xdsAlerts` so
 execution-protocol and xDS-authority failures retain distinct ownership.
 
-xDS currently uses a dedicated shared-token keyring; mTLS is intentionally not enabled. The server
-accepts every token in `JOYSAFETER_XDS_AUTH_KEYRING`, while generated Envoy bootstrap uses the token
+xDS uses a dedicated shared-token keyring at the application layer. Production Agent Gateway deployments
+are mesh-first: the service mesh must enforce mTLS and workload identity on Envoy ↔ Gateway and
+Gateway ↔ Orchestrator; the tokens remain defense in depth. The server accepts every token in
+`JOYSAFETER_XDS_AUTH_KEYRING`, while generated Envoy bootstrap uses the token
 selected by `JOYSAFETER_XDS_AUTH_WRITE_KEY_ID` and supplied as `JOYSAFETER_XDS_AUTH_TOKEN`. Rotate
 without downtime in three rollouts: add the new token while retaining the old write key; switch the
 write key and Envoy token after every authority accepts both; then remove the old token only after

@@ -1,0 +1,170 @@
+{{- $agentIdentityProvider := default "none" .Values.agentIdentity.provider | lower -}}
+{{- $storage := .Values.orchestrator.storage | default dict -}}
+{{- $storageBackend := default "local" $storage.backend | lower -}}
+{{- if not (has $storageBackend (list "local" "s3" "oss")) -}}
+{{- fail "orchestrator.storage.backend must be one of: local, s3, oss" -}}
+{{- end -}}
+{{- if not (has $agentIdentityProvider (list "none" "jd")) -}}
+{{- fail "agentIdentity.provider must be one of: none, jd" -}}
+{{- end }}
+{{- if and .Values.envoy.enabled (le (int .Values.envoy.terminationGracePeriodSeconds) (int .Values.envoy.drainSeconds)) -}}
+{{- fail "envoy.terminationGracePeriodSeconds must be greater than envoy.drainSeconds" -}}
+{{- end }}
+{{- if eq $agentIdentityProvider "jd" -}}
+{{- if empty (trim (default "" .Values.agentIdentity.baseUrl)) -}}
+{{- fail "agentIdentity.baseUrl is required when agentIdentity.provider=jd" -}}
+{{- end -}}
+{{- if empty (trim (default "" .Values.agentIdentity.clientId)) -}}
+{{- fail "agentIdentity.clientId is required when agentIdentity.provider=jd" -}}
+{{- end -}}
+{{- if empty (trim (default "" .Values.agentIdentity.platformId)) -}}
+{{- fail "agentIdentity.platformId is required when agentIdentity.provider=jd" -}}
+{{- end -}}
+{{- end }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: joysafeter-orchestrator-config
+  namespace: {{ .Release.Namespace }}
+data:
+  # ── 基础 ──
+  RUST_LOG: {{ .Values.orchestrator.logLevel | quote }}
+
+  # ── 文件存储 ──
+  STORAGE_BACKEND: {{ $storageBackend | quote }}
+  {{- if eq $storageBackend "local" }}
+  STORAGE_LOCAL_PATH: {{ $storage.local.path | default "/data/files" | quote }}
+  {{- end }}
+  {{- if eq $storageBackend "s3" }}
+  {{- if $storage.s3.bucket }}
+  STORAGE_S3_BUCKET: {{ $storage.s3.bucket | quote }}
+  {{- end }}
+  {{- if $storage.s3.endpoint }}
+  STORAGE_S3_ENDPOINT: {{ $storage.s3.endpoint | quote }}
+  {{- end }}
+  STORAGE_S3_REGION: {{ $storage.s3.region | default "" | quote }}
+  {{- end }}
+  {{- if eq $storageBackend "oss" }}
+  {{- if $storage.oss.bucket }}
+  STORAGE_OSS_BUCKET: {{ $storage.oss.bucket | quote }}
+  {{- end }}
+  {{- if $storage.oss.endpoint }}
+  STORAGE_OSS_ENDPOINT: {{ $storage.oss.endpoint | quote }}
+  {{- end }}
+  {{- if $storage.oss.region }}
+  STORAGE_OSS_REGION: {{ $storage.oss.region | quote }}
+  {{- end }}
+  {{- end }}
+
+  # ── 数据库连接池 ──
+  DATABASE_POOL_SIZE: {{ .Values.orchestrator.database.poolSize | quote }}
+  DATABASE_MIN_CONNECTIONS: {{ .Values.orchestrator.database.minConnections | quote }}
+
+  # ── HA ──
+  JOYSAFETER_HA_MODE: "multi"
+  JOYSAFETER_HEARTBEAT_INTERVAL: {{ .Values.orchestrator.heartbeat.interval | quote }}
+  JOYSAFETER_HEARTBEAT_TTL: {{ .Values.orchestrator.heartbeat.ttl | quote }}
+  # ── gRPC ──
+  JOYSAFETER_GRPC_HOST: "0.0.0.0"
+  JOYSAFETER_GRPC_PORT: {{ .Values.orchestrator.grpc.port | quote }}
+  JOYSAFETER_GRPC_PUBLIC_URL: "http://joysafeter-orchestrator.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.orchestrator.grpc.port }}"
+  JOYSAFETER_GRPC_MAX_CONNECTIONS: {{ .Values.orchestrator.grpc.maxConnections | quote }}
+  JOYSAFETER_GRPC_MAX_EXECUTIONS: {{ .Values.orchestrator.grpc.maxExecutions | quote }}
+
+  # ── 独立 Agent Gateway ──
+  JOYSAFETER_AGENT_GATEWAY_URL: "http://joysafeter-agent-gateway.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.agentGateway.httpPort }}"
+  JOYSAFETER_AGENT_GATEWAY_XDS_PORT: {{ .Values.agentGateway.xdsPort | quote }}
+  JOYSAFETER_AGENT_GATEWAY_REQUEST_TIMEOUT_SECS: {{ .Values.agentGateway.requestTimeoutSeconds | quote }}
+  {{- if .Values.agentGateway.managementGrpcPort }}
+  # gRPC management endpoint (apply/remove policy). When set, orchestrator uses
+  # gRPC instead of the HTTP management API for high-performance policy delivery.
+  JOYSAFETER_AGENT_GATEWAY_GRPC_ENDPOINT: "http://joysafeter-agent-gateway.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.agentGateway.managementGrpcPort }}"
+  {{- end }}
+
+  # ── Sandbox Provider ──
+  JOYSAFETER_SANDBOX_PROVIDER: "k8s"
+  JOYSAFETER_K8S_NAMESPACE: {{ .Release.Namespace | quote }}
+  # sandbox 连回 orchestrator 的地址 (K8s Service FQDN)
+  JOYSAFETER_K8S_ORCHESTRATOR_URL: "http://joysafeter-orchestrator.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.orchestrator.grpc.port }}"
+  JOYSAFETER_K8S_IMAGE_PULL_SECRETS: {{ .Values.image.imagePullSecrets | toJson | quote }}
+  JOYSAFETER_K8S_PRIORITY_CLASS_NAME: {{ .Values.orchestrator.sandboxPlacement.priorityClassName | quote }}
+  JOYSAFETER_K8S_NODE_SELECTOR: {{ .Values.orchestrator.sandboxPlacement.nodeSelector | toJson | quote }}
+  JOYSAFETER_K8S_TOLERATIONS: {{ .Values.orchestrator.sandboxPlacement.tolerations | toJson | quote }}
+  JOYSAFETER_SANDBOX_IMAGE: {{ .Values.image.sandbox.claude | quote }}
+  JOYSAFETER_IMAGE_CLAUDE: {{ .Values.image.sandbox.claude | quote }}
+  JOYSAFETER_IMAGE_CODEX: {{ .Values.image.sandbox.codex | quote }}
+  JOYSAFETER_IMAGE_NATIVE: {{ .Values.image.sandbox.native | quote }}
+  JOYSAFETER_IMAGE_PI: {{ .Values.image.sandbox.pi | quote }}
+  JOYSAFETER_MAX_MEMORIES_PER_STORE: {{ .Values.orchestrator.maxMemoriesPerStore | quote }}
+  {{- if .Values.orchestrator.sandboxWorkspaceRoot }}
+  JOYSAFETER_SANDBOX_WORKSPACE_ROOT: {{ .Values.orchestrator.sandboxWorkspaceRoot | quote }}
+  {{- end }}
+  JOYSAFETER_SANDBOX_TIMEZONE: {{ .Values.timezone | default "Asia/Shanghai" | quote }}
+
+  # ── Sandbox 容器加固 ──
+  JOYSAFETER_SANDBOX_DROP_ALL_CAPS: {{ .Values.orchestrator.hardening.dropAllCaps | quote }}
+  JOYSAFETER_SANDBOX_NO_NEW_PRIVILEGES: {{ .Values.orchestrator.hardening.noNewPrivileges | quote }}
+  JOYSAFETER_SANDBOX_PIDS_LIMIT: {{ .Values.orchestrator.hardening.pidsLimit | quote }}
+  {{- if .Values.orchestrator.hardening.runAsUser }}
+  JOYSAFETER_SANDBOX_RUN_AS_USER: {{ .Values.orchestrator.hardening.runAsUser | quote }}
+  {{- end }}
+
+  # ── Sandbox 资源限制 ──
+  {{- if .Values.orchestrator.sandboxResources.cpu }}
+  JOYSAFETER_SANDBOX_CPU: {{ .Values.orchestrator.sandboxResources.cpu | quote }}
+  {{- end }}
+  {{- if .Values.orchestrator.sandboxResources.memoryMb }}
+  JOYSAFETER_SANDBOX_MEMORY_MB: {{ .Values.orchestrator.sandboxResources.memoryMb | quote }}
+  {{- end }}
+
+  # ── 预热池 ──
+  JOYSAFETER_SANDBOX_POOL_ENABLED: {{ .Values.orchestrator.pool.enabled | quote }}
+  JOYSAFETER_SANDBOX_POOL_MIN_SIZE: {{ .Values.orchestrator.pool.minSize | quote }}
+  JOYSAFETER_SANDBOX_POOL_MAX_AGE: {{ .Values.orchestrator.pool.maxAge | quote }}
+  {{- if .Values.orchestrator.pool.images }}
+  JOYSAFETER_SANDBOX_POOL_IMAGES: {{ .Values.orchestrator.pool.images | toJson | quote }}
+  {{- end }}
+
+  # ── Sandbox 生命周期 ──
+  JOYSAFETER_SANDBOX_IDLE_TIMEOUT: {{ .Values.orchestrator.sandbox.idleTimeout | quote }}
+  JOYSAFETER_SANDBOX_STOPPED_TTL: {{ .Values.orchestrator.sandbox.stoppedTTL | quote }}
+  JOYSAFETER_SANDBOX_HARD_TIMEOUT: {{ .Values.orchestrator.sandbox.hardTimeout | quote }}
+  JOYSAFETER_SANDBOX_BRIDGE_DISCONNECT_GRACE: {{ .Values.orchestrator.sandbox.bridgeDisconnectGrace | quote }}
+  JOYSAFETER_SANDBOX_FAILURE_THRESHOLD: {{ .Values.orchestrator.sandbox.failureThreshold | quote }}
+
+  # ── Envoy ──
+  {{- if .Values.envoy.enabled }}
+  JOYSAFETER_ENVOY_ENABLED: "true"
+  JOYSAFETER_ENVOY_XDS_MODE: "grpc"
+  JOYSAFETER_ENVOY_SOCKET_HOST_DIR: {{ .Values.envoy.socketHostDir | quote }}
+  JOYSAFETER_ENVOY_GRPC_HOST: "joysafeter-agent-gateway.{{ .Release.Namespace }}.svc.cluster.local"
+  {{- end }}
+
+  # ── 调度 ──
+  JOYSAFETER_MAX_CONCURRENT_TASKS: {{ .Values.orchestrator.scheduling.maxConcurrentTasks | quote }}
+  JOYSAFETER_MAX_SCHEDULING_TASKS: {{ .Values.orchestrator.scheduling.maxSchedulingTasks | quote }}
+  JOYSAFETER_SCHEDULER_BATCH_SIZE: {{ .Values.orchestrator.scheduling.batchSize | quote }}
+  JOYSAFETER_TASK_DEFAULT_TIMEOUT: {{ .Values.orchestrator.task.defaultTimeout | quote }}
+  JOYSAFETER_TASK_LEASE_TTL_SEC: {{ .Values.orchestrator.task.leaseTtlSec | quote }}
+  JOYSAFETER_TASK_LEASE_RENEW_INTERVAL_SEC: {{ .Values.orchestrator.task.leaseRenewIntervalSec | quote }}
+
+  # ── 事件流 ──
+  JOYSAFETER_EVENT_STREAM_ENABLED: {{ .Values.orchestrator.eventStream.enabled | quote }}
+  JOYSAFETER_EVENT_STREAM_KEY: {{ .Values.orchestrator.eventStream.key | quote }}
+  JOYSAFETER_EVENT_STREAM_MAX_LEN: {{ .Values.orchestrator.eventStream.maxLen | quote }}
+  JOYSAFETER_EVENT_STREAM_FALLBACK_TO_DB: {{ .Values.orchestrator.eventStream.fallbackToDb | quote }}
+  JOYSAFETER_REDIS_QUEUE_PREFIX: {{ .Values.orchestrator.redis.keyPrefix | quote }}
+
+  # ── Agent Identity ──
+  AGENT_IDENTITY_PROVIDER: {{ $agentIdentityProvider | quote }}
+  AGENT_IDENTITY_BASE_URL: {{ .Values.agentIdentity.baseUrl | quote }}
+  JD_AGENT_IDENTITY_CLIENT_ID: {{ .Values.agentIdentity.clientId | quote }}
+  JD_AGENT_IDENTITY_PLATFORM_ID: {{ .Values.agentIdentity.platformId | quote }}
+  JD_AGENT_IDENTITY_AUTH_TYPE: {{ .Values.agentIdentity.authType | quote }}
+  JD_AGENT_IDENTITY_IDENTITY_TYPE: {{ .Values.agentIdentity.identityType | quote }}
+  JD_AGENT_IDENTITY_AGENT_SCENE: {{ .Values.agentIdentity.agentScene | quote }}
+  JD_AGENT_IDENTITY_USER_TOKEN_COOKIE_NAME: {{ .Values.agentIdentity.userTokenCookieName | quote }}
+  JD_AGENT_IDENTITY_EXCHANGE_USER_TOKEN_ENABLED: {{ .Values.agentIdentity.exchangeUserTokenEnabled | quote }}
+
+  # ── Egress 白名单 ──
+  JOYSAFETER_LLM_EGRESS_ALLOWED_HOSTS: {{ join "," .Values.egress.allowedHosts | quote }}

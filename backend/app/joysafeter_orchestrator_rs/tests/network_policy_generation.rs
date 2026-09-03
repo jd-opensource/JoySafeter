@@ -110,6 +110,67 @@ async fn same_policy_prepare_keeps_ready_generation_ready() {
 }
 
 #[tokio::test]
+async fn removal_fence_advances_desired_generation_and_preserves_a_newer_ack() {
+    let pool = test_pool().await;
+    let sandbox_id = create_sandbox(&pool).await;
+
+    let first = queries::prepare_generation(&pool, sandbox_id, "policy-a")
+        .await
+        .expect("prepare first policy generation")
+        .into_generation();
+    assert_eq!(
+        queries::mark_generation_applied(&pool, sandbox_id, &first)
+            .await
+            .expect("ack first policy generation"),
+        queries::NetworkPolicyAckOutcome::Applied
+    );
+
+    let removed = queries::prepare_generation_removal(&pool, sandbox_id)
+        .await
+        .expect("prepare generation-fenced removal")
+        .expect("installed generation");
+    assert_eq!(removed, first);
+    assert_eq!(
+        networking_state(&pool, sandbox_id).await,
+        (
+            "pending".to_string(),
+            Some("policy-a".to_string()),
+            2,
+            Some("policy-a".to_string()),
+            Some(1),
+        )
+    );
+
+    let successor = queries::prepare_generation(&pool, sandbox_id, "policy-a")
+        .await
+        .expect("prepare successor generation")
+        .into_generation();
+    assert_eq!(successor.policy_version, 2);
+    assert_eq!(
+        queries::mark_generation_applied(&pool, sandbox_id, &successor)
+            .await
+            .expect("ack successor generation"),
+        queries::NetworkPolicyAckOutcome::Applied
+    );
+
+    queries::mark_generation_removed(&pool, sandbox_id, &removed)
+        .await
+        .expect("complete delayed old-generation removal");
+    assert_eq!(
+        networking_state(&pool, sandbox_id).await,
+        (
+            "ready".to_string(),
+            Some("policy-a".to_string()),
+            2,
+            Some("policy-a".to_string()),
+            Some(2),
+        )
+    );
+
+    delete_sandbox(&pool, sandbox_id).await;
+}
+
+#[tokio::test]
 async fn duplicate_ack_is_idempotent() {
     let pool = test_pool().await;
     let sandbox_id = create_sandbox(&pool).await;
@@ -298,6 +359,7 @@ async fn stale_failure_cannot_nack_a_newer_policy_generation() {
                 desired_policy_json: &desired,
                 rendered_summary_json: &rendered,
             },
+            queries::NetworkPolicyFailureStatus::Nacked,
             "stale failure",
         )
         .await
@@ -327,6 +389,7 @@ async fn stale_failure_cannot_nack_a_newer_policy_generation() {
                 desired_policy_json: &desired,
                 rendered_summary_json: &rendered,
             },
+            queries::NetworkPolicyFailureStatus::Nacked,
             "current failure",
         )
         .await
@@ -388,6 +451,7 @@ async fn late_failure_cannot_replace_an_acknowledged_generation() {
                 desired_policy_json: &desired,
                 rendered_summary_json: &rendered,
             },
+            queries::NetworkPolicyFailureStatus::Nacked,
             "late failure after ACK",
         )
         .await

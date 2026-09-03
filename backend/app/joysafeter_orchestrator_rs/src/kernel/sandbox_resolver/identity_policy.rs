@@ -171,10 +171,25 @@ impl SandboxIdentityPolicy for SandboxIdentityPolicyService {
             Ok(policy_hash) => policy_hash,
             Err(error) => {
                 let reason = format!("Agent Identity cleanup failed: {error:#}");
-                let _ = queries::mark_sandbox_error(&self.pool, sandbox_id, Some(&reason)).await;
+                let marked_error =
+                    queries::mark_sandbox_error(&self.pool, sandbox_id, Some(&reason))
+                        .await
+                        .context(
+                            "failed to mark sandbox error after Agent Identity cleanup failure",
+                        )?;
+                if !marked_error {
+                    anyhow::bail!(
+                        "sandbox {sandbox_id} changed state before failed identity cleanup could mark it error: {error:#}"
+                    );
+                }
                 let destroyed = self
                     .lifecycle
-                    .destroy_observed(&sandbox, "Agent Identity cleanup failure")
+                    .destroy_observed_state(
+                        sandbox_id,
+                        "error",
+                        sandbox.external_id.as_deref(),
+                        "Agent Identity cleanup failure",
+                    )
                     .await
                     .context("failed to destroy sandbox after Agent Identity cleanup failure")?;
                 if !destroyed {

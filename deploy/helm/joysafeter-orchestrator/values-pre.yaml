@@ -23,7 +23,8 @@
 #     --from-literal=JOYSAFETER_XDS_AUTH_KEYRING='{"active-2026-08":"<openssl rand -hex 32>"}' \
 #     --from-literal=JOYSAFETER_XDS_AUTH_WRITE_KEY_ID='active-2026-08' \
 #     --from-literal=JOYSAFETER_XDS_AUTH_TOKEN='<same token selected by write key id>' \
-#     --from-literal=JOYSAFETER_VAULT_ENCRYPTION_KEY='<openssl rand -base64 32>' \
+#     --from-literal=JOYSAFETER_AGENT_GATEWAY_MANAGEMENT_TOKEN='<openssl rand -hex 32>' \
+#     --from-literal=JOYSAFETER_AGENT_GATEWAY_REPLICATION_TOKEN='<different openssl rand -hex 32>' \
 #     --from-literal=JOYSAFETER_CREDENTIAL_ENCRYPTION_KEYRING='{"active-2026-08":"<key>"}' \
 #     --from-literal=JOYSAFETER_CREDENTIAL_ENCRYPTION_WRITE_KEY_ID='active-2026-08' \
 #     --from-literal=STORAGE_S3_BUCKET='joysafeter-files-pre' \
@@ -33,23 +34,32 @@
 #     --from-literal=STORAGE_S3_SECRET_KEY='<s3 secret key>' \
 #     --from-literal=JD_AGENT_IDENTITY_CLIENT_SECRET='<identity client secret>'
 #
-# 部署: helm install joysafeter-pre . -f values-pre.yaml -n joysafeter-pre
+# 部署时必须同时传入环境专属 images-pre.lock.yaml。
 # =============================================================================
 
 environment: pre
 
-# 引用手工创建的 Secret (不在此写明文)
+# 引用手工创建的 Secret；其中 REDIS_HOST 必须指向 pre 专用 Redis。
 externalSecret: joysafeter-secrets-pre
 
-# 私有仓库拉取凭证名 (手工创建的 docker-registry Secret)
-image:
-  imagePullSecrets:
-    - aisec-repo-cred
-
+resourceQuota:
+  enabled: true
+  hard:
+    pods: "200"
+    services: "30"
+    configmaps: "200"
+    secrets: "200"
+    persistentvolumeclaims: "50"
 
 # ── Orchestrator ──
 orchestrator:
   replicas: 2
+
+  redis:
+    keyPrefix: joysafeter:pre
+
+  eventStream:
+    key: joysafeter:pre:orchestrator:events
 
   # ── 文件存储 ──
   # 线上使用 S3。bucket/endpoint/accessKey/secretKey 可放 externalSecret；
@@ -74,9 +84,6 @@ orchestrator:
     maxConnections: 1000
     maxExecutions: 500
 
-  xds:
-    port: 9092
-
   scheduling:
     maxConcurrentTasks: 100
     maxSchedulingTasks: 50
@@ -98,21 +105,20 @@ orchestrator:
 
 # Set provider to jd only after replacing these values and adding the client secret above.
 agentIdentity:
-  provider: none
-  baseUrl: ""
-  allowedHosts: []
-  cookieName: ""
-  contextTtlSeconds: 300
-  clientId: ""
-  platformId: ""
+  services:
+    - name: jd-wildcard-http
+      host: "*.jd.com"
+      port: 80
+      tls: false
+    - name: jd-wildcard-https
+      host: "*.jd.com"
+      port: 443
+      tls: true
+
+# ── 独立 Agent Gateway ──
+agentGateway:
+  replicas: 2
 
 # ── Envoy ──
 envoy:
-  enabled: true
-  xdsMode: grpc
   socketHostDir: /data/joysafeter-pre/envoy-sockets
-
-# ── Egress 白名单 ──
-egress:
-  allowedHosts:
-    - ai-api.jdcloud.com
