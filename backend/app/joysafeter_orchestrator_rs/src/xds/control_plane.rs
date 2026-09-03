@@ -59,6 +59,12 @@ impl XdsControlPlane {
         self.delta.metrics_snapshot().await
     }
 
+    /// Count of Envoy nodes with a live ADS session. Zero means no proxy is
+    /// connected to consume published xDS resources.
+    pub async fn connected_node_count(&self) -> usize {
+        self.delta.delivery().lock().await.active_node_count()
+    }
+
     pub(crate) fn set_degraded_inventory(&self, count: usize) {
         self.delta.metrics().set_degraded_inventory(count);
     }

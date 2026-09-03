@@ -232,6 +232,16 @@ impl EnvoyPolicyEngine {
         let sandbox_id = request.sandbox_id;
         validate_egress_policy(&sandbox_id, &policy)
             .map_err(|error| NetworkPolicyApplyError::InvalidPolicy(format!("{error:#}")))?;
+        // Fail fast when no Envoy proxy is subscribed to the xDS stream. Without
+        // a connected node the resource would be published into the store but
+        // never delivered or ACKed, so `settle_policy` would block for the full
+        // delivery timeout. Surfacing a retryable `PublicationUnavailable` here
+        // lets the scheduler retry once a proxy reconnects instead of hanging.
+        if self.delivery.connected_envoy_nodes().await == 0 {
+            return Err(NetworkPolicyApplyError::PublicationUnavailable(
+                "no Envoy xDS node connected".to_string(),
+            ));
+        }
         let delivery_attempt = {
             let lock = self.sandbox_lock(sandbox_id).await;
             let guard = tokio::time::timeout(Duration::from_secs(5), lock.lock())
@@ -627,6 +637,41 @@ mod tests {
         }
     }
 
+    /// Reports zero connected Envoy nodes and panics if an apply is attempted,
+    /// proving the publish path fails fast before touching the xDS store.
+    struct NoConnectedNodesDelivery;
+
+    #[async_trait::async_trait]
+    impl EnvoyDelivery for NoConnectedNodesDelivery {
+        async fn prepare_for_startup(&self) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn configured_sandbox_ids(&self) -> HashSet<SandboxId> {
+            HashSet::new()
+        }
+
+        async fn connected_envoy_nodes(&self) -> usize {
+            0
+        }
+
+        async fn apply_sandbox_batch(
+            &self,
+            _delivery: DeliveryRequest,
+            _clusters: Vec<ClusterSpec>,
+            _listeners: Vec<ListenerSpec>,
+        ) -> anyhow::Result<DeliverySubmission> {
+            panic!("apply must not run when no Envoy node is connected")
+        }
+
+        async fn remove_sandbox_batch(
+            &self,
+            _sandbox_id: SandboxId,
+        ) -> anyhow::Result<DeliverySubmission> {
+            anyhow::bail!("remove is not part of this test")
+        }
+    }
+
     #[async_trait::async_trait]
     impl EnvoyDelivery for NonAckingRemovalDelivery {
         async fn prepare_for_startup(&self) -> anyhow::Result<()> {
@@ -751,6 +796,23 @@ mod tests {
 
         delivery.release_wait.notify_one();
         settling.await.expect("join first settlement");
+    }
+
+    #[tokio::test]
+    async fn publish_fails_fast_when_no_envoy_node_connected() {
+        let engine = EnvoyPolicyEngine::new(
+            Arc::new(NoConnectedNodesDelivery),
+            sockets(),
+            config("unused".to_string(), true),
+        );
+        let error = engine
+            .publish_policy(request(SandboxId::new(), 1), SandboxEgressPolicy::default())
+            .await
+            .expect_err("publish must fail fast without a connected Envoy node");
+        assert!(
+            matches!(error, NetworkPolicyApplyError::PublicationUnavailable(_)),
+            "expected PublicationUnavailable, got {error:?}"
+        );
     }
 
     #[tokio::test]

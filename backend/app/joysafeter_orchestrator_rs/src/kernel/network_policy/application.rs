@@ -16,7 +16,18 @@ use crate::db::queries;
 use crate::ids::{SandboxId, SandboxNetworkPolicyId};
 use crate::xds::authority::{MutationAuthorityGuard, XdsAuthority};
 
-pub const POLICY_APPLY_TIMEOUT: Duration = Duration::from_secs(30);
+/// Total budget for a single network-policy apply (`prepare` + `publish` +
+/// `settle`).
+///
+/// This MUST stay strictly greater than the inner `settle` delivery timeout
+/// (`EnvoyPolicyConfig::delivery_timeout`, derived from
+/// `JOYSAFETER_ENVOY_SOCKET_READY_TIMEOUT_MS`, default 30s) plus the publish
+/// budget (sandbox lock ≤5s + xDS submit ≤10s). If the two collide, this outer
+/// timeout always fires first and masks a delivery/ACK stall as the generic
+/// `apply_timeout` instead of the actionable `delivery_timeout`. 60s leaves
+/// headroom above the 30s default so delivery stalls surface with their real
+/// code.
+pub const POLICY_APPLY_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NetworkingReconcileOutcome {
@@ -505,4 +516,27 @@ pub(crate) async fn apply_ephemeral(
     .await
     .unwrap_or(Err(NetworkPolicyApplyError::ApplyTimedOut));
     result.map_err(Into::into)
+}
+
+#[cfg(test)]
+mod apply_timeout_tests {
+    use super::POLICY_APPLY_TIMEOUT;
+    use std::time::Duration;
+
+    /// The outer apply budget must exceed the inner settle delivery timeout
+    /// (`JOYSAFETER_ENVOY_SOCKET_READY_TIMEOUT_MS`, default 30s) plus the publish
+    /// budget (sandbox lock <=5s + xDS submit <=10s). Otherwise the outer timeout
+    /// fires first and masks a delivery/ACK stall as `apply_timeout` instead of
+    /// the actionable `delivery_timeout`.
+    #[test]
+    fn apply_timeout_exceeds_default_delivery_budget() {
+        let default_delivery_timeout = Duration::from_secs(30);
+        let publish_budget = Duration::from_secs(15);
+        assert!(
+            POLICY_APPLY_TIMEOUT > default_delivery_timeout + publish_budget,
+            "POLICY_APPLY_TIMEOUT ({POLICY_APPLY_TIMEOUT:?}) must exceed the default \
+             delivery timeout plus publish budget so delivery stalls surface as \
+             delivery_timeout, not apply_timeout"
+        );
+    }
 }

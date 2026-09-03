@@ -126,6 +126,8 @@ def _base_status_query(project_id: ProjectId | None = None):
         JoySafeterSandbox.updated_at.label("sandbox_updated_at"),
         latest_policy.c.latest_policy_status,
         latest_policy.c.latest_policy_error,
+        latest_policy.c.latest_policy_error_code,
+        latest_policy.c.latest_policy_retryable,
         latest_policy.c.latest_policy_nack_reason,
         latest_policy.c.latest_policy_updated_at,
         latest_policy.c.rendered_summary,

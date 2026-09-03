@@ -232,6 +232,13 @@ impl DeliveryCoordinator {
         self.node_sessions.get(node) == Some(&session)
     }
 
+    /// Number of Envoy nodes with a live ADS session. Zero means no proxy is
+    /// currently subscribed to receive xDS updates, so an apply would publish
+    /// into the void and never be ACKed.
+    pub fn active_node_count(&self) -> usize {
+        self.node_sessions.len()
+    }
+
     pub fn close_node_session(&mut self, node: &str, session: NodeSessionId) {
         if self.node_sessions.get(node) == Some(&session) {
             self.node_sessions.remove(node);

@@ -54,6 +54,15 @@ pub trait EnvoyDelivery: Send + Sync {
         Ok(())
     }
 
+    /// Number of Envoy nodes currently subscribed to receive xDS updates.
+    ///
+    /// Adapters that cannot observe proxy connectivity return [`usize::MAX`] so
+    /// callers never fail-fast on an unknown count; the control-plane adapter
+    /// reports the real ADS session count.
+    async fn connected_envoy_nodes(&self) -> usize {
+        usize::MAX
+    }
+
     async fn remove_sandbox_batch(
         &self,
         sandbox_id: SandboxId,
@@ -152,6 +161,10 @@ impl EnvoyDelivery for ControlPlaneEnvoyDelivery {
         timeout: Duration,
     ) -> Result<(), DeliveryWaitError> {
         self.control_plane.wait_for_delivery(attempt, timeout).await
+    }
+
+    async fn connected_envoy_nodes(&self) -> usize {
+        self.control_plane.connected_node_count().await
     }
 
     async fn remove_sandbox_batch(

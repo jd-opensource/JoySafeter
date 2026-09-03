@@ -95,9 +95,20 @@ x-backend-health-common: &backend-health-common
 
 services:
   joysafeter-envoy:
+    profiles: ["rust-orchestrator"]
     image: ${JOYSAFETER_ENVOY_IMAGE:-${DOCKER_MIRROR:-docker.m.daocloud.io}/envoyproxy/envoy:v1.37.1}
     container_name: ${JOYSAFETER_ENVOY_CONTAINER_NAME:-joysafeter-envoy}
     restart: unless-stopped
+    # Recreate/restart Envoy whenever the orchestrator is recreated so it
+    # re-establishes a clean DELTA xDS subscription. An orchestrator restart
+    # otherwise leaves this long-lived Envoy holding a stale subscription to the
+    # dead process; newly published sandbox policies then never get ACKed and the
+    # apply times out. The entrypoint already polls for bootstrap.json, so
+    # starting after the orchestrator is safe and avoids a startup deadlock.
+    depends_on:
+      orchestrator-rs:
+        condition: service_started
+        restart: true
     environment:
       TZ: ${TZ:-Asia/Shanghai}
     entrypoint: ["/bin/sh"]
@@ -252,8 +263,6 @@ services:
       - "${JOYSAFETER_XDS_BIND_HOST:-127.0.0.1}:${JOYSAFETER_XDS_PORT_HOST:-9092}:9092"
     depends_on:
       <<: *backend-depends
-      joysafeter-envoy:
-        condition: service_started
     volumes:
       - backend-logs:/app/app/logs
       - backend-files:/app/data/files
