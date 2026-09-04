@@ -1,0 +1,133 @@
+{
+  "contract_version": "quickstart_recommendation.v4",
+  "phases": ["understand", "secure"],
+  "engine_readiness": ["ready", "setup_required", "unavailable"],
+  "host_reasons": ["explicitHosts", "knownServices", "none"],
+  "external_tools_reasons": ["mcpServers", "credentialIntent"],
+  "mcp_auth_requirements": ["required", "optional"],
+  "schema": {
+    "$defs": {
+      "QuickstartCredentialGroupRecommendation": {
+        "additionalProperties": false,
+        "properties": {
+          "mcp_servers": {
+            "items": {"$ref": "#/$defs/QuickstartMcpServerRecommendation"},
+            "title": "Mcp Servers",
+            "type": "array"
+          },
+          "external_tools_reason": {
+            "enum": ["mcpServers", "credentialIntent"],
+            "title": "External Tools Reason",
+            "type": "string"
+          }
+        },
+        "required": ["mcp_servers", "external_tools_reason"],
+        "title": "QuickstartCredentialGroupRecommendation",
+        "type": "object"
+      },
+      "QuickstartEngineOptionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "engine_id": {"minLength": 1, "title": "Engine Id", "type": "string"},
+          "readiness": {
+            "enum": ["ready", "setup_required", "unavailable"],
+            "title": "Readiness",
+            "type": "string"
+          },
+          "compatible_connection_count": {
+            "minimum": 0,
+            "title": "Compatible Connection Count",
+            "type": "integer"
+          }
+        },
+        "required": ["engine_id", "readiness", "compatible_connection_count"],
+        "title": "QuickstartEngineOptionOut",
+        "type": "object"
+      },
+      "QuickstartEngineRecommendation": {
+        "additionalProperties": false,
+        "properties": {
+          "recommended_engine_id": {
+            "anyOf": [{"type": "string"}, {"type": "null"}],
+            "title": "Recommended Engine Id"
+          },
+          "options": {
+            "items": {"$ref": "#/$defs/QuickstartEngineOptionOut"},
+            "minItems": 1,
+            "title": "Options",
+            "type": "array"
+          }
+        },
+        "required": ["recommended_engine_id", "options"],
+        "title": "QuickstartEngineRecommendation",
+        "type": "object"
+      },
+      "QuickstartEnvironmentRecommendation": {
+        "additionalProperties": false,
+        "properties": {
+          "allowed_hosts": {"items": {"type": "string"}, "title": "Allowed Hosts", "type": "array"},
+          "host_reason": {
+            "enum": ["explicitHosts", "knownServices", "none"],
+            "title": "Host Reason",
+            "type": "string"
+          }
+        },
+        "required": ["allowed_hosts", "host_reason"],
+        "title": "QuickstartEnvironmentRecommendation",
+        "type": "object"
+      },
+      "QuickstartMcpServerRecommendation": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {"minLength": 1, "title": "Name", "type": "string"},
+          "url": {"minLength": 1, "title": "Url", "type": "string"},
+          "auth_requirement": {
+            "enum": ["required", "optional"],
+            "title": "Auth Requirement",
+            "type": "string"
+          }
+        },
+        "required": ["name", "url", "auth_requirement"],
+        "title": "QuickstartMcpServerRecommendation",
+        "type": "object"
+      },
+      "QuickstartSecureRecommendation": {
+        "additionalProperties": false,
+        "properties": {
+          "phase": {"const": "secure", "title": "Phase", "type": "string"},
+          "environment": {"$ref": "#/$defs/QuickstartEnvironmentRecommendation"},
+          "credential_group": {
+            "anyOf": [
+              {"$ref": "#/$defs/QuickstartCredentialGroupRecommendation"},
+              {"type": "null"}
+            ]
+          }
+        },
+        "required": ["phase", "environment", "credential_group"],
+        "title": "QuickstartSecureRecommendation",
+        "type": "object"
+      },
+      "QuickstartUnderstandRecommendation": {
+        "additionalProperties": false,
+        "properties": {
+          "phase": {"const": "understand", "title": "Phase", "type": "string"},
+          "engine": {"$ref": "#/$defs/QuickstartEngineRecommendation"}
+        },
+        "required": ["phase", "engine"],
+        "title": "QuickstartUnderstandRecommendation",
+        "type": "object"
+      }
+    },
+    "discriminator": {
+      "mapping": {
+        "secure": "#/$defs/QuickstartSecureRecommendation",
+        "understand": "#/$defs/QuickstartUnderstandRecommendation"
+      },
+      "propertyName": "phase"
+    },
+    "oneOf": [
+      {"$ref": "#/$defs/QuickstartUnderstandRecommendation"},
+      {"$ref": "#/$defs/QuickstartSecureRecommendation"}
+    ]
+  }
+}
