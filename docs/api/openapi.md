@@ -29,7 +29,7 @@ Every project-scoped route is filtered by the caller's active project for multi-
 All JSON responses are wrapped in a canonical envelope:
 
 ```json
-{ "success": true, "code": 200, "message": "OK", "data": { } }
+{ "success": true, "code": 200, "message": "OK", "data": {} }
 ```
 
 On error, `success` is `false` and `data` carries an `ErrorDescriptor`
@@ -45,29 +45,34 @@ On error, `success` is `false` and `data` carries an `ErrorDescriptor`
 
 All paths are under `/api/v1`.
 
-| Group | Prefix | Highlights |
-|-------|--------|------------|
-| **Auth** | `/auth` | sign-up/in, logout, refresh, password reset, email verify, `ws-token`, `switch-context`, projects, `api-keys`, members |
-| **OAuth / SSO** | `/auth/oauth` | provider list, authorize, callback, account link/unlink |
-| **Agents** | `/agents` | CRUD, archive, versions, `/tasks`, `/sessions` |
-| **Tasks** | `/tasks` | create + enqueue, list, get, cancel, **WS** `/tasks/{id}/stream` |
-| **Sessions** | `/sessions` | CRUD, archive, stop, `POST /events` (send message), `GET /events` (history), **SSE** `/events/stream`, resources (files/repos) |
-| **Triggers** | `/triggers` | Cron/webhook trigger CRUD, manual `/run`, run history, inbound `/webhook` (+ signed `/webhook-sample`, `/test`) |
-| **Environments** | `/environments` | Sandbox image/config CRUD |
-| **LLM Catalog** | `/llm/catalog` | Engine capabilities, Protocol definitions, Provider bindings, Credential Profiles |
-| **Credentials** | `/credentials` | Model connections, service credentials, MCP members, lifecycle, and connectivity tests |
-| **Credential groups** | `/credential-groups` | MCP server credential groups and closed header-auth schemes |
-| **Skills** | `/skills` | CRUD, `import-zip`, files, versions, security-scans, lifecycle transitions, admin `rescan-all` |
-| **Skills AI authoring** | `/skills/ai-authoring` | **SSE** `/chat` (LLM authoring turn), `/save-draft` |
-| **Sandboxes** | `/sandboxes` | list, get, stop |
-| **Network policies** | `/network-policies` | Egress `/diagnostics`, per-session policy `/sessions/{id}` |
-| **Memory stores** | `/memory_stores` | store + memory CRUD, versions, redact; sandbox memory sync is relayed through the Rust runtime |
-| **Files** | `/files` | upload, list, metadata, download, delete |
-| **Storage volumes** | `/storage-volumes` | Volume `/catalog` + CRUD, project & organization grants, `/audit/logs` |
-| **Organizations** | `/organizations` | org + member CRUD, transfer-ownership |
-| **Analytics** | `/analytics` | Usage analytics: summary, timeseries, engine share, calls, agent comparison/ranking, latency/error stats |
-| **Quickstart** | `/quickstart` | **SSE** `/chat` — guided onboarding LLM proxy |
-| **Health** | `/health` | readiness (Postgres + Redis), liveness |
+| Group                   | Prefix                 | Highlights                                                                                                                     |
+| ----------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| **Auth**                | `/auth`                | sign-up/in, logout, refresh, password reset, email verify, `ws-token`, `switch-context`, projects, `api-keys`, members         |
+| **OAuth / SSO**         | `/auth/oauth`          | provider list, authorize, callback, account link/unlink                                                                        |
+| **Agents**              | `/agents`              | CRUD, archive, versions, `/tasks`, `/sessions`                                                                                 |
+| **Tasks**               | `/tasks`               | create + enqueue, list, get, cancel, **WS** `/tasks/{id}/stream`                                                               |
+| **Sessions**            | `/sessions`            | CRUD, archive, stop, `POST /events` (send message), `GET /events` (history), **SSE** `/events/stream`, resources (files/repos) |
+| **Triggers**            | `/triggers`            | Cron/webhook trigger CRUD, manual `/run`, run history, inbound `/webhook` (+ signed `/webhook-sample`, `/test`)                |
+| **Environments**        | `/environments`        | Sandbox image/config CRUD                                                                                                      |
+| **LLM Catalog**         | `/llm/catalog`         | Engine capabilities, Protocol definitions, Provider bindings, Credential Profiles                                              |
+| **Credentials**         | `/credentials`         | Model connections, service credentials, MCP members, lifecycle, and connectivity tests                                         |
+| **Credential groups**   | `/credential-groups`   | MCP server credential groups and closed header-auth schemes                                                                    |
+| **Skills**              | `/skills`              | CRUD, `import-zip`, files, versions, security-scans, lifecycle transitions, admin `rescan-all`                                 |
+| **Skills AI authoring** | `/skills/ai-authoring` | **SSE** `/chat` (LLM authoring turn), `/save-draft`                                                                            |
+| **Sandboxes**           | `/sandboxes`           | list, get, stop                                                                                                                |
+| **Network policies**    | `/network-policies`    | Egress `/diagnostics`, per-session policy `/sessions/{id}`                                                                     |
+| **Memory stores**       | `/memory_stores`       | store + memory CRUD, versions, redact; sandbox memory sync is relayed through the Rust runtime                                 |
+| **Files**               | `/files`               | upload, list, metadata, download, delete                                                                                       |
+| **Storage volumes**     | `/storage-volumes`     | Volume `/catalog` + CRUD, project & organization grants, `/audit/logs`                                                         |
+| **Organizations**       | `/organizations`       | org + member CRUD, transfer-ownership                                                                                          |
+| **Analytics**           | `/analytics`           | Usage analytics: summary, timeseries, engine share, calls, agent comparison/ranking, latency/error stats                       |
+| **Quickstart**          | `/quickstart`          | JSON `/recommendations` (understand/secure), **SSE** `/chat` (design only)                                                     |
+| **Health**              | `/health`              | readiness (Postgres + Redis), liveness                                                                                         |
+
+Cursor-paginated collections return `{data, has_more, first_id, last_id}` and accept `after_id`.
+`GET /auth/platform/organizations` follows this contract with `OrganizationId` cursors and a maximum
+page size of 500. `GET /storage-volumes/catalog` is the sole public Storage mount catalog endpoint;
+Environment routes do not expose a second alias.
 
 An Agent stores `engine_kind + model_credential_id`. The referenced model Credential stores an
 explicit `kind=model + provider + protocol + data` identity. MCP credentials belong to Credential Groups.
@@ -104,13 +109,13 @@ the mutable credential fields only.
 
 Useful Credential list filters:
 
-| Query | Meaning |
-|---|---|
-| `kind=model` | Return only model configurations |
-| `compatible_engine=codex` | Return only configurations whose Protocol is supported by Codex |
-| `compatible_consumer=skill_ai_authoring` | Return only configurations supported by AI Skill authoring |
-| `name=openai-production` | Exact project-scoped name lookup |
-| `provider=openai&protocol=openai_responses` | Filter an explicit Provider/Protocol binding |
+| Query                                       | Meaning                                                         |
+| ------------------------------------------- | --------------------------------------------------------------- |
+| `kind=model`                                | Return only model configurations                                |
+| `compatible_engine=codex`                   | Return only configurations whose Protocol is supported by Codex |
+| `compatible_consumer=skill_ai_authoring`    | Return only configurations supported by AI Skill authoring      |
+| `name=openai-production`                    | Exact project-scoped name lookup                                |
+| `provider=openai&protocol=openai_responses` | Filter an explicit Provider/Protocol binding                    |
 
 List responses expose `provider`, `protocol`, `model`, `compatible_engine_ids`, `is_default`, and
 credential field names in `keys`; plaintext credential values are never returned. Defaults are
@@ -118,7 +123,26 @@ scoped by Protocol.
 
 Agent creation requires an explicit `engine_kind`; the API does not infer or default an Engine.
 Agent create/update and `POST /api/v1/quickstart/chat` validate Engine/Protocol compatibility on
-the server. Quickstart chat requests use `engine_kind` (not `provider`) plus `model_credential_id`.
+the server. Quickstart chat requests use `phase=design`, `engine_kind` (not `provider`), and
+`model_credential_id`; numbered wizard steps are not part of the API contract. The design stream
+emits `config_update` and `phase_complete` events with `artifact=agent_blueprint`. Prompt/tool
+contracts and provider-neutral model-event translation are owned by the Quickstart application
+service; the HTTP endpoint only validates input, resolves the selected model connection, and
+encodes application events as SSE.
+
+`POST /api/v1/quickstart/recommendations` is the single read-only recommendation entry point for
+`phase=understand` and `phase=secure`. It returns the engine-readiness plan or the environment and
+external-tool security plan using the sole supported `quickstart_recommendation.v4` response.
+Secure responses include only credential-bearing remote MCP servers (`required` or `optional`) in
+`credential_group.mcp_servers[]`, with `name`, `url`, and `auth_requirement`. Local and no-auth MCP
+servers are excluded. The final validated `agent_context` is authoritative when present, and
+malformed responses fail closed at the client boundary; no older recommendation shape is accepted.
+`agent_context.mcp_servers` uses the same canonical discriminated union as Agent create and update:
+`streamable_http`, `sse`, or `local_stdio`. MCP maps and the removed `type=url` alias are rejected;
+the Quickstart design tool schema is generated from that canonical Agent MCP model.
+Quickstart does not create resources through either endpoint; creation remains on `/agents`,
+`/environments`, `/credential-groups`, and `/sessions`. Design SSE events do not contain resource
+curl commands; the frontend generates a curl from the exact create request body at the REST boundary.
 `compatible_engine` and `compatible_consumer` are mutually exclusive. AI Skill authoring resolves
 its `model_credential_id` against the `skill_ai_authoring` consumer and supports Anthropic Messages,
 OpenAI Responses, and Chat Completions connections. A Skill resource itself stores no model binding;
@@ -207,7 +231,7 @@ curl -N https://your-domain/api/v1/sessions/{session_id}/events/stream \
 ```
 
 Each frame is a JoySafeter event envelope with a monotonically increasing `seq`
-(text, thinking, tool_use, tool_result, model_request_*, task_notification, status, ...).
+(text, thinking, tool*use, tool_result, model_request*\*, task_notification, status, ...).
 
 Alternatively, per-task output is available over WebSocket at
 `WS /api/v1/tasks/{task_id}/stream`.
@@ -260,14 +284,14 @@ Errors use the standard envelope with `success: false`:
 }
 ```
 
-| HTTP status | Meaning |
-|-------------|---------|
-| 401 | API key / token missing, invalid, or expired |
-| 403 | Insufficient permissions (resource not in the active project) |
-| 404 | Resource not found |
-| 400 / 422 | Invalid request parameters |
-| 503 | Scheduler not running (orchestrator unavailable) |
-| 500 | Internal server error |
+| HTTP status | Meaning                                                       |
+| ----------- | ------------------------------------------------------------- |
+| 401         | API key / token missing, invalid, or expired                  |
+| 403         | Insufficient permissions (resource not in the active project) |
+| 404         | Resource not found                                            |
+| 400 / 422   | Invalid request parameters                                    |
+| 503         | Scheduler not running (orchestrator unavailable)              |
+| 500         | Internal server error                                         |
 
 ---
 
@@ -275,10 +299,10 @@ Errors use the standard envelope with `success: false`:
 
 Create API keys from the workspace settings UI, or via the auth API:
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/auth/api-keys` | List API keys |
-| POST | `/api/v1/auth/api-keys` | Create an API key |
+| Method | Path                             | Description       |
+| ------ | -------------------------------- | ----------------- |
+| GET    | `/api/v1/auth/api-keys`          | List API keys     |
+| POST   | `/api/v1/auth/api-keys`          | Create an API key |
 | DELETE | `/api/v1/auth/api-keys/{key_id}` | Delete an API key |
 
 ```bash
