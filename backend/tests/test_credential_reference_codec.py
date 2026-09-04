@@ -451,6 +451,33 @@ def test_encoders_emit_only_canonical_persistent_keys() -> None:
 
 
 @pytest.mark.no_db
+def test_environment_encoder_omits_null_static_fields_for_agent_identity() -> None:
+    encoded = CredentialReferenceCodec().encode_environment(
+        {
+            "egress_services": [
+                {
+                    "name": "crm",
+                    "base_url": "https://crm.example.com",
+                    "auth_source": "agent_identity",
+                    "credential_ref": None,
+                    "inject": None,
+                    "allowed_paths": ["/api/customer/"],
+                }
+            ]
+        }
+    )
+
+    assert encoded["egress_services"] == [
+        {
+            "name": "crm",
+            "base_url": "https://crm.example.com",
+            "auth_source": "agent_identity",
+            "allowed_paths": ["/api/customer/"],
+        }
+    ]
+
+
+@pytest.mark.no_db
 def test_reference_metrics_expose_only_normalized_versions_keys_and_counts() -> None:
     reset_credential_reference_metrics()
     codec = CredentialReferenceCodec()

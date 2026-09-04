@@ -615,6 +615,14 @@ class CredentialReferenceCodec:
             encoded_services = []
             for index, raw_service in enumerate(services):
                 service = copy.deepcopy(dict(_mapping(raw_service, label=f"HTTP egress service[{index}]")))
+                if service.get("auth_source") == "agent_identity":
+                    # Pydantic includes optional fields as explicit nulls by
+                    # default. Agent Identity has no static credential
+                    # contract, so do not persist those placeholder keys.
+                    service.pop("credential_ref", None)
+                    service.pop("inject", None)
+                    encoded_services.append(service)
+                    continue
                 credential_id, _paths = _optional_credential_id(
                     service,
                     "credential_ref",

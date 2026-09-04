@@ -157,6 +157,31 @@ describe('environment response parsers', () => {
     })
   })
 
+  it('normalizes null static credential fields on Agent Identity routes', () => {
+    const environment = parseEnvironmentResponse({
+      ...rawEnvironment(),
+      config: {
+        egress_services: [
+          {
+            name: 'secocean',
+            base_url: 'https://secocean.example.com',
+            auth_source: 'agent_identity',
+            credential_ref: null,
+            inject: null,
+            allowed_paths: ['/api/customer/detail'],
+          },
+        ],
+      },
+    })
+
+    expect(environment.config?.egress_services?.[0]).toEqual({
+      name: 'secocean',
+      base_url: 'https://secocean.example.com',
+      auth_source: 'agent_identity',
+      allowed_paths: ['/api/customer/detail'],
+    })
+  })
+
   it.each([
     {
       name: 'secocean',
