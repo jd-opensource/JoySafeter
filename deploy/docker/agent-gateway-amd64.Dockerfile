@@ -1,10 +1,8 @@
-# Agent Gateway runtime image using a prebuilt Linux AMD64 binary.
-# Build the binary first with:
-# cargo zigbuild --locked --release --target x86_64-unknown-linux-gnu
+# Agent Gateway runtime image using a host-cross-compiled Linux AMD64 binary.
+# Build the binary first with cargo-zigbuild; this image never compiles Rust.
 
-ARG RUNTIME_IMAGE=public.ecr.aws/docker/library/debian:bookworm-slim
-
-FROM ${RUNTIME_IMAGE} AS runner
+ARG RUNTIME_IMAGE=swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/debian:bookworm-slim
+FROM ${RUNTIME_IMAGE}
 
 ARG APT_MIRROR_BASE="http://mirrors.ustc.edu.cn"
 
@@ -24,6 +22,6 @@ COPY target/x86_64-unknown-linux-gnu/release/joysafeter-agent-gateway /usr/local
 
 USER 10001:10001
 ENV RUST_LOG=info
-EXPOSE 9092 9093
+EXPOSE 9092 9093 9094
 HEALTHCHECK --interval=10s --timeout=3s --retries=3 CMD curl --fail --silent http://127.0.0.1:9093/health/live || exit 1
-ENTRYPOINT ["joysafeter-agent-gateway"]
+ENTRYPOINT ["/usr/local/bin/joysafeter-agent-gateway"]

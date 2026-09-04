@@ -69,8 +69,9 @@ docker-compose*.yml
 # Alembic
 alembic.ini.bak
 
-# Rust orchestrator source/cache is not needed by the Python backend image
+# Rust control-plane source/cache is not needed by the Python backend image
 app/joysafeter_orchestrator_rs/
+app/joysafeter_agent_gateway/
 
 # 本地脚本（保留 db 初始化脚本）
 scripts/*

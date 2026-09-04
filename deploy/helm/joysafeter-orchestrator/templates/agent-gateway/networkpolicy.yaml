@@ -17,6 +17,14 @@ spec:
     - ports:
       - port: {{ .Values.agentGateway.httpPort | quote }}
         protocol: TCP
+  # Gateway subscribes to the orchestrator policy stream over gRPC.
+  - toEndpoints:
+    - matchLabels:
+        app: joysafeter-orchestrator
+    toPorts:
+    - ports:
+      - port: "{{ .Values.orchestrator.grpc.port }}"
+        protocol: TCP
   - toEntities:
     - kube-apiserver
     # The kube-apiserver entity remains correct after Service translation,
@@ -42,11 +50,14 @@ spec:
     - ports:
       - port: "{{ .Values.agentGateway.xdsPort }}"
         protocol: TCP
+  # Orchestrator → gateway management: gRPC (apply/remove) + HTTP fallback.
   - fromEndpoints:
     - matchLabels:
         app: joysafeter-orchestrator
     toPorts:
     - ports:
+      - port: "{{ .Values.agentGateway.managementGrpcPort }}"
+        protocol: TCP
       - port: "{{ .Values.agentGateway.httpPort }}"
         protocol: TCP
   - fromEndpoints:

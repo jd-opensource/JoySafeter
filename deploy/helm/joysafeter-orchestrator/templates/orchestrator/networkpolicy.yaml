@@ -3,13 +3,14 @@
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-  name: joysafeter-orchestrator-ingress
+  name: joysafeter-orchestrator
   namespace: {{ .Release.Namespace }}
 spec:
   endpointSelector:
     matchLabels:
       app: joysafeter-orchestrator
   ingress:
+  # Sandbox runners → orchestrator control-plane gRPC.
   - fromEndpoints:
     - matchLabels:
         app.kubernetes.io/name: joysafeter-sandbox
@@ -17,6 +18,15 @@ spec:
     - ports:
       - port: "{{ .Values.orchestrator.grpc.port }}"
         protocol: TCP
+  # Agent Gateway subscribes to the policy stream over the same gRPC port.
+  - fromEndpoints:
+    - matchLabels:
+        app: joysafeter-agent-gateway
+    toPorts:
+    - ports:
+      - port: "{{ .Values.orchestrator.grpc.port }}"
+        protocol: TCP
+  # kubelet / node probes and peer replicas → health endpoint.
   - fromEntities:
     - host
     - remote-node
@@ -24,11 +34,33 @@ spec:
     - ports:
       - port: "9091"
         protocol: TCP
+  egress:
+  # Cluster DNS (L7 visibility to match the cluster's DNS proxy mode).
+  - toEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: kube-system
+        k8s-app: kube-dns
+    toPorts:
+    - ports:
+      - port: "53"
+        protocol: UDP
+      - port: "53"
+        protocol: TCP
+      rules:
+        dns:
+        - matchPattern: "*"
+  # Orchestrator egress is fully open: it must reach in-cluster peers
+  # (agent-gateway, kube-apiserver) AND arbitrary external managed services
+  # (PostgreSQL, Redis, object storage, identity providers, LLM upstreams).
+  # `all` covers every reserved identity (cluster pods, world, host,
+  # kube-apiserver, remote-node) on every port. Tighten for production if needed.
+  - toEntities:
+    - all
 {{- else }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: joysafeter-orchestrator-ingress
+  name: joysafeter-orchestrator
   namespace: {{ .Release.Namespace }}
 spec:
   podSelector:
@@ -36,13 +68,21 @@ spec:
       app: joysafeter-orchestrator
   policyTypes:
   - Ingress
+  - Egress
   ingress:
   - from:
     - podSelector:
         matchLabels:
           app.kubernetes.io/name: joysafeter-sandbox
+    - podSelector:
+        matchLabels:
+          app: joysafeter-agent-gateway
     ports:
     - port: {{ .Values.orchestrator.grpc.port }}
       protocol: TCP
+  egress:
+  # Orchestrator egress is fully open (in-cluster peers + external managed
+  # services + Kubernetes API). 0.0.0.0/0 on all ports; DNS included.
+  - {}
 {{- end }}
 {{- end }}

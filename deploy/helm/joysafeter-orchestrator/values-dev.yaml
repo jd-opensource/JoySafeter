@@ -12,6 +12,14 @@ orchestrator:
   pool:
     minSize: 1
   logLevel: debug
+  # ── 文件存储 (S3) ──
+  # bucket/endpoint/access/secret 全部来自 externalSecret(与 pre 一致)。
+  storage:
+    backend: s3
+    s3:
+      bucket: ""
+      endpoint: ""
+      region: ""
 
 # ── Agent Identity 信任目标 ──
 agentIdentity:

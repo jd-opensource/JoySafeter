@@ -34,7 +34,6 @@ spec:
       schema:
         openAPIV3Schema:
           type: object
-          additionalProperties: false
           properties:
             apiVersion:
               type: string
@@ -44,7 +43,6 @@ spec:
               type: object
             spec:
               type: object
-              additionalProperties: false
               required:
                 - provider
                 - host
@@ -60,9 +58,6 @@ spec:
                   minLength: 3
                   maxLength: 255
                   pattern: '^(\*\.)?([A-Za-z0-9]([-A-Za-z0-9]{0,61}[A-Za-z0-9])?\.)+[A-Za-z0-9]([-A-Za-z0-9]{0,61}[A-Za-z0-9])?\.?$'
-                  x-kubernetes-validations:
-                    - rule: "!self.matches('^(\\*\\.)?[0-9.]+$')"
-                      message: IP addresses and IP wildcard patterns are not allowed
                 port:
                   type: integer
                   format: int32
