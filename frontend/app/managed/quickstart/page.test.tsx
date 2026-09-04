@@ -51,7 +51,12 @@ const quickstartState = vi.hoisted(() => ({
       updated_at: '2030-01-01T00:00:00Z',
     },
   ] as Array<Record<string, unknown>>,
-  sessionEvents: [] as Array<{ id: string; type: string; data?: Record<string, unknown> }>,
+  sessionEvents: [] as Array<{
+    id: string
+    type: string
+    content?: string
+    data?: Record<string, unknown>
+  }>,
   trialTasks: [] as Array<Record<string, unknown>>,
   environments: [] as Array<Record<string, unknown>>,
   pendingConfirmation: null as { step: number } | null,
@@ -837,6 +842,45 @@ describe('Quickstart page Model Connection completion', () => {
     expect(screen.getByText('Includes evidence')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Review transcript' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Review debug evidence' })).toBeInTheDocument()
+  })
+
+  it('brings rendered transcript evidence into view from the acceptance review action', async () => {
+    quickstartState.currentStep = 6
+    quickstartState.completedSteps = new Set([1, 2, 3, 4, 5, 6])
+    quickstartState.resourceIds = {
+      3: 'agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f030',
+      6: SESSION_ID,
+    }
+    quickstartState.sessionEvents = [
+      { id: 'event-1', type: 'user.message', content: 'Run the acceptance review.' },
+      { id: 'event-2', type: 'agent.message', content: 'Rendered transcript evidence.' },
+      { id: 'event-3', type: 'session.status_idle' },
+    ]
+    quickstartState.config = {
+      agent: {
+        name: 'Release Reviewer',
+        blueprint: {
+          mission: 'Review releases',
+          acceptance_test: {
+            message: 'Review this authentication change.',
+            checks: ['Includes evidence'],
+          },
+        },
+      },
+    }
+
+    render(<QuickstartPage />, { wrapper })
+
+    expect(await screen.findByText('Rendered transcript evidence.')).toBeInTheDocument()
+    const scrollIntoView = vi.mocked(Element.prototype.scrollIntoView)
+    scrollIntoView.mockClear()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Review transcript' }))
+
+    const eventEvidence = screen.getByTestId('quickstart-event-evidence')
+    expect(eventEvidence).toHaveClass('min-h-[240px]')
+    expect(scrollIntoView).toHaveBeenCalledWith({ behavior: 'smooth', block: 'start' })
+    expect(scrollIntoView.mock.instances.at(-1)).toBe(eventEvidence)
   })
 
   it('shows access rejection separately from a generic runtime failure', async () => {
