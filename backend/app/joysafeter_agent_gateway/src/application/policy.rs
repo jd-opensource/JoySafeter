@@ -14,6 +14,10 @@ const MAX_ALLOWLIST_HOSTS: usize = 256;
 const MAX_CREDENTIAL_ROUTES: usize = 128;
 const MAX_HEADERS_PER_ROUTE: usize = 32;
 const MAX_HEADER_VALUE_BYTES: usize = 16 * 1024;
+/// Upper bound on the per-sandbox Envoy listener auth token. It is base64 at
+/// render time so not an injection vector, but an unbounded value should not be
+/// accepted from the management plane. (E4)
+const MAX_PROXY_AUTH_TOKEN_BYTES: usize = 4 * 1024;
 
 #[derive(Debug)]
 pub struct ValidatedPolicy {
@@ -32,6 +36,13 @@ impl ValidatedPolicy {
         }
         if request.credential_routes.len() > MAX_CREDENTIAL_ROUTES {
             return Err("policy contains too many credential routes".to_string());
+        }
+        if request
+            .proxy_auth_token
+            .as_ref()
+            .is_some_and(|token| token.len() > MAX_PROXY_AUTH_TOKEN_BYTES)
+        {
+            return Err("proxy auth token is too long".to_string());
         }
         let routes = request
             .credential_routes
@@ -57,16 +68,23 @@ impl ValidatedPolicy {
 }
 
 fn validate_generation(request: &ApplySandboxPolicyRequest) -> Result<(), String> {
-    if request.generation.policy_hash.len() != 64
-        || !request
-            .generation
-            .policy_hash
+    validate_generation_fields(
+        &request.generation.policy_hash,
+        request.generation.policy_version,
+    )
+}
+
+/// Shared generation-field validation so apply and remove enforce the same
+/// `(policy_hash, policy_version)` contract. (E4)
+pub fn validate_generation_fields(policy_hash: &str, policy_version: i64) -> Result<(), String> {
+    if policy_hash.len() != 64
+        || !policy_hash
             .bytes()
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
     {
         return Err("policy_hash must be a lowercase SHA-256 hex digest".to_string());
     }
-    if request.generation.policy_version <= 0 {
+    if policy_version <= 0 {
         return Err("policy_version must be positive".to_string());
     }
     Ok(())

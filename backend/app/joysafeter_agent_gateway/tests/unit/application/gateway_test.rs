@@ -269,6 +269,51 @@ async fn prune_policies_returns_nothing_when_no_sandboxes_are_configured() {
 }
 
 #[tokio::test]
+async fn prune_policies_removes_a_projected_recovery_policy_without_xds_resources() {
+    let (app, authority, control_plane) = build_app(Duration::from_millis(50));
+    let recovery = authority.begin_staging().expect("begin staging");
+    control_plane
+        .install_recovery_inventory(
+            &recovery,
+            RecoveryInventory::new(Vec::new()).expect("empty inventory"),
+        )
+        .await
+        .expect("install inventory");
+    authority
+        .begin_recovery_serving(&recovery)
+        .expect("begin recovery serving");
+
+    // A promoted hot snapshot can retain a committed policy projection while
+    // omitting its resources because the sandbox has no available Envoy node.
+    let sandbox_id = SandboxId::new();
+    let generation = crate::xds::model::DeliveryGeneration {
+        policy_hash: "a".repeat(64),
+        policy_version: 1,
+    };
+    let staged = app
+        .projections()
+        .stage_sandbox(sandbox_id, generation)
+        .expect("stage projection");
+    app.projections()
+        .commit(&staged)
+        .expect("commit projection");
+    assert!(
+        control_plane
+            .configured_sandbox_ids(crate::xds::model::ResourceType::Listener)
+            .await
+            .is_empty(),
+        "the regression requires a projection with no configured listener"
+    );
+
+    let stale = app.prune_policies(Vec::new()).await.expect("prune");
+    assert_eq!(stale, vec![sandbox_id]);
+    assert!(app.projections().inventory().is_empty());
+    app.complete_recovery(recovery.epoch(), Vec::new())
+        .await
+        .expect("recovery completes after pruning the projected-only policy");
+}
+
+#[tokio::test]
 async fn placement_operations_succeed_against_a_serving_authority() {
     let (app, authority, control_plane) = build_app(Duration::from_millis(50));
     drive_to_ready(&authority, &control_plane).await;

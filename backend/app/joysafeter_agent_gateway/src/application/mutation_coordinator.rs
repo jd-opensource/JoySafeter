@@ -10,7 +10,13 @@ use crate::ids::SandboxId;
 /// one sandbox must never stop unrelated sandboxes from publishing. A fixed
 /// number of lanes keeps memory bounded; UUID v7 random tail bytes distribute
 /// concurrently active sandboxes across the lanes.
-const SANDBOX_MUTATION_LANES: usize = 257;
+///
+/// Sized well above the realistic count of *concurrently mutating* sandboxes so
+/// two unrelated sandboxes rarely share a lane (and thus rarely serialize behind
+/// each other's bounded Envoy ACK wait). Each lane is a zero-payload `Mutex`
+/// (~tens of bytes), so a few thousand lanes cost only kilobytes. The in-lane ACK
+/// wait itself is already bounded by `delivery_timeout`. (H2)
+const SANDBOX_MUTATION_LANES: usize = 4099;
 
 #[derive(Clone)]
 pub struct MutationCoordinator {

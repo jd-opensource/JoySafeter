@@ -107,7 +107,9 @@ async fn status(State(state): State<Arc<GatewayHttpState>>, headers: HeaderMap) 
     if !state.management_authenticator.authenticate(&headers) {
         return unauthorized();
     }
-    let Some(authority_epoch) = state.authority.phase().epoch() else {
+    // Snapshot the phase once so epoch and phase string stay consistent. (G2)
+    let phase = state.authority.phase();
+    let Some(authority_epoch) = phase.epoch() else {
         return api_error(
             StatusCode::SERVICE_UNAVAILABLE,
             "authority_unavailable",
@@ -120,7 +122,7 @@ async fn status(State(state): State<Arc<GatewayHttpState>>, headers: HeaderMap) 
             instance_id: state.instance_id.clone(),
             boot_id: state.boot_id.clone(),
             authority_epoch,
-            authority_phase: match state.authority.phase() {
+            authority_phase: match phase {
                 AuthorityPhase::Standby => "standby",
                 AuthorityPhase::Staging { .. } => "staging",
                 AuthorityPhase::RecoveryServing { .. } => "recovery_serving",

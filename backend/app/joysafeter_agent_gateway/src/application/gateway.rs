@@ -260,9 +260,13 @@ impl GatewayApplication {
             policy_hash: generation.policy_hash,
             policy_version: generation.policy_version,
         };
-        if generation.policy_hash.is_empty() || generation.policy_version <= 0 {
-            return Err(GatewayApplicationError::InvalidGeneration);
-        }
+        // Enforce the same generation contract as apply (E4): a well-formed
+        // lowercase SHA-256 hex hash and a positive version.
+        crate::application::policy::validate_generation_fields(
+            &generation.policy_hash,
+            generation.policy_version,
+        )
+        .map_err(|_| GatewayApplicationError::InvalidGeneration)?;
         let _sandbox_lane = self.mutations.lock_sandbox(sandbox_id).await;
         let (guard, outcome) = {
             let _recovery = self.mutations.lock_recovery().await;
@@ -307,6 +311,21 @@ impl GatewayApplication {
         sandbox_id: SandboxId,
         node_id: String,
     ) -> Result<(), GatewayApplicationError> {
+        // Spawn so a client disconnect cannot cancel the mutation between the
+        // control-plane change and its replication (which would diverge the
+        // hot standby). (H5)
+        let application = self.clone();
+        finish_started_mutation(tokio::spawn(async move {
+            application.assign_placement_inner(sandbox_id, node_id).await
+        }))
+        .await
+    }
+
+    async fn assign_placement_inner(
+        &self,
+        sandbox_id: SandboxId,
+        node_id: String,
+    ) -> Result<(), GatewayApplicationError> {
         let placement = ValidatedPlacement::new(sandbox_id, node_id)
             .map_err(GatewayApplicationError::InvalidPlacement)?;
         let _sandbox_lane = self.mutations.lock_sandbox(sandbox_id).await;
@@ -342,6 +361,17 @@ impl GatewayApplication {
         &self,
         sandbox_id: SandboxId,
     ) -> Result<(), GatewayApplicationError> {
+        let application = self.clone();
+        finish_started_mutation(tokio::spawn(async move {
+            application.remove_placement_inner(sandbox_id).await
+        }))
+        .await
+    }
+
+    async fn remove_placement_inner(
+        &self,
+        sandbox_id: SandboxId,
+    ) -> Result<(), GatewayApplicationError> {
         let _sandbox_lane = self.mutations.lock_sandbox(sandbox_id).await;
         let _lock = self.mutations.lock_recovery().await;
         let guard = self.guard()?;
@@ -359,6 +389,17 @@ impl GatewayApplication {
     }
 
     pub async fn reconcile_placements(
+        &self,
+        placements: Vec<SandboxPlacement>,
+    ) -> Result<(), GatewayApplicationError> {
+        let application = self.clone();
+        finish_started_mutation(tokio::spawn(async move {
+            application.reconcile_placements_inner(placements).await
+        }))
+        .await
+    }
+
+    async fn reconcile_placements_inner(
         &self,
         placements: Vec<SandboxPlacement>,
     ) -> Result<(), GatewayApplicationError> {
@@ -408,6 +449,17 @@ impl GatewayApplication {
         &self,
         live_sandbox_ids: Vec<String>,
     ) -> Result<Vec<SandboxId>, GatewayApplicationError> {
+        let application = self.clone();
+        finish_started_mutation(tokio::spawn(async move {
+            application.prune_policies_inner(live_sandbox_ids).await
+        }))
+        .await
+    }
+
+    async fn prune_policies_inner(
+        &self,
+        live_sandbox_ids: Vec<String>,
+    ) -> Result<Vec<SandboxId>, GatewayApplicationError> {
         if live_sandbox_ids.len() > MAX_INVENTORY_SANDBOXES {
             return Err(GatewayApplicationError::InvalidInventory(
                 "inventory contains too many sandbox ids".to_string(),
@@ -427,20 +479,48 @@ impl GatewayApplication {
             }
         }
 
-        let _lock = self.mutations.lock_recovery().await;
-        let guard = self.guard()?;
-        let configured = self
-            .control_plane
-            .configured_sandbox_ids(crate::xds::model::ResourceType::Listener)
-            .await;
-        let mut stale = configured.difference(&live).copied().collect::<Vec<_>>();
-        stale.sort_by_key(|sandbox_id| sandbox_id.as_uuid());
+        // Phase 1: snapshot the stale set under a brief recovery lock, then release
+        // it so the per-sandbox removals below can take sandbox lanes first without
+        // inverting the global sandbox-lane → recovery-gate order.
+        let stale = {
+            let _lock = self.mutations.lock_recovery().await;
+            self.guard()?;
+            // Recovery can contain a committed policy projection whose xDS
+            // resources are intentionally absent while its Envoy node assignment
+            // is unavailable.  Looking only at configured listeners leaves that
+            // projection behind forever, so complete_recovery can never match the
+            // Orchestrator's authoritative inventory.  Use the union to clean up
+            // both projected-only recovery entries and any orphaned resources.
+            let mut known = self
+                .control_plane
+                .configured_sandbox_ids(crate::xds::model::ResourceType::Listener)
+                .await;
+            known.extend(self.projections.sandbox_ids());
+            let mut stale = known.difference(&live).copied().collect::<Vec<_>>();
+            stale.sort_by_key(|sandbox_id| sandbox_id.as_uuid());
+            stale
+        };
+
+        // Phase 2: remove each stale sandbox while holding ITS lane, so a prune can
+        // never tear a concurrent apply/remove for the same sandbox (C3). The lock
+        // order (sandbox lane → recovery gate) matches apply/remove, and the Envoy
+        // ACK wait holds only the lane — never the recovery gate — so an unrelated
+        // sandbox's recovery-gated section is not blocked.
         for sandbox_id in &stale {
-            let outcome = self
-                .publisher
-                .remove(*sandbox_id, None)
-                .await
-                .map_err(GatewayApplicationError::Infrastructure)?;
+            let _sandbox_lane = self.mutations.lock_sandbox(*sandbox_id).await;
+            let outcome = {
+                let _lock = self.mutations.lock_recovery().await;
+                let guard = self.guard()?;
+                let outcome = self
+                    .publisher
+                    .remove(*sandbox_id, None)
+                    .await
+                    .map_err(GatewayApplicationError::Infrastructure)?;
+                guard
+                    .validate()
+                    .map_err(|_| GatewayApplicationError::AuthorityChanged)?;
+                outcome
+            };
             let RemoveOutcome::Current(outcome) = outcome else {
                 continue;
             };
@@ -448,6 +528,8 @@ impl GatewayApplication {
                 .wait_for_delivery(outcome, self.runtime.delivery_timeout)
                 .await
                 .map_err(classify_delivery_error)?;
+            let _lock = self.mutations.lock_recovery().await;
+            let guard = self.guard()?;
             guard
                 .validate()
                 .map_err(|_| GatewayApplicationError::AuthorityChanged)?;
@@ -465,6 +547,18 @@ impl GatewayApplication {
     }
 
     pub async fn complete_recovery(
+        &self,
+        epoch: u64,
+        expected: Vec<AppliedSandboxGeneration>,
+    ) -> Result<(), GatewayApplicationError> {
+        let application = self.clone();
+        finish_started_mutation(tokio::spawn(async move {
+            application.complete_recovery_inner(epoch, expected).await
+        }))
+        .await
+    }
+
+    async fn complete_recovery_inner(
         &self,
         epoch: u64,
         mut expected: Vec<AppliedSandboxGeneration>,

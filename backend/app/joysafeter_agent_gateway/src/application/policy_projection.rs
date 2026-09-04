@@ -129,6 +129,15 @@ impl PolicyProjectionRegistry {
         inventory
     }
 
+    pub(crate) fn sandbox_ids(&self) -> HashSet<SandboxId> {
+        self.state
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .iter()
+            .filter_map(|(sandbox_id, sandbox)| sandbox.active.as_ref().map(|_| *sandbox_id))
+            .collect()
+    }
+
     #[cfg(test)]
     pub(crate) fn contains_state(&self, sandbox_id: SandboxId) -> bool {
         self.state

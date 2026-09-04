@@ -99,6 +99,9 @@ async fn main() -> anyhow::Result<()> {
         config.management_grpc_addr,
         application.clone(),
         config.management_token.expose(),
+        config.instance_id.clone(),
+        boot_id.to_string(),
+        authority.clone(),
         shutdown.signal(),
     )
     .await?;

@@ -162,6 +162,12 @@ fn validate_route_host(host: &str) -> anyhow::Result<()> {
     if trimmed.is_empty() {
         anyhow::bail!("host is empty");
     }
+    // Reject any ASCII control character (CR/LF/NUL and friends). Hosts flow into
+    // Envoy cluster addresses, TLS SNI, and credential-route host_rewrite; an
+    // unescaped CR/LF would allow config / upstream Host-header injection. (S1)
+    if trimmed.bytes().any(|b| b.is_ascii_control()) {
+        anyhow::bail!("host must not contain control characters");
+    }
     if trimmed.contains('/') || trimmed.contains(' ') || trimmed.contains('\t') {
         anyhow::bail!("host must not contain path, whitespace, or scheme");
     }
