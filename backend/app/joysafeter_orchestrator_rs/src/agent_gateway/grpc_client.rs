@@ -4,7 +4,8 @@ use std::time::Duration;
 use async_trait::async_trait;
 use joysafeter_agent_gateway_contract::{
     ApplySandboxPolicyRequest, CompleteRecoveryRequest, GatewayStatusResponse,
-    PolicyAcceptedResponse, PolicyGeneration,
+    PolicyAcceptedResponse, PolicyGeneration, PruneSandboxPoliciesRequest,
+    PruneSandboxPoliciesResponse,
 };
 use tonic::transport::{Channel, Endpoint};
 use tonic::{Code, Request, Status};
@@ -107,10 +108,47 @@ impl AgentGatewayApi for AgentGatewayGrpcClient {
     }
 
     async fn status(&self) -> anyhow::Result<GatewayStatusResponse> {
-        anyhow::bail!("status() not yet implemented for gRPC client")
+        let mut client = self.client.clone();
+        let token = self.management_token.clone();
+        let response = self
+            .retry_with_backoff("status query", || {
+                let mut client = client.clone();
+                let mut req = Request::new(proto::GetStatusRequest {});
+                req.metadata_mut()
+                    .insert("authorization", format!("Bearer {}", token).parse().unwrap());
+                async move { client.get_status(req).await }
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("gRPC get_status failed: {}", e))?;
+        let inner = response.into_inner();
+        if !inner.success {
+            anyhow::bail!("Gateway status query failed: {}", inner.error_message);
+        }
+        serde_json::from_slice(&inner.payload)
+            .map_err(|e| anyhow::anyhow!("invalid status payload from gateway: {}", e))
     }
 
-    async fn complete_recovery(&self, _request: CompleteRecoveryRequest) -> anyhow::Result<()> {
+    async fn complete_recovery(&self, request: CompleteRecoveryRequest) -> anyhow::Result<()> {
+        let payload = serde_json::to_vec(&request)?;
+        let mut client = self.client.clone();
+        let token = self.management_token.clone();
+        let response = self
+            .retry_with_backoff("recovery completion", || {
+                let mut client = client.clone();
+                let mut req = Request::new(proto::JsonRequest {
+                    payload: payload.clone(),
+                    trace_id: String::new(),
+                });
+                req.metadata_mut()
+                    .insert("authorization", format!("Bearer {}", token).parse().unwrap());
+                async move { client.complete_recovery(req).await }
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("gRPC complete_recovery failed: {}", e))?;
+        let inner = response.into_inner();
+        if !inner.success {
+            anyhow::bail!("Gateway recovery completion failed: {}", inner.error_message);
+        }
         Ok(())
     }
 
@@ -204,27 +242,126 @@ impl AgentGatewayApi for AgentGatewayGrpcClient {
 
     async fn prune_policies(
         &self,
-        _live_sandbox_ids: &HashSet<SandboxId>,
+        live_sandbox_ids: &HashSet<SandboxId>,
     ) -> anyhow::Result<Vec<SandboxId>> {
-        Ok(Vec::new())
+        let mut ids = live_sandbox_ids
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>();
+        ids.sort();
+        let payload = serde_json::to_vec(&PruneSandboxPoliciesRequest {
+            live_sandbox_ids: ids,
+        })?;
+        let mut client = self.client.clone();
+        let token = self.management_token.clone();
+        let response = self
+            .retry_with_backoff("policy pruning", || {
+                let mut client = client.clone();
+                let mut req = Request::new(proto::JsonRequest {
+                    payload: payload.clone(),
+                    trace_id: String::new(),
+                });
+                req.metadata_mut()
+                    .insert("authorization", format!("Bearer {}", token).parse().unwrap());
+                async move { client.prune_policies(req).await }
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("gRPC prune_policies failed: {}", e))?;
+        let inner = response.into_inner();
+        if !inner.success {
+            anyhow::bail!("Gateway policy pruning failed: {}", inner.error_message);
+        }
+        let parsed: PruneSandboxPoliciesResponse = serde_json::from_slice(&inner.payload)
+            .map_err(|e| anyhow::anyhow!("invalid prune payload from gateway: {}", e))?;
+        parsed
+            .removed_sandbox_ids
+            .into_iter()
+            .map(|id| {
+                id.parse()
+                    .map_err(|_| anyhow::anyhow!("gateway prune response had invalid sandbox id"))
+            })
+            .collect()
     }
 
     async fn assign_placement(
         &self,
-        _sandbox_id: SandboxId,
-        _request: joysafeter_agent_gateway_contract::AssignSandboxPlacementRequest,
+        sandbox_id: SandboxId,
+        request: joysafeter_agent_gateway_contract::AssignSandboxPlacementRequest,
     ) -> anyhow::Result<()> {
+        let payload = serde_json::to_vec(&request)?;
+        let sandbox = sandbox_id.to_string();
+        let mut client = self.client.clone();
+        let token = self.management_token.clone();
+        let response = self
+            .retry_with_backoff("placement assignment", || {
+                let mut client = client.clone();
+                let mut req = Request::new(proto::PlacementRequest {
+                    sandbox_id: sandbox.clone(),
+                    payload: payload.clone(),
+                    trace_id: String::new(),
+                });
+                req.metadata_mut()
+                    .insert("authorization", format!("Bearer {}", token).parse().unwrap());
+                async move { client.assign_placement(req).await }
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("gRPC assign_placement failed: {}", e))?;
+        let inner = response.into_inner();
+        if !inner.success {
+            anyhow::bail!("Gateway placement assignment failed: {}", inner.error_message);
+        }
         Ok(())
     }
 
-    async fn remove_placement(&self, _sandbox_id: SandboxId) -> anyhow::Result<()> {
+    async fn remove_placement(&self, sandbox_id: SandboxId) -> anyhow::Result<()> {
+        let sandbox = sandbox_id.to_string();
+        let mut client = self.client.clone();
+        let token = self.management_token.clone();
+        let response = self
+            .retry_with_backoff("placement removal", || {
+                let mut client = client.clone();
+                let mut req = Request::new(proto::PlacementRequest {
+                    sandbox_id: sandbox.clone(),
+                    payload: Vec::new(),
+                    trace_id: String::new(),
+                });
+                req.metadata_mut()
+                    .insert("authorization", format!("Bearer {}", token).parse().unwrap());
+                async move { client.remove_placement(req).await }
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("gRPC remove_placement failed: {}", e))?;
+        let inner = response.into_inner();
+        if !inner.success {
+            anyhow::bail!("Gateway placement removal failed: {}", inner.error_message);
+        }
         Ok(())
     }
 
     async fn reconcile_placements(
         &self,
-        _request: joysafeter_agent_gateway_contract::ReconcilePlacementsRequest,
+        request: joysafeter_agent_gateway_contract::ReconcilePlacementsRequest,
     ) -> anyhow::Result<()> {
+        let payload = serde_json::to_vec(&request)?;
+        let mut client = self.client.clone();
+        let token = self.management_token.clone();
+        let response = self
+            .retry_with_backoff("placement reconcile", || {
+                let mut client = client.clone();
+                let mut req = Request::new(proto::JsonRequest {
+                    payload: payload.clone(),
+                    trace_id: String::new(),
+                });
+                req.metadata_mut()
+                    .insert("authorization", format!("Bearer {}", token).parse().unwrap());
+                async move { client.reconcile_placements(req).await }
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("gRPC reconcile_placements failed: {}", e))?;
+        let inner = response.into_inner();
+        if !inner.success {
+            anyhow::bail!("Gateway placement reconcile failed: {}", inner.error_message);
+        }
         Ok(())
     }
 }

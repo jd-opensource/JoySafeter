@@ -11,6 +11,46 @@ service GatewayManagementService {
 
   // Remove policy for a sandbox (replaces HTTP DELETE /v1/policies/{sandbox_id})
   rpc RemovePolicy(RemovePolicyRequest) returns (RemovePolicyResponse);
+
+  // Query gateway status (replaces HTTP GET /internal/v1/status).
+  rpc GetStatus(GetStatusRequest) returns (JsonResponse);
+
+  // Complete recovery handshake (replaces HTTP PUT /internal/v1/recovery/complete).
+  rpc CompleteRecovery(JsonRequest) returns (JsonResponse);
+
+  // Prune stale policies (replaces HTTP PUT /internal/v1/policies/prune).
+  rpc PrunePolicies(JsonRequest) returns (JsonResponse);
+
+  // Assign sandbox placement (replaces HTTP PUT .../placement).
+  rpc AssignPlacement(PlacementRequest) returns (JsonResponse);
+
+  // Remove sandbox placement (replaces HTTP DELETE .../placement).
+  rpc RemovePlacement(PlacementRequest) returns (JsonResponse);
+
+  // Reconcile placements (replaces HTTP PUT /internal/v1/placements).
+  rpc ReconcilePlacements(JsonRequest) returns (JsonResponse);
+}
+
+// Generic JSON envelope: `payload` is a JSON-serialized contract struct, so the
+// gRPC surface stays in lockstep with the existing HTTP contract types without
+// duplicating every nested message in protobuf.
+message JsonRequest {
+  bytes payload = 1;
+  string trace_id = 2;
+}
+
+message JsonResponse {
+  bool success = 1;
+  string error_message = 2;
+  bytes payload = 3;  // JSON-serialized response body (empty when none)
+}
+
+message GetStatusRequest {}
+
+message PlacementRequest {
+  string sandbox_id = 1;
+  bytes payload = 2;  // JSON-serialized request body (empty for remove)
+  string trace_id = 3;
 }
 
 message ApplyPolicyRequest {

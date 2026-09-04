@@ -520,11 +520,13 @@ impl OrchestratorApplication {
             Some(policy_event_publisher.clone()),
         )
         .await?;
-        supervisor.register(
-            "grpc-runner-server",
-            ServiceCriticality::Critical,
-            grpc_handle,
-        )?;
+        supervisor
+            .register(
+                "grpc-runner-server",
+                ServiceCriticality::Critical,
+                grpc_handle,
+            )?
+            .mark_ready();
         info!(addr = %config.grpc_addr(), "gRPC server started");
 
         // Start the Redis Stream XREAD loop for policy events (this replica broadcasts
@@ -537,11 +539,13 @@ impl OrchestratorApplication {
                 }
             })
         };
-        supervisor.register(
-            "policy-stream-xread",
-            ServiceCriticality::Critical,
-            policy_xread_handle,
-        )?;
+        supervisor
+            .register(
+                "policy-stream-xread",
+                ServiceCriticality::Critical,
+                policy_xread_handle,
+            )?
+            .mark_ready();
 
         if managed_xds_authority {
             let request_source = Box::new(kernel::ha::RedisNetworkPolicyRequestSource::new(
