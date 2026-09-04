@@ -31,9 +31,21 @@ impl RemovedResource {
 pub(super) struct NonceTracker {
     pub(super) entries: HashMap<String, (ResourceType, u64, Vec<DeliveredResource>)>,
     order: VecDeque<String>,
+    /// Per-stream monotonic counter appended to every nonce so two distinct
+    /// responses can never share a nonce (e.g. a recovery partial snapshot and a
+    /// later Ready full snapshot at the same version/ownership revision), which
+    /// would make Envoy's ACK correlation ambiguous. (Fixes P1.)
+    next_seq: u64,
 }
 
 impl NonceTracker {
+    /// A strictly increasing, per-stream token used to disambiguate nonces.
+    pub(super) fn next_seq(&mut self) -> u64 {
+        let seq = self.next_seq;
+        self.next_seq = self.next_seq.wrapping_add(1);
+        seq
+    }
+
     pub(super) fn insert(
         &mut self,
         nonce: String,
@@ -42,6 +54,10 @@ impl NonceTracker {
         if self.entries.insert(nonce.clone(), entry).is_none() {
             self.order.push_back(nonce);
         }
+        // Evict oldest nonces to keep both maps bounded. `order` may contain
+        // already-taken (tombstoned) nonces; those are simply absent from
+        // `entries`, so removing them is a cheap no-op. This keeps `order`
+        // bounded by NONCE_TRACK_LIMIT without an O(n) scan in `take`. (E1)
         while self.order.len() > NONCE_TRACK_LIMIT {
             if let Some(oldest) = self.order.pop_front() {
                 self.entries.remove(&oldest);
@@ -53,11 +69,9 @@ impl NonceTracker {
         &mut self,
         nonce: &str,
     ) -> Option<(ResourceType, u64, Vec<DeliveredResource>)> {
-        let entry = self.entries.remove(nonce);
-        if entry.is_some() {
-            self.order.retain(|candidate| candidate != nonce);
-        }
-        entry
+        // O(1): drop only the entry. The stale `order` slot is reclaimed lazily by
+        // the eviction loop in `insert`. (E1)
+        self.entries.remove(nonce)
     }
 }
 
@@ -143,13 +157,18 @@ pub(super) fn delta_response(
         .map(|resource| Resource {
             name: resource.name,
             version: version.to_string(),
-            resource: Some(resource.payload),
+            // Deep-copy the encoded body only here, for a resource actually being
+            // delivered to a node — not for every resource in every snapshot. (E2)
+            resource: Some((*resource.payload).clone()),
             ..Default::default()
         })
         .collect();
     let removed_resources = removals.into_iter().map(|removal| removal.name).collect();
     let type_url = resource_type.type_url().to_string();
-    let nonce = format!("n-{type_url}-{version}-{ownership_revision}");
+    let nonce = format!(
+        "n-{type_url}-{version}-{ownership_revision}-{}",
+        nonces.next_seq()
+    );
     nonces.insert(nonce.clone(), (resource_type, version, delivered_resources));
     DeltaDiscoveryResponse {
         system_version_info: version.to_string(),

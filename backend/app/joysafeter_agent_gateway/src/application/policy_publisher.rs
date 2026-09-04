@@ -75,7 +75,7 @@ impl PolicyPublisher {
                     name: cluster.name.clone(),
                     resource_type: ResourceType::Cluster,
                     owner: ResourceOwner::Sandbox(sandbox_id),
-                    payload: encode_cluster_any(cluster)?,
+                    payload: std::sync::Arc::new(encode_cluster_any(cluster)?),
                 })
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
@@ -95,7 +95,7 @@ impl PolicyPublisher {
             name: listener.resource_name(),
             resource_type: ResourceType::Listener,
             owner: ResourceOwner::Sandbox(sandbox_id),
-            payload: encode_listener_any(&listener)?,
+            payload: std::sync::Arc::new(encode_listener_any(&listener)?),
         });
 
         Ok(resources)

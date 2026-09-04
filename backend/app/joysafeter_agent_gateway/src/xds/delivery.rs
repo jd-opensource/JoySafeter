@@ -609,6 +609,11 @@ impl DeliveryCoordinator {
     pub fn forget(&mut self, sandbox_id: SandboxId) {
         self.attempts.remove(&sandbox_id);
         self.tracker.forget(sandbox_id);
+        // Terminal retirement: drop the generation tombstone too. SandboxIds are
+        // unique per sandbox and never reused, so no future apply needs to be
+        // fenced against this id — keeping the tombstone would leak one map entry
+        // per sandbox for the leader's lifetime. (Fixes L1.)
+        self.generation_watermarks.remove(&sandbox_id);
     }
 
     pub(crate) fn metrics_snapshot(&self) -> DeliveryMetricsSnapshot {

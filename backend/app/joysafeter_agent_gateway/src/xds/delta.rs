@@ -490,52 +490,55 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                             let Some(session) = node_session else {
                                 continue;
                             };
-                            let _guard = mutation_lock.lock().await;
-                            let version = resources.current_version().await;
-                            let mut failed = false;
-                            for resource_type in RESOURCE_TYPES {
-                                let Some(initial_versions) =
-                                    deferred_initial_versions.remove(&resource_type)
-                                else {
-                                    continue;
-                                };
-                                let snapshot = visible_snapshot(
-                                    &resources,
-                                    &node_ownership,
-                                    resource_type,
-                                    &stream_node,
-                                )
-                                .await;
-                                let forced_sandboxes = delivery
-                                    .lock()
-                                    .await
-                                    .pending_sandboxes_for(&stream_node, resource_type);
-                                let (response, current) = snapshot_response(
-                                    resource_type,
-                                    version,
-                                    node_ownership.current_revision(),
-                                    snapshot,
-                                    &initial_versions,
-                                    &forced_sandboxes,
-                                    true,
-                                    &mut nonces,
-                                );
-                                sent.insert(resource_type, current);
-                                if send_response(
-                                    &sender,
-                                    &node_health,
-                                    &stream_node,
-                                    session,
-                                    response,
-                                )
-                                .await
-                                .is_err()
-                                {
-                                    failed = true;
-                                    break;
+                            // Build all deferred snapshots under the lock, then flush
+                            // without it so a slow reader cannot stall others. (H1)
+                            let responses = {
+                                let _guard = mutation_lock.lock().await;
+                                let version = resources.current_version().await;
+                                let mut responses = Vec::new();
+                                for resource_type in RESOURCE_TYPES {
+                                    let Some(initial_versions) =
+                                        deferred_initial_versions.remove(&resource_type)
+                                    else {
+                                        continue;
+                                    };
+                                    let snapshot = visible_snapshot(
+                                        &resources,
+                                        &node_ownership,
+                                        resource_type,
+                                        &stream_node,
+                                    )
+                                    .await;
+                                    let forced_sandboxes = delivery
+                                        .lock()
+                                        .await
+                                        .pending_sandboxes_for(&stream_node, resource_type);
+                                    let (response, current) = snapshot_response(
+                                        resource_type,
+                                        version,
+                                        node_ownership.current_revision(),
+                                        snapshot,
+                                        &initial_versions,
+                                        &forced_sandboxes,
+                                        true,
+                                        &mut nonces,
+                                    );
+                                    sent.insert(resource_type, current);
+                                    responses.push(response);
                                 }
-                            }
-                            if failed {
+                                (version, responses)
+                            };
+                            let (version, responses) = responses;
+                            if flush_responses(
+                                &sender,
+                                &node_health,
+                                &stream_node,
+                                session,
+                                responses,
+                            )
+                            .await
+                            .is_err()
+                            {
                                 break;
                             }
                             last_seen_version = version;
@@ -662,52 +665,57 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                             continue;
                         };
                         if subscribed.insert(resource_type) {
-                            let _guard = mutation_lock.lock().await;
-                            let version = resources.current_version().await;
-                            let snapshot = visible_snapshot(
-                                &resources,
-                                &node_ownership,
-                                resource_type,
-                                &stream_node,
-                            ).await;
-                            let forced_sandboxes = delivery
-                                .lock()
-                                .await
-                                .pending_sandboxes_for(&stream_node, resource_type);
-                            let recovery_serving = matches!(
-                                *authority_receiver.borrow(),
-                                AuthorityPhase::RecoveryServing { .. }
-                            );
-                            if recovery_serving {
-                                deferred_initial_versions.insert(
+                            let response = {
+                                let _guard = mutation_lock.lock().await;
+                                let version = resources.current_version().await;
+                                let snapshot = visible_snapshot(
+                                    &resources,
+                                    &node_ownership,
                                     resource_type,
-                                    request.initial_resource_versions.clone(),
+                                    &stream_node,
+                                ).await;
+                                let forced_sandboxes = delivery
+                                    .lock()
+                                    .await
+                                    .pending_sandboxes_for(&stream_node, resource_type);
+                                let recovery_serving = matches!(
+                                    *authority_receiver.borrow(),
+                                    AuthorityPhase::RecoveryServing { .. }
                                 );
-                            }
-                            let (response, current) = snapshot_response(
-                                resource_type,
-                                version,
-                                node_ownership.current_revision(),
-                                snapshot,
-                                &request.initial_resource_versions,
-                                &forced_sandboxes,
-                                !recovery_serving,
-                                &mut nonces,
-                            );
-                            if !request.initial_resource_versions.is_empty() {
-                                metrics.record_reconnect(
-                                    response.resources.len(),
-                                    response.removed_resources.len(),
+                                if recovery_serving {
+                                    deferred_initial_versions.insert(
+                                        resource_type,
+                                        request.initial_resource_versions.clone(),
+                                    );
+                                }
+                                let (response, current) = snapshot_response(
+                                    resource_type,
+                                    version,
+                                    node_ownership.current_revision(),
+                                    snapshot,
+                                    &request.initial_resource_versions,
+                                    &forced_sandboxes,
+                                    !recovery_serving,
+                                    &mut nonces,
                                 );
-                            }
-                            sent.insert(resource_type, current);
+                                if !request.initial_resource_versions.is_empty() {
+                                    metrics.record_reconnect(
+                                        response.resources.len(),
+                                        response.removed_resources.len(),
+                                    );
+                                }
+                                sent.insert(resource_type, current);
+                                response
+                            };
+                            // Flush without the mutation lock so a slow reader cannot
+                            // stall other sandboxes' publish/remove/recovery. (H1)
                             let session = node_session.expect("node session established with node id");
-                            if send_response(
+                            if flush_responses(
                                 &sender,
                                 &node_health,
                                 &stream_node,
                                 session,
-                                response,
+                                vec![response],
                             )
                             .await
                             .is_err()
@@ -724,36 +732,45 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                         if version == last_seen_version {
                             continue;
                         }
-                        let _guard = mutation_lock.lock().await;
-                        let result = match resources.changes_since(last_seen_version).await {
-                            Some(revisions) => send_revisions(
-                                &sender,
-                                &node_ownership,
-                                &stream_node,
-                                &subscribed,
-                                &mut sent,
-                                &mut nonces,
-                                &node_health,
-                                node_session.expect("node session established with node id"),
-                                revisions,
-                            ).await,
-                            None => {
-                                metrics.record_full_reconciliation();
-                                send_full_reconciliation(
-                                    &sender,
-                                    &resources,
+                        // The stream may not have identified yet (no inbound request
+                        // seen). The version change is already consumed above, so it
+                        // is safe to skip until the node id is known. (Fixes C4.)
+                        let Some(session) = node_session else {
+                            continue;
+                        };
+                        // Build responses under the mutation lock, then release it
+                        // before flushing to the (bounded) stream channel so a slow
+                        // Envoy reader cannot stall other sandboxes. (Fixes H1.)
+                        let responses = {
+                            let _guard = mutation_lock.lock().await;
+                            match resources.changes_since(last_seen_version).await {
+                                Some(revisions) => build_revisions(
                                     &node_ownership,
                                     &stream_node,
                                     &subscribed,
                                     &mut sent,
                                     &mut nonces,
-                                    &node_health,
-                                    node_session.expect("node session established with node id"),
-                                    version,
-                                ).await
-                            },
+                                    revisions,
+                                ),
+                                None => {
+                                    metrics.record_full_reconciliation();
+                                    build_full_reconciliation(
+                                        &resources,
+                                        &node_ownership,
+                                        &stream_node,
+                                        &subscribed,
+                                        &mut sent,
+                                        &mut nonces,
+                                        version,
+                                    )
+                                    .await
+                                }
+                            }
                         };
-                        if result.is_err() {
+                        if flush_responses(&sender, &node_health, &stream_node, session, responses)
+                            .await
+                            .is_err()
+                        {
                             break;
                         }
                         last_seen_version = version;
@@ -763,20 +780,27 @@ impl AggregatedDiscoveryService for DeltaXdsServer {
                             break;
                         }
                         ownership_receiver.borrow_and_update();
-                        let _guard = mutation_lock.lock().await;
-                        let version = resources.current_version().await;
-                        if send_visibility_reconciliation(
-                            &sender,
-                            &resources,
-                            &node_ownership,
-                            &stream_node,
-                            &subscribed,
-                            &mut sent,
-                            &mut nonces,
-                            &node_health,
-                            node_session.expect("node session established with node id"),
-                            version,
-                        ).await.is_err() {
+                        let Some(session) = node_session else {
+                            continue;
+                        };
+                        let responses = {
+                            let _guard = mutation_lock.lock().await;
+                            let version = resources.current_version().await;
+                            build_visibility_reconciliation(
+                                &resources,
+                                &node_ownership,
+                                &stream_node,
+                                &subscribed,
+                                &mut sent,
+                                &mut nonces,
+                                version,
+                            )
+                            .await
+                        };
+                        if flush_responses(&sender, &node_health, &stream_node, session, responses)
+                            .await
+                            .is_err()
+                        {
                             break;
                         }
                     }
@@ -806,7 +830,7 @@ mod reconciliation;
 mod response;
 
 use reconciliation::{
-    send_full_reconciliation, send_response, send_revisions, send_visibility_reconciliation,
+    build_full_reconciliation, build_revisions, build_visibility_reconciliation, flush_responses,
     visible_snapshot,
 };
 use response::{sanitize_xds_nack, snapshot_response, NonceTracker};

@@ -93,10 +93,10 @@ async fn node_move_removes_from_old_node_and_adds_to_new_node() {
         name: "opaque-listener".to_string(),
         resource_type: ResourceType::Listener,
         owner: ResourceOwner::Sandbox(sandbox_id),
-        payload: Any {
+        payload: std::sync::Arc::new(Any {
             type_url: ResourceType::Listener.type_url().to_string(),
             value: vec![1],
-        },
+        }),
     };
     resources
         .replace_inventory(vec![resource.clone()])
@@ -120,34 +120,32 @@ async fn node_move_removes_from_old_node_and_adds_to_new_node() {
     node_health.connect("node-b", new_session);
 
     ownership.assign(sandbox_id, "node-b");
-    send_visibility_reconciliation(
-        &sender,
+    let old_node_responses = build_visibility_reconciliation(
         &resources,
         &ownership,
         "node-a",
         &subscribed,
         &mut old_node_sent,
         &mut old_node_nonces,
-        &node_health,
-        old_session,
         1,
     )
-    .await
-    .expect("old-node reconciliation");
-    send_visibility_reconciliation(
-        &sender,
+    .await;
+    flush_responses(&sender, &node_health, "node-a", old_session, old_node_responses)
+        .await
+        .expect("old-node reconciliation");
+    let new_node_responses = build_visibility_reconciliation(
         &resources,
         &ownership,
         "node-b",
         &subscribed,
         &mut new_node_sent,
         &mut new_node_nonces,
-        &node_health,
-        new_session,
         1,
     )
-    .await
-    .expect("new-node reconciliation");
+    .await;
+    flush_responses(&sender, &node_health, "node-b", new_session, new_node_responses)
+        .await
+        .expect("new-node reconciliation");
 
     let old_node = receiver.recv().await.expect("old-node response").unwrap();
     let new_node = receiver.recv().await.expect("new-node response").unwrap();

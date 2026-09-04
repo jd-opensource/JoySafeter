@@ -26,17 +26,15 @@ pub(super) async fn visible_snapshot(
 }
 
 #[allow(clippy::too_many_arguments)] // Explicit stream state keeps revision delivery ownership visible.
-pub(super) async fn send_revisions(
-    sender: &tokio::sync::mpsc::Sender<Result<DeltaDiscoveryResponse, Status>>,
+pub(super) fn build_revisions(
     ownership: &NodeOwnershipRegistry,
     node: &str,
     subscribed: &HashSet<ResourceType>,
     sent: &mut HashMap<ResourceType, HashMap<String, ResourceOwner>>,
     nonces: &mut NonceTracker,
-    node_health: &EnvoyNodeHealthRegistry,
-    session: NodeSessionId,
     revisions: Vec<WorldRevision>,
-) -> Result<(), ()> {
+) -> Vec<DeltaDiscoveryResponse> {
+    let mut responses = Vec::new();
     for revision in revisions {
         for resource_type in RESOURCE_TYPES {
             if !subscribed.contains(&resource_type) {
@@ -74,38 +72,30 @@ pub(super) async fn send_revisions(
             if upserts.is_empty() && removals.is_empty() {
                 continue;
             }
-            let response = delta_response(
+            responses.push(delta_response(
                 resource_type,
                 revision.version,
                 ownership.current_revision(),
                 upserts,
                 removals,
                 nonces,
-            );
-            if send_response(sender, node_health, node, session, response)
-                .await
-                .is_err()
-            {
-                return Err(());
-            }
+            ));
         }
     }
-    Ok(())
+    responses
 }
 
 #[allow(clippy::too_many_arguments)] // Explicit stream state keeps reconciliation ownership visible.
-pub(super) async fn send_full_reconciliation(
-    sender: &tokio::sync::mpsc::Sender<Result<DeltaDiscoveryResponse, Status>>,
+pub(super) async fn build_full_reconciliation(
     resources: &XdsResourceStore,
     ownership: &NodeOwnershipRegistry,
     node: &str,
     subscribed: &HashSet<ResourceType>,
     sent: &mut HashMap<ResourceType, HashMap<String, ResourceOwner>>,
     nonces: &mut NonceTracker,
-    node_health: &EnvoyNodeHealthRegistry,
-    session: NodeSessionId,
     version: u64,
-) -> Result<(), ()> {
+) -> Vec<DeltaDiscoveryResponse> {
+    let mut responses = Vec::new();
     for resource_type in RESOURCE_TYPES {
         if !subscribed.contains(&resource_type) {
             continue;
@@ -121,38 +111,30 @@ pub(super) async fn send_full_reconciliation(
             .filter(|(name, _)| !current.contains_key(*name))
             .map(|(name, owner)| RemovedResource::attributed(name.clone(), *owner))
             .collect::<Vec<_>>();
-        let response = delta_response(
+        responses.push(delta_response(
             resource_type,
             version,
             ownership.current_revision(),
             snapshot,
             removals,
             nonces,
-        );
+        ));
         *previous = current;
-        if send_response(sender, node_health, node, session, response)
-            .await
-            .is_err()
-        {
-            return Err(());
-        }
     }
-    Ok(())
+    responses
 }
 
 #[allow(clippy::too_many_arguments)] // Explicit stream state keeps reconciliation ownership visible.
-pub(super) async fn send_visibility_reconciliation(
-    sender: &tokio::sync::mpsc::Sender<Result<DeltaDiscoveryResponse, Status>>,
+pub(super) async fn build_visibility_reconciliation(
     resources: &XdsResourceStore,
     ownership: &NodeOwnershipRegistry,
     node: &str,
     subscribed: &HashSet<ResourceType>,
     sent: &mut HashMap<ResourceType, HashMap<String, ResourceOwner>>,
     nonces: &mut NonceTracker,
-    node_health: &EnvoyNodeHealthRegistry,
-    session: NodeSessionId,
     version: u64,
-) -> Result<(), ()> {
+) -> Vec<DeltaDiscoveryResponse> {
+    let mut responses = Vec::new();
     for resource_type in RESOURCE_TYPES {
         if !subscribed.contains(&resource_type) {
             continue;
@@ -181,20 +163,31 @@ pub(super) async fn send_visibility_reconciliation(
         if upserts.is_empty() && removals.is_empty() {
             continue;
         }
-        let response = delta_response(
+        responses.push(delta_response(
             resource_type,
             version,
             ownership.current_revision(),
             upserts,
             removals,
             nonces,
-        );
-        if send_response(sender, node_health, node, session, response)
-            .await
-            .is_err()
-        {
-            return Err(());
-        }
+        ));
+    }
+    responses
+}
+
+/// Send pre-built responses to the Envoy stream. This is the ONLY step that awaits
+/// the bounded per-stream channel, and it is always called *without* the global
+/// mutation lock held, so a slow Envoy reader can never stall other sandboxes'
+/// publish/remove/recovery. (Fixes H1.)
+pub(super) async fn flush_responses(
+    sender: &tokio::sync::mpsc::Sender<Result<DeltaDiscoveryResponse, Status>>,
+    node_health: &EnvoyNodeHealthRegistry,
+    node: &str,
+    session: NodeSessionId,
+    responses: Vec<DeltaDiscoveryResponse>,
+) -> Result<(), ()> {
+    for response in responses {
+        send_response(sender, node_health, node, session, response).await?;
     }
     Ok(())
 }

@@ -50,5 +50,8 @@ pub struct ManagedXdsResource {
     pub name: String,
     pub resource_type: ResourceType,
     pub owner: ResourceOwner,
-    pub payload: Any,
+    /// Reference-counted so snapshots/reconciliation can clone the resource
+    /// cheaply; the encoded protobuf body is only deep-copied when it is actually
+    /// placed into an outbound Delta response for a node that can see it. (E2)
+    pub payload: std::sync::Arc<Any>,
 }

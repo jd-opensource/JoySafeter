@@ -36,10 +36,10 @@ async fn removal_without_a_live_node_retires_authoritative_inventory() {
                     name: "listener-1".to_string(),
                     resource_type: ResourceType::Listener,
                     owner: ResourceOwner::Sandbox(sandbox_id),
-                    payload: Any {
+                    payload: std::sync::Arc::new(Any {
                         type_url: ResourceType::Listener.type_url().to_string(),
                         value: vec![1],
-                    },
+                    }),
                 }],
             }])
             .expect("recovery inventory"),
