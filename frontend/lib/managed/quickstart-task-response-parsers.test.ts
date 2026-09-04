@@ -30,19 +30,33 @@ describe('quickstart task response parser', () => {
   })
 
   it.each([TASK_UUID, `agent_${TASK_UUID}`])('rejects noncanonical task ID %s', (id) => {
-    expect(() => parseQuickstartTaskPage({ data: [task(id)] })).toThrow(TypeError)
+    expect(() => parseQuickstartTaskPage({ data: [task(id)], has_more: false })).toThrow(TypeError)
   })
 
   it('rejects a noncanonical ID anywhere in the task page', () => {
     expect(() =>
-      parseQuickstartTaskPage({ data: [task(`task_${TASK_UUID}`), task(`agent_${TASK_UUID}`)] }),
+      parseQuickstartTaskPage({
+        data: [task(`task_${TASK_UUID}`), task(`agent_${TASK_UUID}`)],
+        has_more: false,
+      }),
     ).toThrow(TypeError)
   })
 
-  it.each([null, {}, { data: null }, { data: {}, has_more: false }, { data: [], has_more: 'no' }])(
-    'rejects invalid task page envelope %#',
-    (response) => {
-      expect(() => parseQuickstartTaskPage(response)).toThrow(TypeError)
+  it.each([
+    null,
+    {},
+    { data: null },
+    { data: [] },
+    { data: {}, has_more: false },
+    { data: [], has_more: 'no' },
+    { data: [], has_more: true },
+    { data: [task(`task_${TASK_UUID}`)], has_more: true },
+    {
+      data: [task(`task_${TASK_UUID}`)],
+      has_more: true,
+      last_id: `agent_${TASK_UUID}`,
     },
-  )
+  ])('rejects invalid task page envelope %#', (response) => {
+    expect(() => parseQuickstartTaskPage(response)).toThrow()
+  })
 })

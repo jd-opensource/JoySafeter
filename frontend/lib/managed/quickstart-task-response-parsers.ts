@@ -1,7 +1,8 @@
-import { parseTaskId } from '@/types/entity-id'
+import { isRecord } from '@/lib/managed/quickstart-value-coercion'
+import { parseTaskId, type TaskId } from '@/types/entity-id'
 import type { PaginatedResponse, QuickstartTaskSummary } from '@/types/managed'
 
-import { isRecord } from '@/lib/managed/quickstart-value-coercion'
+import { parseManagedCursorPage } from './cursor-page'
 
 function requiredString(value: Record<string, unknown>, field: string): string {
   const fieldValue = value[field]
@@ -39,14 +40,13 @@ function parseQuickstartTaskSummary(value: unknown): QuickstartTaskSummary {
 export function parseQuickstartTaskPage(
   response: unknown,
 ): PaginatedResponse<QuickstartTaskSummary> {
-  if (!isRecord(response) || !Array.isArray(response.data)) {
-    throw new TypeError('Expected quickstart task page with a data array')
-  }
-  if (response.has_more !== undefined && typeof response.has_more !== 'boolean') {
-    throw new TypeError('Expected quickstart task page has_more to be a boolean')
-  }
+  const page = parseManagedCursorPage<QuickstartTaskSummary, TaskId>(response, {
+    parseItem: parseQuickstartTaskSummary,
+    parseCursor: parseTaskId,
+    responseName: 'Quickstart task page',
+  })
   return {
-    data: response.data.map(parseQuickstartTaskSummary),
-    has_more: response.has_more,
+    data: page.items,
+    has_more: page.hasMore,
   }
 }

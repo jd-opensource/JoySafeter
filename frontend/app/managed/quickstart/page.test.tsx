@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import type { ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { managedPost } from '@/lib/api-client'
 import i18n from '@/lib/i18n/config'
 import { useProjectStore } from '@/stores/managed/project-store'
 import { SESSION_ID } from '@/test-utils/entity-ids'
@@ -21,6 +22,7 @@ const quickstartState = vi.hoisted(() => ({
   completedSteps: new Set([1, 2]),
   skippedSteps: new Set<number>(),
   resourceIds: {} as Record<number, string>,
+  createdResourceIds: new Set<string>(),
   sendMessage: vi.fn(),
   applyTemplate: vi.fn(),
   selectEngine: vi.fn(),
@@ -49,11 +51,12 @@ const quickstartState = vi.hoisted(() => ({
       updated_at: '2030-01-01T00:00:00Z',
     },
   ] as Array<Record<string, unknown>>,
-  activeModelConnections: [] as Array<Record<string, unknown>>,
   sessionEvents: [] as Array<{ id: string; type: string; data?: Record<string, unknown> }>,
   trialTasks: [] as Array<Record<string, unknown>>,
-  pendingConfirmation: null as { step: number; curl: string } | null,
+  environments: [] as Array<Record<string, unknown>>,
+  pendingConfirmation: null as { step: number } | null,
   createCredentialGroup: vi.fn(),
+  createTrialSession: vi.fn(),
 }))
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn() }) }))
@@ -74,18 +77,14 @@ vi.mock('@/lib/managed/llm-catalog', () => ({
 
 vi.mock('@/hooks/managed/use-compatible-credentials', () => ({
   compatibleCredentialsQueryPrefix: () => ['compatible-credentials'],
-  useActiveModelConnections: () => ({
-    data: quickstartState.activeModelConnections,
-    isSuccess: true,
-  }),
   useCompatibleCredentials: () => ({
     data: quickstartState.compatibleCredentials,
     isSuccess: true,
   }),
 }))
 
-vi.mock('@/hooks/managed/use-quickstart-chat', () => ({
-  useQuickstartChat: () => ({
+vi.mock('@/hooks/managed/use-quickstart-controller', () => ({
+  useQuickstartController: () => ({
     messages: quickstartState.messages,
     currentStep: quickstartState.currentStep,
     selectedEngine: quickstartState.selectedEngine,
@@ -94,7 +93,7 @@ vi.mock('@/hooks/managed/use-quickstart-chat', () => ({
     generationState: quickstartState.generationState,
     curls: {},
     resourceIds: quickstartState.resourceIds,
-    createdResourceIds: new Set<string>(),
+    createdResourceIds: quickstartState.createdResourceIds,
     completedSteps: quickstartState.completedSteps,
     skippedSteps: quickstartState.skippedSteps,
     pendingConfirmation: quickstartState.pendingConfirmation,
@@ -111,13 +110,13 @@ vi.mock('@/hooks/managed/use-quickstart-chat', () => ({
     confirmStep: vi.fn(),
     keepRefining: vi.fn(),
     createSession: vi.fn(),
+    createTrialSession: quickstartState.createTrialSession,
     createEnvironment: vi.fn(),
     selectExistingEnvironment: vi.fn(),
     createCredentialGroup: quickstartState.createCredentialGroup,
     selectExistingCredentialGroup: vi.fn(),
     goToStep: vi.fn(),
     reopenStep: quickstartState.reopenStep,
-    sendAutoIntro: vi.fn(),
     generateTestMessage: vi.fn().mockResolvedValue(''),
   }),
 }))
@@ -131,8 +130,29 @@ vi.mock('@/lib/api-client', async (importOriginal) => {
   return {
     ...actual,
     managedGet: vi.fn((path: string) => {
-      if (path.startsWith('/tasks?')) return Promise.resolve({ data: quickstartState.trialTasks })
-      return Promise.resolve(path === '/credential-groups' ? { data: [] } : { data: [] })
+      if (path.startsWith('/tasks?')) {
+        return Promise.resolve({
+          data: quickstartState.trialTasks,
+          has_more: false,
+          first_id: quickstartState.trialTasks[0]?.id ?? null,
+          last_id: quickstartState.trialTasks.at(-1)?.id ?? null,
+        })
+      }
+      if (path.startsWith('/environments?')) {
+        return Promise.resolve({
+          data: quickstartState.environments,
+          has_more: false,
+          first_id: null,
+          last_id: null,
+        })
+      }
+      if (path.startsWith('/credential-groups?')) {
+        return Promise.resolve({ data: [], has_more: false, first_id: null, last_id: null })
+      }
+      if (path.startsWith('/skills?')) {
+        return Promise.resolve({ data: [], has_more: false, first_id: null, last_id: null })
+      }
+      return Promise.resolve({ data: [] })
     }),
     managedPost: vi.fn(),
   }
@@ -155,11 +175,15 @@ describe('Quickstart page Model Connection completion', () => {
     quickstartState.completedSteps = new Set([1, 2])
     quickstartState.skippedSteps = new Set()
     quickstartState.resourceIds = {}
+    quickstartState.createdResourceIds = new Set()
     quickstartState.sessionEvents = []
     quickstartState.trialTasks = []
+    quickstartState.environments = []
     quickstartState.pendingConfirmation = null
     quickstartState.createCredentialGroup.mockReset()
+    quickstartState.createTrialSession.mockReset()
     quickstartState.reopenStep.mockReset()
+    vi.mocked(managedPost).mockReset()
     quickstartState.enabledEngines = []
     quickstartState.compatibleCredentials = [
       {
@@ -177,7 +201,6 @@ describe('Quickstart page Model Connection completion', () => {
         updated_at: '2030-01-01T00:00:00Z',
       },
     ]
-    quickstartState.activeModelConnections = [...quickstartState.compatibleCredentials]
     useProjectStore.setState({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
@@ -196,6 +219,22 @@ describe('Quickstart page Model Connection completion', () => {
   afterEach(() => {
     cleanup()
     vi.clearAllMocks()
+  })
+
+  it('delegates trial Session creation to the quickstart controller', async () => {
+    quickstartState.resourceIds = {
+      3: 'agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f030',
+    }
+    quickstartState.createTrialSession.mockResolvedValue(SESSION_ID)
+
+    render(<QuickstartPage />, { wrapper })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Safe Test Run' }))
+
+    await waitFor(() => {
+      expect(quickstartState.createTrialSession).toHaveBeenCalledWith({ environmentId: null })
+    })
+    expect(vi.mocked(managedPost).mock.calls.some(([path]) => path === '/sessions')).toBe(false)
   })
 
   it('keeps the landing input usable and asks users to confirm the recommended engine', async () => {
@@ -226,6 +265,17 @@ describe('Quickstart page Model Connection completion', () => {
         preferred_protocol_ids: ['openai_responses'],
       },
     ]
+    vi.mocked(managedPost).mockResolvedValue({
+      phase: 'understand',
+      engine: {
+        recommended_engine_id: 'codex',
+        options: [
+          { engine_id: 'codex', readiness: 'ready', compatible_connection_count: 1 },
+          { engine_id: 'native', readiness: 'setup_required', compatible_connection_count: 0 },
+          { engine_id: 'pi', readiness: 'unavailable', compatible_connection_count: 0 },
+        ],
+      },
+    })
 
     render(<QuickstartPage />, { wrapper })
 
@@ -240,9 +290,9 @@ describe('Quickstart page Model Connection completion', () => {
 
     expect(quickstartState.selectEngine).not.toHaveBeenCalled()
     expect(quickstartState.sendMessage).not.toHaveBeenCalled()
-    expect(screen.getByText('Choose a runtime before JoySafeter continues')).toBeTruthy()
-    expect(screen.getByText('1 connection')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Pi Unavailable/ })).toBeDisabled()
+    expect(await screen.findByText('Choose a runtime before JoySafeter continues')).toBeTruthy()
+    expect(await screen.findByText('1 connection')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /Pi Unavailable/ })).toBeDisabled()
 
     fireEvent.click(screen.getByRole('button', { name: /Use Codex Ready now/ }))
 
@@ -297,29 +347,72 @@ describe('Quickstart page Model Connection completion', () => {
     render(<QuickstartPage />, { wrapper })
 
     expect(screen.getByRole('button', { name: 'Agent Blueprint' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Advanced' })).not.toBeInTheDocument()
     expect(screen.getByText('Mission')).toBeInTheDocument()
     expect(screen.getByText('Review release changes before deployment.')).toBeInTheDocument()
     expect(screen.queryByText('YAML')).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Expert' }))
 
     expect(screen.getByText('YAML')).toBeInTheDocument()
     expect(screen.getByText('JSON')).toBeInTheDocument()
   })
 
-  it('presents Understand, Design, Protect, and Prove instead of six resource chores', () => {
+  it('does not parse incomplete streamed MCP entries as persisted Agent configuration', () => {
+    quickstartState.currentStep = 3
+    quickstartState.resourceIds = {}
+    quickstartState.config = {
+      agent: {
+        name: 'Streaming Agent',
+        mcp_servers: [{ type: 'streamable_http', name: 'Partial MCP' }],
+      },
+    }
+
+    expect(() => render(<QuickstartPage />, { wrapper })).not.toThrow()
+  })
+
+  it('switches the review surface between Fast Track (blueprint) and Expert (config editor)', () => {
+    quickstartState.currentStep = 3
+    quickstartState.config = {
+      agent: {
+        name: 'Release Reviewer',
+        blueprint: {
+          mission: 'Review release changes before deployment.',
+          acceptance_test: { message: 'Review this change.', checks: ['Ranks by severity'] },
+        },
+      },
+    }
+
+    render(<QuickstartPage />, { wrapper })
+
+    // Fast Track (default) shows the human-readable blueprint, not the raw config.
+    expect(screen.getByText('Mission')).toBeInTheDocument()
+    expect(screen.queryByText('YAML')).not.toBeInTheDocument()
+
+    // Expert opens the config/curl editor.
+    fireEvent.click(screen.getByRole('button', { name: 'Expert' }))
+    expect(screen.getByText('YAML')).toBeInTheDocument()
+    expect(screen.getByText('JSON')).toBeInTheDocument()
+
+    // Fast Track returns to the blueprint.
+    fireEvent.click(screen.getByRole('button', { name: 'Fast Track' }))
+    expect(screen.getByText('Mission')).toBeInTheDocument()
+    expect(screen.queryByText('YAML')).not.toBeInTheDocument()
+  })
+
+  it('presents Understand, Design, Secure, and Prove instead of six resource chores', () => {
     render(<QuickstartPage />, { wrapper })
 
     const progress = screen.getByRole('navigation', { name: 'Quickstart workflow' })
     expect(within(progress).getByText('Understand')).toBeInTheDocument()
     expect(within(progress).getByText('Design')).toBeInTheDocument()
-    expect(within(progress).getByText('Protect')).toBeInTheDocument()
+    expect(within(progress).getByText('Secure')).toBeInTheDocument()
     expect(within(progress).getByText('Prove')).toBeInTheDocument()
     expect(within(progress).queryByText('Secure Model Connection')).not.toBeInTheDocument()
     expect(within(progress).queryByText('Authorize External Tools')).not.toBeInTheDocument()
   })
 
-  it('shows an explicit Protect gap after environment and MCP authorization are skipped', () => {
+  it('shows an explicit Secure gap after environment and MCP authorization are skipped', () => {
     quickstartState.currentStep = 6
     quickstartState.completedSteps = new Set([1, 2, 3])
     quickstartState.skippedSteps = new Set([4, 5])
@@ -382,7 +475,7 @@ describe('Quickstart page Model Connection completion', () => {
     ).toBeGreaterThan(0)
   })
 
-  it('recommends a ready runtime before a coding runtime that requires Model Connection setup', () => {
+  it('recommends a ready runtime before a coding runtime that requires Model Connection setup', async () => {
     quickstartState.messages = []
     quickstartState.currentStep = 1
     quickstartState.selectedEngine = null
@@ -403,12 +496,16 @@ describe('Quickstart page Model Connection completion', () => {
         preferred_protocol_ids: ['openai_responses'],
       },
     ]
-    quickstartState.activeModelConnections = [
-      {
-        ...quickstartState.compatibleCredentials[0],
-        compatible_engine_ids: ['native'],
+    vi.mocked(managedPost).mockResolvedValue({
+      phase: 'understand',
+      engine: {
+        recommended_engine_id: 'native',
+        options: [
+          { engine_id: 'native', readiness: 'ready', compatible_connection_count: 1 },
+          { engine_id: 'codex', readiness: 'setup_required', compatible_connection_count: 0 },
+        ],
       },
-    ]
+    })
 
     render(<QuickstartPage />, { wrapper })
 
@@ -416,9 +513,9 @@ describe('Quickstart page Model Connection completion', () => {
     fireEvent.change(input, { target: { value: 'Review this TypeScript repository for bugs' } })
     fireEvent.click(screen.getAllByLabelText('Send message...')[0])
 
-    expect(screen.getByRole('button', { name: /Use Native/ })).toBeTruthy()
-    expect(screen.getByText('Ready now')).toBeTruthy()
-    expect(screen.getByText('Setup required')).toBeTruthy()
+    expect(await screen.findByRole('button', { name: /Use Native/ })).toBeTruthy()
+    expect(await screen.findByText('Ready now')).toBeTruthy()
+    expect(await screen.findByText('Setup required')).toBeTruthy()
   })
 
   it('auto-continues with the preferred protocol default when multiple defaults exist', async () => {
@@ -507,11 +604,19 @@ describe('Quickstart page Model Connection completion', () => {
       4: 'env_018f6f42-0a51-7cc4-98c8-4f6f0ca5f031',
       5: 'credgrp_018f6f42-0a51-7cc4-98c8-4f6f0ca5f032',
     }
+    quickstartState.createdResourceIds = new Set(['env_018f6f42-0a51-7cc4-98c8-4f6f0ca5f031'])
+    quickstartState.config = {
+      agent: { name: 'Research Agent' },
+      environment: {
+        name: 'quickstart-env',
+        config: { type: 'cloud', networking: { type: 'limited', allowed_hosts: [] } },
+      },
+    }
 
     render(<QuickstartPage />, { wrapper })
 
-    expect(screen.getByText('JoySafeter Safety Plan')).toBeInTheDocument()
-    expect(screen.getByText('Ready for secure launch')).toBeInTheDocument()
+    expect(screen.getByText('JoySafeter Security Plan')).toBeInTheDocument()
+    expect(await screen.findByText('Ready for secure launch')).toBeInTheDocument()
     expect(screen.getByText('Runtime engine')).toBeInTheDocument()
     expect(screen.getByText('Codex')).toBeInTheDocument()
     expect(screen.getByText('Secure Model Connection')).toBeInTheDocument()
@@ -551,12 +656,11 @@ describe('Quickstart page Model Connection completion', () => {
 
     expect(screen.getByText('Hardening recommended')).toBeInTheDocument()
     expect(screen.getByText('Recommended')).toBeInTheDocument()
-    expect(screen.getByText('Not authorized')).toBeInTheDocument()
     expect(screen.getByText('No custom environment selected')).toBeInTheDocument()
-    expect(screen.getByText('No external tools authorized')).toBeInTheDocument()
+    expect(screen.getByText('No credential required')).toBeInTheDocument()
     expect(
       screen.getByText(
-        'You can still launch, but JoySafeter recommends adding a security environment for stronger network control.',
+        'You can still launch, but the reviewed environment or MCP authorization is not fully enforced yet.',
       ),
     ).toBeInTheDocument()
 
@@ -565,13 +669,55 @@ describe('Quickstart page Model Connection completion', () => {
     expect(quickstartState.reopenStep).toHaveBeenCalledWith(4)
   })
 
-  it('prefills security environment allowlist from user intent', async () => {
+  it('keeps required Agent MCP authorization blocking when recommendations fail', async () => {
+    quickstartState.messages = [
+      { id: 'message-1', role: 'user', content: 'Build an Agent with a private MCP server' },
+    ]
+    quickstartState.currentStep = 6
+    quickstartState.selectedEngine = 'codex'
+    quickstartState.completedSteps = new Set([1, 2, 3, 4, 5])
+    quickstartState.resourceIds = {
+      3: 'agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f030',
+    }
+    quickstartState.config = {
+      agent: {
+        name: 'Private MCP Agent',
+        mcp_servers: [
+          {
+            type: 'streamable_http',
+            name: 'Private MCP',
+            url: 'https://private.example.com/mcp',
+            auth_requirement: 'required',
+          },
+        ],
+      },
+    }
+    vi.mocked(managedPost).mockRejectedValue(new Error('recommendation unavailable'))
+
+    render(<QuickstartPage />, { wrapper })
+
+    expect(await screen.findAllByText('Not authorized')).not.toHaveLength(0)
+    expect(
+      screen.getByText('Authorize every required MCP server before starting the first session.'),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Secure Launch' })).toBeDisabled()
+  })
+
+  it('prefills security environment allowlist from the backend recommendation', async () => {
     quickstartState.messages = [
       { id: 'message-1', role: 'user', content: 'Build a GitHub repo triage agent' },
     ]
     quickstartState.currentStep = 4
     quickstartState.selectedEngine = 'codex'
     quickstartState.completedSteps = new Set([1, 2, 3])
+    vi.mocked(managedPost).mockResolvedValue({
+      phase: 'secure',
+      environment: {
+        allowed_hosts: ['github.com', 'api.github.com'],
+        host_reason: 'knownServices',
+      },
+      credential_group: null,
+    })
 
     render(<QuickstartPage />, { wrapper })
 
@@ -579,9 +725,25 @@ describe('Quickstart page Model Connection completion', () => {
     fireEvent.click(screen.getByText('Limited (Recommended)'))
 
     expect(screen.getByText('JoySafeter suggested allowlist')).toBeInTheDocument()
-    expect(screen.getByText('github.com')).toBeInTheDocument()
+    expect(await screen.findByText('github.com')).toBeInTheDocument()
     expect(screen.getByText('api.github.com')).toBeInTheDocument()
-    expect(screen.getByDisplayValue('github.com, api.github.com')).toBeInTheDocument()
+    expect(await screen.findByDisplayValue('github.com, api.github.com')).toBeInTheDocument()
+  })
+
+  it('surfaces secure recommendation failures instead of treating them as empty defaults', async () => {
+    quickstartState.currentStep = 4
+    quickstartState.selectedEngine = 'codex'
+    quickstartState.completedSteps = new Set([1, 2, 3])
+    vi.mocked(managedPost).mockRejectedValue(new Error('recommendation unavailable'))
+
+    render(<QuickstartPage />, { wrapper })
+
+    expect(
+      await screen.findByText(
+        'Recommendations could not be loaded. Existing choices were left unchanged.',
+      ),
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument()
   })
 
   it('recommends external tool authorization when MCP servers are configured', async () => {
@@ -591,66 +753,48 @@ describe('Quickstart page Model Connection completion', () => {
     quickstartState.config = {
       agent: {
         name: 'MCP Agent',
-        mcp_servers: {
-          github: { url: 'https://api.github.com/mcp' },
-        },
+        mcp_servers: [
+          {
+            type: 'streamable_http',
+            name: 'GitHub',
+            url: 'https://api.github.com/mcp',
+            auth_requirement: 'required',
+          },
+        ],
       },
     }
+    vi.mocked(managedPost).mockResolvedValue({
+      phase: 'secure',
+      environment: {
+        allowed_hosts: [],
+        host_reason: 'none',
+      },
+      credential_group: {
+        mcp_servers: [
+          {
+            name: 'GitHub',
+            url: 'https://api.github.com/mcp',
+            auth_requirement: 'required',
+          },
+        ],
+        external_tools_reason: 'mcpServers',
+      },
+    })
 
     render(<QuickstartPage />, { wrapper })
 
-    expect(screen.getByText('JoySafeter external tool recommendation')).toBeInTheDocument()
     expect(
-      screen.getByText(
+      await screen.findByText(
         'This Agent configuration includes MCP servers, so authorize only the credential group it needs.',
       ),
     ).toBeInTheDocument()
+    expect(screen.getByText('JoySafeter external tool recommendation')).toBeInTheDocument()
 
     fireEvent.click(screen.getByText('Authorize New MCP Credential Group'))
 
     expect(screen.getByDisplayValue('https://api.github.com/mcp')).toBeInTheDocument()
     expect(screen.getByPlaceholderText('MCP bearer token')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Authorize External Tools' })).toBeDisabled()
-  })
-
-  it('collects the MCP token before creating an AI-recommended credential group instead of an empty one', () => {
-    quickstartState.currentStep = 5
-    quickstartState.selectedEngine = 'codex'
-    quickstartState.completedSteps = new Set([1, 2, 3, 4])
-    quickstartState.pendingConfirmation = { step: 5, curl: '' }
-    quickstartState.config = {
-      agent: {
-        name: 'MCP Agent',
-        mcp_servers: [{ type: 'url', name: 'GitHub', url: 'https://api.github.com/mcp' }],
-      },
-      credentialGroup: {
-        name: 'GitHub tools',
-        description: 'Authorize GitHub MCP',
-        mcp_server_url: 'https://api.github.com/mcp',
-        credential_name: 'GitHub token',
-      },
-    }
-    quickstartState.createCredentialGroup.mockResolvedValue(true)
-
-    render(<QuickstartPage />, { wrapper })
-
-    // The AI recommendation is shown, but creation is gated on a real token.
-    const tokenInput = screen.getByPlaceholderText('MCP bearer token')
-    expect(screen.getAllByText('https://api.github.com/mcp').length).toBeGreaterThan(0)
-    const createButton = screen.getByRole('button', { name: 'Authorize external tools' })
-    expect(createButton).toBeDisabled()
-    expect(quickstartState.createCredentialGroup).not.toHaveBeenCalled()
-
-    fireEvent.change(tokenInput, { target: { value: 'ghp_secret_token' } })
-    fireEvent.click(createButton)
-
-    expect(quickstartState.createCredentialGroup).toHaveBeenCalledWith('GitHub tools', {
-      credential: {
-        name: 'GitHub token',
-        mcpServerUrl: 'https://api.github.com/mcp',
-        tokenValue: 'ghp_secret_token',
-      },
-    })
   })
 
   it('shows response evidence without claiming the acceptance test passed', async () => {

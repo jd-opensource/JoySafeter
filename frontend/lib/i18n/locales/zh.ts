@@ -7,6 +7,7 @@ const zh = {
       cancel: '取消',
       confirm: '确认',
       delete: '删除',
+      remove: '移除',
       archive: '归档',
       restore: '恢复',
       undo: '撤销',
@@ -1631,13 +1632,26 @@ const zh = {
           navigationLabel: '快速开始工作流',
           understand: { title: '理解' },
           design: { title: '设计' },
-          protect: { title: '保护' },
+          secure: { title: '安全加固' },
           prove: { title: '验证' },
           reviewedWithGaps: '有缺口',
         },
         whatToBuild: '你想安全构建什么智能体？',
         subtitle:
-          '描述目标或选择模板，JoySafeter 会推荐运行时、安全模型连接、受控环境和最小权限工具。',
+          '用一句话描述目标，或从模板开始。JoySafeter 会起草专业智能体蓝图，推荐安全运行时与最小权限工具，并在上线前先跑通验证。',
+        secureByDefault: '默认安全',
+        secureByDefaultHint: '每个智能体启动即内建这些安全控制。',
+        mode: {
+          label: '模式',
+          fast: '快捷模式',
+          expert: '专家模式',
+          fastHint: '采纳 JoySafeter 的推荐，快速启动。',
+          expertHint: '编辑原始配置、复制 cURL、逐项精细控制。',
+        },
+        recommendation: {
+          loading: 'JoySafeter 正在生成当前阶段建议…',
+          failed: '建议加载失败，系统未替你填充默认值，现有选择保持不变。',
+        },
         describeAgent: '描述你想安全创建的智能体...',
         safety: {
           sandbox: {
@@ -1746,7 +1760,7 @@ const zh = {
         noEventsYet: '暂无事件。事件发生时将显示在此处。',
         sessionLiveHint: '会话已启动 — 在右侧面板发送消息测试你的 Agent。',
         agentRunningHint: 'Agent 运行中 — 在右侧面板查看进度。',
-        readyToStart: '智能体已就绪 — 启动前请确认 JoySafeter 安全计划。',
+        readyToStart: '智能体已就绪 — 启动前请确认 JoySafeter 安全加固方案。',
         startSession: '安全启动',
         agentProcessing: '智能体处理中...',
         sendMessage: '发送消息...',
@@ -1872,8 +1886,8 @@ const zh = {
             },
           },
         },
-        safetyPlan: {
-          title: 'JoySafeter 安全计划',
+        securityPlan: {
+          title: 'JoySafeter 安全加固方案',
           description: '首次会话启动前，请确认并按需调整这些控制项。',
           runtime: '运行引擎',
           modelConnection: '安全模型连接',
@@ -1884,6 +1898,7 @@ const zh = {
           notConfigured: '未配置',
           noEnvironment: '未选择自定义环境',
           notAuthorized: '未授权外部工具',
+          noAuthorizationRequired: '无需凭据',
           summary: {
             ready: '可以安全启动',
             readyDescription: '必要控制项已就绪。启动前仍可调整可选控制项。',
@@ -1893,7 +1908,6 @@ const zh = {
           status: {
             ready: '就绪',
             required: '必需',
-            protected: '已保护',
             enforced: '已强制执行',
             recommended: '建议',
             authorized: '已授权',
@@ -1910,6 +1924,7 @@ const zh = {
             noEnvironment: '可以不选择自定义环境直接启动，也可以添加环境以加强出网控制。',
             externalTools: '只有这个凭据组会被附加到会话。',
             noExternalTools: '未授权凭据组前，会话不会接入 MCP 外部工具。',
+            missingExternalTools: '一个或多个需要凭据的 MCP Server 尚未由所选凭据组授权。',
             audit: '启动和运行事件会保留在当前项目下，便于后续审计。',
           },
           action: {
@@ -1922,7 +1937,8 @@ const zh = {
           },
           launchHint: {
             ready: '安全启动会把上方已确认的控制项附加到首次会话。',
-            hardening: '仍可继续启动，但 JoySafeter 建议添加安全环境以获得更强的网络控制。',
+            hardening: '仍可继续启动，但已审阅的环境或 MCP 授权尚未完整落实。',
+            blocked: '请先为每个必需的 MCP Server 完成授权，再启动首次会话。',
           },
         },
         credentialGroupIntro:
@@ -1934,7 +1950,14 @@ const zh = {
         credentialGroupNamePlaceholder: '例如 production-mcp-credential-group',
         credentialGroupCredentialTitle: '现在添加 MCP 凭据',
         credentialGroupCredentialHint:
-          'Quickstart 会创建凭据组，并添加一个 MCP 凭据成员，确保启动后真的可以使用该授权。',
+          'Quickstart 会原子创建所有需要凭据的 MCP 成员；公开 Server 仍会展示，但不会要求填写 Token。',
+        credentialGroupAddServer: '添加另一个 MCP Server',
+        credentialGroupNoTokenRequired: '此 MCP Server 不需要凭据。',
+        credentialGroupAuth: {
+          required: '必须提供凭据',
+          optional: '凭据可选',
+          none: '无需凭据',
+        },
         credentialGroupMcpServerUrlPlaceholder: 'MCP Server URL，例如 https://api.github.com/mcp',
         credentialGroupCredentialNamePlaceholder: '凭据名称（可选）',
         credentialGroupTokenPlaceholder: 'MCP Bearer Token',
@@ -1981,6 +2004,7 @@ const zh = {
           createSessionFailed: '创建会话失败',
           createEnvironmentFailed: '创建环境失败',
           createCredentialGroupFailed: '创建 MCP 凭据组失败',
+          incompleteMcpAuthorization: '每个必需的 MCP Server 都需要 URL 和 Token。',
           createResourceFailed: '创建资源失败',
           agentConfigMissing: '未找到智能体配置',
           engineMissing: '请先选择引擎，再创建 Agent。',

@@ -1,9 +1,11 @@
 import type { CredentialId } from '@/types/entity-id'
 
+import { QUICKSTART_STEP, type QuickstartStepId } from './quickstart-flow'
+
 interface QuickstartInputPlaceholderOptions {
   selectedEngine: string
   modelCredentialId: CredentialId | ''
-  currentStep: number
+  currentStep: QuickstartStepId
   selectedCredentialCompatible: boolean
   isSessionRunning: boolean
   isStreaming: boolean
@@ -21,11 +23,15 @@ export function quickstartInputPlaceholderKey({
 }: QuickstartInputPlaceholderOptions): string {
   if (isSessionRunning) return 'managed.quickstart.agentProcessing'
   if (isStreaming) return 'managed.quickstart.waitingForResponse'
-  if (!selectedEngine && currentStep > 1) return 'managed.quickstart.selectEngineFirst'
-  if (currentStep === 1) return readyKey
-  if (currentStep === 2) return 'managed.quickstart.chooseModelConnection'
+  if (!selectedEngine && currentStep > QUICKSTART_STEP.ENGINE) {
+    return 'managed.quickstart.selectEngineFirst'
+  }
+  if (currentStep === QUICKSTART_STEP.ENGINE) return readyKey
+  if (currentStep === QUICKSTART_STEP.MODEL_CONNECTION) {
+    return 'managed.quickstart.chooseModelConnection'
+  }
   if (!modelCredentialId) return 'managed.quickstart.noApiKey'
-  if (currentStep >= 3 && !selectedCredentialCompatible) {
+  if (currentStep >= QUICKSTART_STEP.AGENT && !selectedCredentialCompatible) {
     return 'managed.quickstart.noCompatibleModelConnection'
   }
   return readyKey

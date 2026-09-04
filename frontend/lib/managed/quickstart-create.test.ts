@@ -70,6 +70,20 @@ describe('buildQuickstartAgentCreateBody', () => {
     ).toThrow('Invalid MCP transport')
   })
 
+  it('rejects an MCP server map instead of silently dropping it', () => {
+    expect(() =>
+      buildQuickstartAgentCreateBody(
+        {
+          name: 'Mapped MCP Agent',
+          mcp_servers: {
+            docs: { url: 'https://docs.example.com/mcp' },
+          },
+        },
+        { engineKind: 'claude', modelCredentialId: CRED_ID, suffix: '' },
+      ),
+    ).toThrow('Invalid MCP server list')
+  })
+
   it('defaults generated SSE MCP authentication to none', () => {
     const body = buildQuickstartAgentCreateBody(
       {

@@ -1,5 +1,5 @@
-import type { SessionEvent } from '@/types/managed'
 import { parseSkillId, type SkillId } from '@/types/entity-id'
+import type { SessionEvent } from '@/types/managed'
 
 import { normalizeMcpServerUrl } from './mcp-credential-coverage'
 
