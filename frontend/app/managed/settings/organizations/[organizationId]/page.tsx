@@ -1,6 +1,6 @@
 'use client'
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle, Crown, Info, Save, Trash2 } from 'lucide-react'
 import { useParams, useRouter } from 'next/navigation'
 import { useState } from 'react'
@@ -24,16 +24,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { managedDelete, managedGet, managedPost, managedPut } from '@/lib/api-client'
 import { useSession } from '@/lib/auth/auth-client'
+import { useManagedOrganization } from '@/hooks/managed/use-managed-organization'
+import { useManagedOrganizationMemberOptions } from '@/hooks/managed/use-managed-organization-member-options'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
-import { normalizeManagedRole, roleLabel } from '@/lib/managed/roles'
 import {
-  parseOrganizationDetailResponse,
-  parseOrganizationMemberPageResponse,
-  type OrganizationDetail,
-} from '@/lib/managed/tenant-response-parsers'
+  deleteManagedOrganization,
+  managedOrganizationMembersQueryPrefix,
+  managedOrganizationQueryKey,
+  MANAGED_ORGANIZATIONS_QUERY_ROOT,
+  transferManagedOrganizationOwnership,
+  updateManagedOrganization,
+} from '@/lib/managed/organization-client'
+import { normalizeManagedRole, roleLabel } from '@/lib/managed/roles'
+import type { OrganizationDetail } from '@/lib/managed/tenant-response-parsers'
 import { useProjectStore } from '@/stores/managed/project-store'
 import { parseOrganizationId, type OrganizationId, type UserId } from '@/types/entity-id'
 
@@ -56,12 +61,7 @@ export default function OrganizationOverviewPage() {
   const [selectedNewOwnerId, setSelectedNewOwnerId] = useState<UserId | null>(null)
   const [showDelete, setShowDelete] = useState(false)
 
-  const organizationQuery = useQuery({
-    queryKey: ['organization-detail', organizationId],
-    queryFn: () =>
-      managedGet<unknown>(`organizations/${organizationId}`).then(parseOrganizationDetailResponse),
-    enabled: Boolean(organizationId),
-  })
+  const organizationQuery = useManagedOrganization(organizationId)
   const organization = organizationQuery.data
   const normalizedRole = normalizeManagedRole(organization?.role)
   const canEdit = normalizedRole === 'owner' || normalizedRole === 'admin'
@@ -72,28 +72,21 @@ export default function OrganizationOverviewPage() {
   const projectCreationPolicy =
     activeDraft?.projectCreationPolicy ?? organization?.project_creation_policy ?? 'admins_only'
 
-  const membersQuery = useQuery({
-    queryKey: ['organization-members', organizationId, 'ownership-transfer'],
-    queryFn: () =>
-      managedGet<unknown>(`organizations/${organizationId}/members?limit=200`).then(
-        parseOrganizationMemberPageResponse,
-      ),
-    enabled: Boolean(organizationId) && isOwner,
-  })
-  const transferCandidates = (membersQuery.data?.data ?? []).filter(
+  const membersQuery = useManagedOrganizationMemberOptions(organizationId, isOwner)
+  const transferCandidates = (membersQuery.data ?? []).filter(
     (member) =>
       member.user_id !== session.data?.user?.id && normalizeManagedRole(member.role) !== 'owner',
   )
 
   const updateOrganization = useMutation({
     mutationFn: (variables: { name: string; projectCreationPolicy: string }) =>
-      managedPut(`organizations/${organizationId}`, {
+      updateManagedOrganization(organizationId, {
         name: variables.name,
-        project_creation_policy: variables.projectCreationPolicy,
+        projectCreationPolicy: variables.projectCreationPolicy as 'admins_only' | 'all_members',
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['organization-detail', organizationId] })
-      queryClient.invalidateQueries({ queryKey: ['organizations-list'] })
+      queryClient.invalidateQueries({ queryKey: managedOrganizationQueryKey(organizationId) })
+      queryClient.invalidateQueries({ queryKey: [MANAGED_ORGANIZATIONS_QUERY_ROOT] })
       queryClient.invalidateQueries({ queryKey: ['auth-me'] })
     },
     onError: (error) => toastOperationError(t, error, 'common.operationFailed'),
@@ -101,24 +94,24 @@ export default function OrganizationOverviewPage() {
 
   const transferOwnership = useMutation({
     mutationFn: (variables: { userId: UserId }) =>
-      managedPost(`organizations/${organizationId}/transfer-ownership`, {
-        new_owner_user_id: variables.userId,
-      }),
+      transferManagedOrganizationOwnership(organizationId, variables.userId),
     onSuccess: () => {
       setShowTransfer(false)
       setSelectedNewOwnerId(null)
-      queryClient.invalidateQueries({ queryKey: ['organization-detail', organizationId] })
-      queryClient.invalidateQueries({ queryKey: ['organization-members', organizationId] })
-      queryClient.invalidateQueries({ queryKey: ['organizations-list'] })
+      queryClient.invalidateQueries({ queryKey: managedOrganizationQueryKey(organizationId) })
+      queryClient.invalidateQueries({
+        queryKey: managedOrganizationMembersQueryPrefix(organizationId),
+      })
+      queryClient.invalidateQueries({ queryKey: [MANAGED_ORGANIZATIONS_QUERY_ROOT] })
       queryClient.invalidateQueries({ queryKey: ['auth-me'] })
     },
     onError: (error) => toastOperationError(t, error, 'manage.organization.transferFailed'),
   })
 
   const deleteOrganization = useMutation({
-    mutationFn: () => managedDelete(`organizations/${organizationId}`),
+    mutationFn: () => deleteManagedOrganization(organizationId),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['organizations-list'] })
+      queryClient.invalidateQueries({ queryKey: [MANAGED_ORGANIZATIONS_QUERY_ROOT] })
       queryClient.invalidateQueries({ queryKey: ['auth-me'] })
       router.push('/managed/settings')
     },

@@ -1,9 +1,12 @@
 import type { QueryClient } from '@tanstack/react-query'
 
 import {
+  activeModelConnectionsQueryPrefix,
   compatibleCredentialsQueryPrefix,
   consumerCredentialsQueryPrefix,
-} from '@/hooks/managed/use-compatible-credentials'
+  managedCredentialsQueryPrefix,
+  protocolCredentialsQueryPrefix,
+} from '@/lib/managed/credential-client'
 import type { Credential } from '@/types/managed'
 
 function upsertCredential(current: Credential[] | undefined, credential: Credential) {
@@ -27,14 +30,14 @@ export function recordCreatedModelConnection(
     (current) => upsertCredential(current, credential),
   )
   queryClient.setQueriesData<Credential[]>(
-    { queryKey: ['active-model-connections', scopeKey] },
+    { queryKey: activeModelConnectionsQueryPrefix(scopeKey) },
     (current) => upsertCredential(current, credential),
   )
   if (credential.protocol) {
     queryClient.setQueriesData<Credential[]>(
-      { queryKey: ['protocol-credentials', scopeKey, credential.protocol] },
+      { queryKey: protocolCredentialsQueryPrefix(scopeKey, credential.protocol) },
       (current) => upsertCredential(current, credential),
     )
   }
-  void queryClient.invalidateQueries({ queryKey: ['credentials', scopeKey] })
+  void queryClient.invalidateQueries({ queryKey: managedCredentialsQueryPrefix(scopeKey) })
 }

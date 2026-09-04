@@ -82,10 +82,6 @@ export function parseAgentCreateResponse(response: unknown): AgentCreateResponse
   return { id: parseAgentId(raw.id) }
 }
 
-export function parseAgentListResponse(response: unknown): Agent[] {
-  return (response as RawAgent[]).map(parseAgentResponse)
-}
-
 type RawAgentVersion = Omit<AgentVersion, 'id' | 'agent_id' | 'snapshot'> & {
   id: string
   agent_id: string

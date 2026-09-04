@@ -13,7 +13,6 @@ from app.joysafeter_domain.schemas.joysafeter_environment import (
     EnvironmentResponse,
     UpdateEnvironmentRequest,
 )
-from app.joysafeter_domain.schemas.joysafeter_storage_mount import StorageCatalogItem
 from app.joysafeter_domain.services.joysafeter_environment_service import (
     EnvironmentActiveSessionConflict,
     EnvironmentActiveTaskConflict,
@@ -46,10 +45,6 @@ router = APIRouter(tags=["joysafeter-environments"])
 class _EnvironmentImageUpdate(NamedTuple):
     image_tag: Optional[str]
     image_version: int
-
-
-class StorageMountCatalogResponse(BaseModel):
-    data: list[StorageCatalogItem]
 
 
 class EnvironmentArchiveResponse(BaseModel):
@@ -182,14 +177,6 @@ def _env_to_response(env) -> EnvironmentResponse:
         image_tag=getattr(env, "image_tag", None),
         image_version=getattr(env, "image_version", 0) or 0,
     )
-
-
-@router.get("/mount-catalog/storage")
-async def get_storage_mount_catalog(
-    db: AsyncSession = Depends(get_db),
-    auth_ctx: JoySafeterAuthContext = Depends(get_joysafeter_auth_context),
-) -> StorageMountCatalogResponse:
-    return StorageMountCatalogResponse(data=await StorageMountService(db).catalog_for_project(auth_ctx.project_id))
 
 
 @router.post("", status_code=201)

@@ -2,13 +2,19 @@ import { describe, expect, it } from 'vitest'
 
 import {
   parseSkillAuthoringSaveResponse,
+  parseSkillDeleteResponse,
+  parseSkillFileDeleteResponse,
   parseSkillFileResponse,
   parseSkillLifecycleTransitionResponse,
   parseSkillResponse,
   parseSkillSecurityScanResponse,
   parseSkillUsageResponse,
+  parseSkillVersionDeleteResponse,
   parseSkillVersionFileResponse,
   parseSkillVersionResponse,
+  type SkillDeleteResponse,
+  type SkillFileDeleteResponse,
+  type SkillVersionDeleteResponse,
 } from './skill-response-parsers'
 
 const SKILL_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f050'
@@ -24,6 +30,13 @@ const AGENT_VERSION_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f059'
 const AGENT_VERSION_REFERENCE_TYPE = ['agent', 'version'].join('_')
 const TRIGGER_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f05a'
 const TASK_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f05b'
+const SKILL_DELETED_TYPE = ['skill', 'deleted'].join('_') as SkillDeleteResponse['type']
+const SKILL_FILE_DELETED_TYPE = ['skill', 'file', 'deleted'].join(
+  '_',
+) as SkillFileDeleteResponse['type']
+const SKILL_VERSION_DELETED_TYPE = ['skill', 'version', 'deleted'].join(
+  '_',
+) as SkillVersionDeleteResponse['type']
 
 describe('skill response parsers', () => {
   it('brands the complete Skill identity chain', () => {
@@ -82,6 +95,27 @@ describe('skill response parsers', () => {
     expect(() =>
       parseSkillFileResponse({ id: `sklvfile_${FILE_UUID}`, skill_id: `skill_${SKILL_UUID}` }),
     ).toThrow()
+  })
+
+  it('strictly parses Skill deletion acknowledgements', () => {
+    expect(
+      parseSkillDeleteResponse({ id: `skill_${SKILL_UUID}`, type: SKILL_DELETED_TYPE }),
+    ).toEqual({ id: `skill_${SKILL_UUID}`, type: SKILL_DELETED_TYPE })
+    expect(
+      parseSkillFileDeleteResponse({
+        id: `sklfile_${FILE_UUID}`,
+        type: SKILL_FILE_DELETED_TYPE,
+      }),
+    ).toEqual({ id: `sklfile_${FILE_UUID}`, type: SKILL_FILE_DELETED_TYPE })
+    expect(parseSkillVersionDeleteResponse({ type: SKILL_VERSION_DELETED_TYPE })).toEqual({
+      type: SKILL_VERSION_DELETED_TYPE,
+    })
+    expect(() =>
+      parseSkillDeleteResponse({ id: `skill_${SKILL_UUID}`, type: SKILL_FILE_DELETED_TYPE }),
+    ).toThrow(/Skill delete response/)
+    expect(() => parseSkillVersionDeleteResponse({ type: 'deleted' })).toThrow(
+      /Skill version delete response/,
+    )
   })
 
   it('parses every polymorphic Skill impact reference by its declared type', () => {

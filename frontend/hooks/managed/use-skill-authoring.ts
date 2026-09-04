@@ -15,14 +15,13 @@
  * Persists state to localStorage on every change so the workspace survives
  * reloads / device switches.
  *
- * Mirrors the SSE consumption pattern from use-quickstart-chat.ts (same
+ * Mirrors the SSE consumption pattern from use-quickstart-controller.ts (same
  * fetch + getReader + line-by-line parse loop). Managed scope is captured
  * once per render and passed explicitly with every request.
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { apiStream, ApiError, managedGet, managedPost } from '@/lib/api-client'
-import { apiResourcePath } from '@/lib/managed/api-paths'
+import { apiStream, ApiError } from '@/lib/api-client'
 import { getOperationErrorMessageWithDetails } from '@/lib/managed/errors'
 import {
   managedRequestOptions,
@@ -32,9 +31,13 @@ import {
 } from '@/lib/managed/request-scope'
 import { getManagedStreamErrorMessage } from '@/lib/managed/stream-errors'
 import {
-  parseSkillAuthoringSaveResponse,
-  parseSkillSecurityScanResponse,
-} from '@/lib/managed/skill-response-parsers'
+  fetchManagedLatestSkillSecurityScan,
+  publishManagedSkillVersion,
+  rescanManagedSkillSecurity,
+  saveManagedSkillAuthoringDraft,
+  transitionManagedSkillLifecycle,
+  type ManagedSkillLifecycleTransition,
+} from '@/lib/managed/skill-client'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
   currentProjectAllowsWrite,
@@ -451,19 +454,16 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
     const lifecycleRunAtStart = lifecycleRunRef.current
     if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return null
     try {
-      const data = parseSkillAuthoringSaveResponse(
-        await managedPost<unknown>(
-          'skills/ai-authoring/save-draft',
-          {
-            draft_skill_id: draftSkillId,
-            name: current.name,
-            description: current.description,
-            content: current.content,
-            tags: current.tags,
-            files: current.files,
-          },
-          managedRequestOptions(requestScope),
-        ),
+      const data = await saveManagedSkillAuthoringDraft(
+        {
+          draft_skill_id: draftSkillId,
+          name: current.name,
+          description: current.description,
+          content: current.content,
+          tags: current.tags,
+          files: current.files,
+        },
+        requestScope,
       )
       if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return null
       if (data.error || !data.skill_id) {
@@ -483,12 +483,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
 
   const fetchLatestScan = useCallback(
     async (skillId: SkillId, requestScope: ManagedRequestScope): Promise<ScanRecord | null> => {
-      return parseSkillSecurityScanResponse(
-        await managedGet<unknown>(
-          apiResourcePath('skills', skillId, 'security-scans', 'latest'),
-          managedRequestOptions(requestScope),
-        ),
-      )
+      return fetchManagedLatestSkillSecurityScan(skillId, requestScope)
     },
     [],
   )
@@ -508,13 +503,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
     setScanRunning(true)
     setScanResult(null)
     try {
-      const initialScan = parseSkillSecurityScanResponse(
-        await managedPost<unknown>(
-          apiResourcePath('skills', sid, 'security-scans', 'rescan'),
-          {},
-          managedRequestOptions(requestScope),
-        ),
-      )
+      const initialScan = await rescanManagedSkillSecurity(sid, requestScope)
       if (!isCurrentLifecycleRun(scopeAtStart, lifecycleRunAtStart)) return
       setScanResult(initialScan)
       // Backend dispatched async; poll latest until status leaves 'scanning'.
@@ -571,16 +560,12 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
     // is already past this state) so re-publishing an approved skill still
     // reaches the version-publish step.
     const transition = async (
-      endpoint: string,
+      endpoint: ManagedSkillLifecycleTransition,
       fallbackMessage: string,
     ): Promise<{ ok: true } | { ok: false; error: string }> => {
       if (!isCurrentPublish()) return { ok: false, error: '发布已取消' }
       try {
-        await managedPost(
-          apiResourcePath('skills', sid, endpoint),
-          {},
-          managedRequestOptions(requestScope),
-        )
+        await transitionManagedSkillLifecycle(sid, endpoint, requestScope)
         if (!isCurrentPublish()) return { ok: false, error: '发布已取消' }
         return { ok: true }
       } catch (error) {
@@ -611,11 +596,7 @@ export function useSkillAuthoring(options?: { startFresh?: boolean }) {
       // auto-assign (0.1.0 for the first release / bumped patch otherwise).
       try {
         if (!isCurrentPublish()) return { skillId: null, error: '发布已取消' }
-        await managedPost(
-          apiResourcePath('skills', sid, 'versions'),
-          { release_notes: null },
-          managedRequestOptions(requestScope),
-        )
+        await publishManagedSkillVersion(sid, {}, requestScope)
         if (!isCurrentPublish()) return { skillId: null, error: '发布已取消' }
       } catch (error) {
         if (!isCurrentPublish()) return { skillId: null, error: '发布已取消' }

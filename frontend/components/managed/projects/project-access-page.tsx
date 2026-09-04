@@ -31,15 +31,16 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
-import { managedDelete, managedGet, managedPost } from '@/lib/api-client'
+import { managedDelete, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { effectiveProjectAccessValue } from '@/lib/managed/project-access'
+import { fetchManagedProject, managedProjectQueryKey } from '@/lib/managed/project-client'
+import { useManagedRequestScope } from '@/lib/managed/request-scope'
 import { projectRoleLabel, roleLabel } from '@/lib/managed/roles'
 import {
   parseProjectAccessRecordResponse,
-  parseProjectSummaryResponse,
   type ProjectAccessRecord,
 } from '@/lib/managed/tenant-response-parsers'
 import { parseOrganizationMemberId, type ProjectId, type UserId } from '@/types/entity-id'
@@ -49,6 +50,7 @@ const PROJECT_ROLE_VALUES = ['viewer', 'editor', 'admin'] as const
 export function ProjectAccessPage({ projectId }: { projectId: ProjectId }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
+  const requestScope = useManagedRequestScope()
   const savedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [revokeTarget, setRevokeTarget] = useState<ProjectAccessRecord | null>(null)
   const [memberSearch, setMemberSearch] = useState('')
@@ -56,9 +58,8 @@ export function ProjectAccessPage({ projectId }: { projectId: ProjectId }) {
   const [savedUserId, setSavedUserId] = useState<UserId | null>(null)
 
   const { data: project } = useQuery({
-    queryKey: ['project', projectId],
-    queryFn: () =>
-      managedGet<unknown>(`auth/projects/${projectId}`).then(parseProjectSummaryResponse),
+    queryKey: managedProjectQueryKey(requestScope.orgId, projectId),
+    queryFn: () => fetchManagedProject(projectId, requestScope),
     enabled: Boolean(projectId),
   })
 

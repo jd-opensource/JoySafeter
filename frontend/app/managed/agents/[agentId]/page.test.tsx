@@ -26,8 +26,12 @@ let deletePreviewPayload = { sessions: 0, tasks: 0, versions: 0, triggers: 0 }
 vi.mock('@/lib/api-client', () => ({
   managedGet: vi.fn((path: string) => {
     if (String(path).includes('/delete_preview')) return Promise.resolve(deletePreviewPayload)
-    if (String(path).includes('/versions')) return Promise.resolve({ data: [] })
-    if (String(path).includes('/sessions')) return Promise.resolve({ data: [] })
+    if (String(path).includes('/versions')) {
+      return Promise.resolve({ data: [], has_more: false })
+    }
+    if (String(path).includes('/sessions')) {
+      return Promise.resolve({ data: [], has_more: false, first_id: null, last_id: null })
+    }
     return Promise.resolve(agentPayload)
   }),
   managedPost: (...args: unknown[]) => managedPost(...args),
@@ -36,10 +40,6 @@ vi.mock('@/lib/api-client', () => ({
 vi.mock('@/hooks/use-toast', () => ({ toast: (...args: unknown[]) => toast(...args) }))
 
 vi.mock('@/lib/managed/agent-response-parsers', () => ({ parseAgentResponse: (x: unknown) => x }))
-vi.mock('@/lib/managed/session-response-parsers', () => ({
-  parseSessionCreateResponse: (x: unknown) => x,
-  parseSessionListResponse: (x: unknown) => x,
-}))
 vi.mock('@/lib/managed/errors', () => ({
   shouldRetryManagedResourceError: () => false,
   toastOperationError: vi.fn(),

@@ -14,16 +14,16 @@ import {
   type FilterDef,
 } from '@/components/managed/shared'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
-import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
+import { useManagedCredentialList } from '@/hooks/managed/use-managed-credential-list'
 import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
-import { managedDelete, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
-import { apiResourcePath } from '@/lib/managed/api-paths'
+import {
+  changeManagedCredentialLifecycle,
+  deleteManagedCredential,
+  managedCredentialsQueryPrefix,
+} from '@/lib/managed/credential-client'
 import { toastOperationError } from '@/lib/managed/errors'
 import { filterByCreatedTime, createCreatedTimeFilter, matchesSearch } from '@/lib/managed/filters'
-import { managedRequestOptions } from '@/lib/managed/request-scope'
-import { parseCredentialResponse } from '@/lib/managed/credential-response-parsers'
-import { parseCredentialId } from '@/types/entity-id'
 import type { Credential } from '@/types/managed'
 
 import { CredentialIdentity } from './credential-identity'
@@ -87,15 +87,11 @@ export function ServiceCredentialList({
     },
   })
 
-  const list = usePaginatedList<Credential>({
-    queryKey: 'credentials',
-    path: '/credentials',
-    query: { kind: 'service' },
+  const list = useManagedCredentialList({
+    kind: 'service',
     includeArchived: showArchived,
     pageSize: listState.pageSize,
     onPageSizeChange: (pageSize) => updateListState({ pageSize }),
-    parseItem: parseCredentialResponse,
-    parseCursor: parseCredentialId,
   })
 
   const filtered = useMemo(
@@ -133,12 +129,9 @@ export function ServiceCredentialList({
     }
     setMutationPending(true)
     try {
-      await managedDelete(
-        apiResourcePath('credentials', current.id),
-        managedRequestOptions(action.requestScope),
-      )
+      await deleteManagedCredential(current.id, action.requestScope)
       if (!isCurrentAction(action.runId, action.scope)) return
-      queryClient.invalidateQueries({ queryKey: ['credentials', action.scope] })
+      queryClient.invalidateQueries({ queryKey: managedCredentialsQueryPrefix(action.scope) })
     } catch (error) {
       if (!isCurrentAction(action.runId, action.scope)) return
       toastOperationError(t, error, 'common.operationFailed')
@@ -166,13 +159,9 @@ export function ServiceCredentialList({
     }
     setMutationPending(true)
     try {
-      await managedPost(
-        apiResourcePath('credentials', current.id, target.action),
-        {},
-        managedRequestOptions(action.requestScope),
-      )
+      await changeManagedCredentialLifecycle(current.id, target.action, action.requestScope)
       if (!isCurrentAction(action.runId, action.scope)) return
-      queryClient.invalidateQueries({ queryKey: ['credentials', action.scope] })
+      queryClient.invalidateQueries({ queryKey: managedCredentialsQueryPrefix(action.scope) })
     } catch (error) {
       if (!isCurrentAction(action.runId, action.scope)) return
       toastOperationError(t, error, 'common.operationFailed')
@@ -250,7 +239,9 @@ export function ServiceCredentialList({
         error={list.error}
         resource="credential"
         onRetry={() =>
-          queryClient.invalidateQueries({ queryKey: ['credentials', managedScope.key] })
+          queryClient.invalidateQueries({
+            queryKey: managedCredentialsQueryPrefix(managedScope.key),
+          })
         }
       />
     )

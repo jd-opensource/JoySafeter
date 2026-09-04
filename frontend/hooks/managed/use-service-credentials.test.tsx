@@ -5,12 +5,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { managedGet } from '@/lib/api-client'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
-
 import {
-  fetchAllServiceCredentials,
+  fetchManagedServiceCredentialOptions,
   serviceCredentialsQueryKey,
-  useServiceCredentials,
-} from './use-service-credentials'
+} from '@/lib/managed/credential-client'
+
+import { useServiceCredentials } from './use-service-credentials'
 
 vi.mock('@/lib/api-client', () => ({ managedGet: vi.fn() }))
 const requestScopeState = vi.hoisted(() => ({
@@ -85,15 +85,18 @@ describe('useServiceCredentials', () => {
       '/credentials?limit=100&kind=service&include_archived=false',
     )
     expect(managedGetMock.mock.calls[1][0]).toBe(
-      `/credentials?limit=100&kind=service&include_archived=false&after_id=${SECRET_ID_A}`,
+      `/credentials?limit=100&after_id=${SECRET_ID_A}&kind=service&include_archived=false`,
     )
     expect(result.current.data).toEqual([
       expect.objectContaining({ id: SECRET_ID_A, name: 'service-a', data: { TOKEN: 'v' } }),
       expect.objectContaining({ id: SECRET_ID_B, name: 'service-b', data: { API_KEY: 'v' } }),
     ])
     expect(serviceCredentialsQueryKey('org-a:project-a')).toEqual([
-      'service-credentials',
+      'credentials',
       'org-a:project-a',
+      'options',
+      'service',
+      false,
     ])
   })
 
@@ -108,15 +111,19 @@ describe('useServiceCredentials', () => {
       last_id: SECRET_ID_B,
     })
 
-    await expect(fetchAllServiceCredentials(scope)).resolves.toEqual([
+    await expect(fetchManagedServiceCredentialOptions(scope)).resolves.toEqual([
       expect.objectContaining({ name: 'canonical-service' }),
     ])
   })
 
   it('rejects a repeated pagination cursor instead of looping', async () => {
-    managedGetMock.mockResolvedValue({ data: [], has_more: true, last_id: SECRET_ID_A })
+    managedGetMock.mockResolvedValue({
+      data: [genericSecret('service-a', SECRET_ID_A, { TOKEN: 'v' })],
+      has_more: true,
+      last_id: SECRET_ID_A,
+    })
 
-    await expect(fetchAllServiceCredentials(scope)).rejects.toThrow(
+    await expect(fetchManagedServiceCredentialOptions(scope)).rejects.toThrow(
       'Service Credential pagination returned an invalid cursor',
     )
     expect(managedGetMock).toHaveBeenCalledTimes(2)
@@ -124,23 +131,34 @@ describe('useServiceCredentials', () => {
 
   it('rejects a cross-entity pagination cursor before another request', async () => {
     managedGetMock.mockResolvedValueOnce({
-      data: [],
+      data: [genericSecret('service-a', SECRET_ID_A, { TOKEN: 'v' })],
       has_more: true,
       last_id: 'agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f099',
     })
 
-    await expect(fetchAllServiceCredentials(scope)).rejects.toThrow(/Expected cred_/)
+    await expect(fetchManagedServiceCredentialOptions(scope)).rejects.toThrow(/Expected cred_/)
     expect(managedGetMock).toHaveBeenCalledTimes(1)
   })
 
   it('rejects a multi-page cursor cycle before requesting a duplicate page', async () => {
     managedGetMock
-      .mockResolvedValueOnce({ data: [], has_more: true, last_id: SECRET_ID_A })
-      .mockResolvedValueOnce({ data: [], has_more: true, last_id: SECRET_ID_B })
-      .mockResolvedValueOnce({ data: [], has_more: true, last_id: SECRET_ID_A })
-      .mockResolvedValue({ data: [], has_more: true, last_id: SECRET_ID_A })
+      .mockResolvedValueOnce({
+        data: [genericSecret('service-a', SECRET_ID_A, { TOKEN: 'v' })],
+        has_more: true,
+        last_id: SECRET_ID_A,
+      })
+      .mockResolvedValueOnce({
+        data: [genericSecret('service-b', SECRET_ID_B, { API_KEY: 'v' })],
+        has_more: true,
+        last_id: SECRET_ID_B,
+      })
+      .mockResolvedValueOnce({
+        data: [genericSecret('service-a-again', SECRET_ID_A, { TOKEN: 'v' })],
+        has_more: true,
+        last_id: SECRET_ID_A,
+      })
 
-    await expect(fetchAllServiceCredentials(scope)).rejects.toThrow(
+    await expect(fetchManagedServiceCredentialOptions(scope)).rejects.toThrow(
       'Service Credential pagination returned an invalid cursor',
     )
     expect(managedGetMock).toHaveBeenCalledTimes(3)

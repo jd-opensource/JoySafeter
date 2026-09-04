@@ -7,8 +7,8 @@ import {
   parseMemberCandidateResponse,
   parseMemberCandidateListResponse,
   parseOrganizationDetailResponse,
-  parseOrganizationMemberPageResponse,
-  parsePlatformOrganizationPageResponse,
+  parseOrganizationListItemResponse,
+  parsePlatformOrganizationResponse,
   parseOrganizationMemberResponse,
   parsePlatformUserResponse,
   parseProjectAccessRecordResponse,
@@ -99,6 +99,15 @@ describe('tenant response parsers', () => {
       }),
     ).toMatchObject({ id: ORGANIZATION_ID })
     expect(
+      parseOrganizationListItemResponse({
+        id: ORGANIZATION_ID,
+        name: 'Org',
+        slug: 'org',
+        role: 'owner',
+        project_creation_policy: 'admins_only',
+      }),
+    ).toMatchObject({ id: ORGANIZATION_ID, role: 'owner' })
+    expect(
       parseOrganizationMemberResponse({
         id: ORGANIZATION_MEMBER_ID,
         user_id: USER_ID,
@@ -129,25 +138,6 @@ describe('tenant response parsers', () => {
       }),
     ).toMatchObject({ id: USER_ID })
     expect(
-      parseOrganizationMemberPageResponse({
-        data: [
-          {
-            id: ORGANIZATION_MEMBER_ID,
-            user_id: USER_ID,
-            organization_id: ORGANIZATION_ID,
-            role: 'member',
-          },
-        ],
-        has_more: false,
-        first_id: ORGANIZATION_MEMBER_ID,
-        last_id: ORGANIZATION_MEMBER_ID,
-      }),
-    ).toMatchObject({
-      data: [{ id: ORGANIZATION_MEMBER_ID }],
-      first_id: ORGANIZATION_MEMBER_ID,
-      last_id: ORGANIZATION_MEMBER_ID,
-    })
-    expect(
       parseMemberCandidateListResponse([
         {
           id: USER_ID,
@@ -158,20 +148,16 @@ describe('tenant response parsers', () => {
       ]),
     ).toMatchObject([{ id: USER_ID }])
     expect(
-      parsePlatformOrganizationPageResponse({
-        data: [
-          {
-            id: ORGANIZATION_ID,
-            name: 'Org',
-            slug: 'org',
-            member_count: 1,
-            project_count: 1,
-            member_emails: ['owner@example.com'],
-            created_at: '2026-08-25T00:00:00Z',
-          },
-        ],
+      parsePlatformOrganizationResponse({
+        id: ORGANIZATION_ID,
+        name: 'Org',
+        slug: 'org',
+        member_count: 1,
+        project_count: 1,
+        member_emails: ['owner@example.com'],
+        created_at: '2026-08-25T00:00:00Z',
       }),
-    ).toMatchObject({ data: [{ id: ORGANIZATION_ID }] })
+    ).toMatchObject({ id: ORGANIZATION_ID })
     expect(
       parsePlatformUserResponse({
         id: USER_ID,

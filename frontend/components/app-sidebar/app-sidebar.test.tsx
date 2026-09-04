@@ -208,6 +208,15 @@ function authContext(orgId: OrganizationId, project: ProjectInfo) {
   }
 }
 
+function projectPage(projects: ProjectInfo[]) {
+  return {
+    data: projects,
+    has_more: false,
+    first_id: projects[0]?.id ?? null,
+    last_id: projects.at(-1)?.id ?? null,
+  }
+}
+
 function setProjectContext(orgId: OrganizationId, project: ProjectInfo) {
   useProjectStore.setState({
     currentOrgId: orgId,
@@ -324,7 +333,9 @@ describe('AppSidebar project switcher lifecycle', () => {
   })
 
   it('makes the current work location and switch actions explicit', async () => {
-    ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([projectBCurrent])
+    ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      projectPage([projectBCurrent]),
+    )
     const { AppSidebar } = await import('./app-sidebar')
 
     const view = renderSidebar(AppSidebar)
@@ -363,7 +374,9 @@ describe('AppSidebar project switcher lifecycle', () => {
       project: ProjectInfo
       projects: ProjectInfo[]
     }>()
-    ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([projectBCurrent])
+    ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      projectPage([projectBCurrent]),
+    )
     ;(managedPost as unknown as ReturnType<typeof vi.fn>).mockReturnValue(switchRequest.promise)
     const { AppSidebar } = await import('./app-sidebar')
 
@@ -393,7 +406,9 @@ describe('AppSidebar project switcher lifecycle', () => {
   })
 
   it('confirms a successful switch and closes the switcher', async () => {
-    ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([projectBCurrent])
+    ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      projectPage([projectBCurrent]),
+    )
     ;(managedPost as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
       org_id: OTHER_ORGANIZATION_ID,
       project_id: OTHER_PROJECT_ID,
@@ -417,7 +432,9 @@ describe('AppSidebar project switcher lifecycle', () => {
 
   it('keeps the switcher open and restores the action after failure', async () => {
     const switchError = new Error('switch failed')
-    ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([projectBCurrent])
+    ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
+      projectPage([projectBCurrent]),
+    )
     ;(managedPost as unknown as ReturnType<typeof vi.fn>).mockRejectedValue(switchError)
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const { AppSidebar } = await import('./app-sidebar')
@@ -475,10 +492,10 @@ describe('AppSidebar project switcher lifecycle', () => {
   })
 
   it('does not let an older all-projects load override the active org project list', async () => {
-    const oldOrgBProjects = deferred<ProjectInfo[]>()
+    const oldOrgBProjects = deferred<ReturnType<typeof projectPage>>()
     ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
       if (path === '/auth/me') return Promise.resolve(authContext(ORGANIZATION_ID, projectA))
-      if (path === '/auth/projects?include_archived=false&limit=200') return oldOrgBProjects.promise
+      if (path === '/auth/projects?limit=200&include_archived=false') return oldOrgBProjects.promise
       return Promise.resolve([])
     })
     const { AppSidebar } = await import('./app-sidebar')
@@ -492,7 +509,7 @@ describe('AppSidebar project switcher lifecycle', () => {
     })
 
     await waitFor(() => {
-      expect(managedGet).toHaveBeenCalledWith('/auth/projects?include_archived=false&limit=200', {
+      expect(managedGet).toHaveBeenCalledWith('/auth/projects?limit=200&include_archived=false', {
         skipManagedContext: true,
         headers: { 'X-Org-Id': OTHER_ORGANIZATION_ID },
       })
@@ -506,15 +523,17 @@ describe('AppSidebar project switcher lifecycle', () => {
     expect(view.getAllByText('Project B Current').length).toBeGreaterThan(0)
 
     await act(async () => {
-      oldOrgBProjects.resolve([
-        {
-          id: FOURTH_PROJECT_ID,
-          name: 'Project B Old',
-          slug: 'project-b-old',
-          is_default: true,
-          org_id: OTHER_ORGANIZATION_ID,
-        },
-      ])
+      oldOrgBProjects.resolve(
+        projectPage([
+          {
+            id: FOURTH_PROJECT_ID,
+            name: 'Project B Old',
+            slug: 'project-b-old',
+            is_default: true,
+            org_id: OTHER_ORGANIZATION_ID,
+          },
+        ]),
+      )
       await Promise.resolve()
       await Promise.resolve()
     })
@@ -531,16 +550,18 @@ describe('AppSidebar project switcher lifecycle', () => {
     }>()
     ;(managedGet as unknown as ReturnType<typeof vi.fn>).mockImplementation((path: string) => {
       if (path === '/auth/me') return Promise.resolve(authContext(ORGANIZATION_ID, projectA))
-      if (path === '/auth/projects?include_archived=false&limit=200') {
-        return Promise.resolve([
-          {
-            id: FIFTH_PROJECT_ID,
-            name: 'Project B Target',
-            slug: 'project-b-target',
-            is_default: true,
-            org_id: OTHER_ORGANIZATION_ID,
-          },
-        ])
+      if (path === '/auth/projects?limit=200&include_archived=false') {
+        return Promise.resolve(
+          projectPage([
+            {
+              id: FIFTH_PROJECT_ID,
+              name: 'Project B Target',
+              slug: 'project-b-target',
+              is_default: true,
+              org_id: OTHER_ORGANIZATION_ID,
+            },
+          ]),
+        )
       }
       return Promise.resolve([])
     })

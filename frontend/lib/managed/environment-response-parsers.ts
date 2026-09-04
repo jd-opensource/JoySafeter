@@ -259,7 +259,3 @@ export function parseEnvironmentResponse(response: unknown): Environment {
       : undefined,
   }
 }
-
-export function parseEnvironmentListResponse(response: unknown[]): Environment[] {
-  return response.map(parseEnvironmentResponse)
-}

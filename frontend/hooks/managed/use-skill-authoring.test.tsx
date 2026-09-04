@@ -683,7 +683,7 @@ describe('useSkillAuthoring stream lifecycle', () => {
     expect(managedPostMock).not.toHaveBeenCalledWith(
       `/skills/${BLOCKED_SKILL_ID}/versions`,
       {
-        release_notes: null,
+        release_notes: '',
       },
       managedOptions(),
     )

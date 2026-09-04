@@ -1,6 +1,5 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
 import { Plus, Trash2 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 
@@ -30,6 +29,9 @@ import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
+import { useManagedAgentOptions } from '@/hooks/managed/use-managed-agent-options'
+import { useManagedAgentSessionOptions } from '@/hooks/managed/use-managed-agent-session-options'
+import { useManagedEnvironmentOptions } from '@/hooks/managed/use-managed-environment-options'
 import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { useServiceCredentials } from '@/hooks/managed/use-service-credentials'
 import { managedGet } from '@/lib/api-client'
@@ -38,9 +40,6 @@ import { getAgentModelSearchTokens } from '@/lib/managed/agent-model-display'
 import { apiResourceId } from '@/lib/managed/api-paths'
 import { detectBrowserTimezone, isValidCron } from '@/lib/managed/cron'
 import { toastOperationError } from '@/lib/managed/errors'
-import { parseModelCredentialReference } from '@/lib/managed/environment-response-parsers'
-import { hasManagedRequestScope, managedRequestOptions } from '@/lib/managed/request-scope'
-import { parseModelConnectionSummaryResponse } from '@/lib/managed/credential-response-parsers'
 import {
   useCreateAgentTrigger,
   useUpdateAgentTrigger,
@@ -56,61 +55,10 @@ import {
   parseEnvironmentId,
   parseSessionId,
   type AgentId,
-  type CredentialId,
   type EnvironmentId,
   type SessionId,
 } from '@/types/entity-id'
-import type { ModelConnectionSummary } from '@/types/managed'
-
-interface AgentOption {
-  id: AgentId
-  name: string
-  engine_kind?: string | null
-  model?: { id?: string } | null
-  model_credential_id?: CredentialId | null
-  model_connection?: ModelConnectionSummary | null
-  archived_at?: string | null
-}
-
-function parseAgentOption(value: unknown): AgentOption {
-  const raw = value as Omit<AgentOption, 'id' | 'model_credential_id' | 'model_connection'> & {
-    id: string
-    model_credential_id?: string | null
-    model_connection?: unknown
-  }
-  return {
-    ...raw,
-    id: parseAgentId(raw.id),
-    model_credential_id: parseModelCredentialReference(raw),
-    model_connection: raw.model_connection
-      ? parseModelConnectionSummaryResponse(raw.model_connection)
-      : null,
-  }
-}
-
-interface EnvironmentOption {
-  id: EnvironmentId
-  name: string
-  config?: { type?: string; networking?: { type?: string } } | null
-  archived_at?: string | null
-}
-
-function parseEnvironmentOption(value: unknown): EnvironmentOption {
-  const raw = value as Omit<EnvironmentOption, 'id'> & { id: string }
-  return { ...raw, id: parseEnvironmentId(raw.id) }
-}
-
-interface SessionOption {
-  id: SessionId
-  title?: string | null
-  status?: string | null
-  archived_at?: string | null
-}
-
-function parseSessionOption(value: unknown): SessionOption {
-  const raw = value as Omit<SessionOption, 'id'> & { id: string }
-  return { ...raw, id: parseSessionId(raw.id) }
-}
+import type { Session } from '@/types/managed'
 
 type TriggerKind = TriggerType
 
@@ -387,24 +335,8 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
     ],
   )
 
-  const agentsQuery = useQuery({
-    queryKey: ['agents', scope.key, 'for-trigger'],
-    queryFn: () =>
-      managedGet<unknown[] | { data: unknown[] }>(
-        '/agents?limit=100',
-        managedRequestOptions(scope),
-      ).then((response) =>
-        Array.isArray(response)
-          ? response.map(parseAgentOption)
-          : { ...response, data: response.data.map(parseAgentOption) },
-      ),
-    enabled: open && hasManagedRequestScope(scope),
-  })
-  const agents: AgentOption[] = useMemo(() => {
-    const raw = agentsQuery.data
-    const list = Array.isArray(raw) ? raw : (raw?.data ?? [])
-    return list.filter((a) => !a.archived_at)
-  }, [agentsQuery.data])
+  const agentsQuery = useManagedAgentOptions({ enabled: open })
+  const agents = agentsQuery.data ?? []
   const filteredAgents = useMemo(() => {
     if (!agentSearch.trim()) return agents
     const q = agentSearch.toLowerCase()
@@ -416,48 +348,17 @@ function CreateTriggerDialogForm({ open, onOpenChange, trigger }: CreateTriggerD
     )
   }, [agents, agentSearch])
 
-  const environmentsQuery = useQuery({
-    queryKey: ['environments', scope.key, 'for-trigger'],
-    queryFn: () =>
-      managedGet<unknown[] | { data: unknown[] }>(
-        '/environments?limit=100',
-        managedRequestOptions(scope),
-      ).then((response) =>
-        Array.isArray(response)
-          ? response.map(parseEnvironmentOption)
-          : { ...response, data: response.data.map(parseEnvironmentOption) },
-      ),
-    enabled: open && hasManagedRequestScope(scope),
-  })
-  const environments: EnvironmentOption[] = useMemo(() => {
-    const raw = environmentsQuery.data
-    const list = Array.isArray(raw) ? raw : (raw?.data ?? [])
-    return list.filter((e) => !e.archived_at)
-  }, [environmentsQuery.data])
+  const environmentsQuery = useManagedEnvironmentOptions({ enabled: open })
+  const environments = environmentsQuery.data ?? []
   const filteredEnvironments = useMemo(() => {
     if (!envSearch.trim()) return environments
     const q = envSearch.toLowerCase()
     return environments.filter((e) => e.name.toLowerCase().includes(q))
   }, [environments, envSearch])
 
-  const sessionsQuery = useQuery({
-    queryKey: ['agent-sessions', scope.key, agentId, 'for-trigger'],
-    queryFn: () =>
-      managedGet<{ data: unknown[] } | unknown[]>(
-        `/agents/${agentId}/sessions?limit=100`,
-        managedRequestOptions(scope),
-      ).then((response) =>
-        Array.isArray(response)
-          ? response.map(parseSessionOption)
-          : { ...response, data: response.data.map(parseSessionOption) },
-      ),
-    enabled: open && !!agentId && hasManagedRequestScope(scope),
-  })
-  const sessions: SessionOption[] = useMemo(() => {
-    const raw = sessionsQuery.data
-    const list = Array.isArray(raw) ? raw : (raw?.data ?? [])
-    return list.filter((s) => !s.archived_at)
-  }, [sessionsQuery.data])
+  const selectedAgentId = agentId || null
+  const sessionsQuery = useManagedAgentSessionOptions(selectedAgentId, { enabled: open })
+  const sessions: Session[] = sessionsQuery.data ?? []
 
   useEffect(
     () => () => {

@@ -4,10 +4,12 @@ import type { ReactNode } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { managedGet } from '@/lib/api-client'
-
 import {
   compatibleCredentialsQueryKey,
   compatibleCredentialsScopePrefix,
+} from '@/lib/managed/credential-client'
+
+import {
   useCompatibleCredentials,
   useModelConnectionByName,
   useProtocolCredentials,
@@ -127,7 +129,7 @@ describe('useCompatibleCredentials', () => {
 
   it('rejects a cross-entity pagination cursor before another request', async () => {
     managedGetMock.mockResolvedValueOnce({
-      data: [],
+      data: [secret(UUID_A, 'openai-primary')],
       has_more: true,
       last_id: `agent_${UUID_A}`,
     })

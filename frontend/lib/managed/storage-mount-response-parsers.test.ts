@@ -5,7 +5,6 @@ import {
   parseStorageMountAuditResponse,
   parseStorageOrganizationGrantResponse,
   parseStorageProjectGrantResponse,
-  parseStorageVolumeListResponse,
   parseStorageVolumeResponse,
 } from './storage-mount-response-parsers'
 
@@ -32,7 +31,6 @@ describe('storage mount response parsers', () => {
       grants: [projectGrant],
       organization_grants: [organizationGrant],
     })
-    const list = parseStorageVolumeListResponse({ data: [volume] })
     const audit = parseStorageMountAuditResponse({
       id: `staudit_${UUID}`,
       volume_id: `vol_${UUID}`,
@@ -57,7 +55,6 @@ describe('storage mount response parsers', () => {
 
     expect(volume.id).toBe(`vol_${UUID}`)
     expect(volume.grants?.[0].id).toBe(`stgrant_${UUID}`)
-    expect('data' in list ? list.data?.[0].id : undefined).toBe(`vol_${UUID}`)
     expect(parseStorageProjectGrantResponse(projectGrant).volume_id).toBe(`vol_${UUID}`)
     expect(parseStorageProjectGrantResponse(projectGrant).project_id).toBe(`proj_${UUID}`)
     expect(parseStorageOrganizationGrantResponse(organizationGrant).id).toBe(`stgrant_${UUID}`)

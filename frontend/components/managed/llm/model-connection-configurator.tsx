@@ -10,7 +10,6 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
 import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
-import { managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import {
   ANTHROPIC_AUTH_SCHEME,
@@ -19,14 +18,13 @@ import {
   inferSchemeFromValues,
   resolveAnthropicScheme,
 } from '@/lib/managed/anthropic-auth'
-import { parseCredentialDetailResponse } from '@/lib/managed/credential-response-parsers'
+import { createManagedCredential, testManagedCredential } from '@/lib/managed/credential-client'
 import {
   getAllProviderProtocolOptions,
   getConsumerProviderProtocolOptions,
   getProviderProtocolOptions,
   stableConnectionFingerprint,
 } from '@/lib/managed/llm-catalog'
-import { managedRequestOptions } from '@/lib/managed/request-scope'
 import { cn } from '@/lib/utils'
 import type { LlmCredentialField, LlmCredentialProfile } from '@/types/llm'
 import type { CredentialDetail } from '@/types/managed'
@@ -268,15 +266,14 @@ export function ModelConnectionConfigurator({
     setRequestError(null)
     setTestMessage(null)
     try {
-      const result = await managedPost<{ ok: boolean; message: string }>(
-        '/credentials/test',
+      const result = await testManagedCredential(
         {
           provider: providerId,
           protocol: protocolId,
           data: values,
-          auth_scheme: isAnthropic ? authScheme : undefined,
+          authScheme: isAnthropic ? authScheme : undefined,
         },
-        managedRequestOptions(action.requestScope),
+        action.requestScope,
       )
       if (!isCurrentAction(action.runId, action.scope)) return
       if (!result.ok) {
@@ -309,15 +306,14 @@ export function ModelConnectionConfigurator({
     setTestMessage(null)
     try {
       if (!connectionTestIsFresh) {
-        const testResult = await managedPost<{ ok: boolean; message: string }>(
-          '/credentials/test',
+        const testResult = await testManagedCredential(
           {
             provider: providerId,
             protocol: protocolId,
             data: values,
-            auth_scheme: isAnthropic ? authScheme : undefined,
+            authScheme: isAnthropic ? authScheme : undefined,
           },
-          managedRequestOptions(action.requestScope),
+          action.requestScope,
         )
         if (!isCurrentAction(action.runId, action.scope)) return
         if (!testResult.ok) {
@@ -327,21 +323,20 @@ export function ModelConnectionConfigurator({
         setTestedFingerprint(currentFingerprint)
         setTestMessage(testResult.message)
       }
-      const response = await managedPost<unknown>(
-        '/credentials',
+      const credential = await createManagedCredential(
         {
           kind: 'model',
           name: name.trim(),
           provider: providerId,
           protocol: protocolId,
           data: values,
-          is_default: isDefault,
-          auth_scheme: isAnthropic ? authScheme : undefined,
+          isDefault,
+          authScheme: isAnthropic ? authScheme : undefined,
         },
-        managedRequestOptions(action.requestScope),
+        action.requestScope,
       )
       if (!isCurrentAction(action.runId, action.scope)) return
-      onCreated(parseCredentialDetailResponse(response))
+      onCreated(credential)
     } catch (error) {
       if (!isCurrentAction(action.runId, action.scope)) return
       setRequestError(error instanceof Error ? error.message : t('managed.llm.createFailed'))

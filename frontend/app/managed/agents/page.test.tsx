@@ -17,8 +17,8 @@ vi.mock('@/lib/i18n', () => ({
   }),
 }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: routerPush }) }))
-vi.mock('@/hooks/managed/use-paginated-list', () => ({
-  usePaginatedList: () => ({
+vi.mock('@/hooks/managed/use-managed-agent-list', () => ({
+  useManagedAgentList: () => ({
     data: agentRows,
     isLoading: false,
     isFetching: false,
@@ -65,9 +65,6 @@ vi.mock('@/lib/api-client', () => ({
   managedDelete: vi.fn(),
 }))
 vi.mock('@/hooks/use-toast', () => ({ toast: (...args: unknown[]) => toast(...args) }))
-vi.mock('@/lib/managed/agent-response-parsers', () => ({
-  parseAgentResponse: (value: unknown) => value,
-}))
 vi.mock('./components/create-agent-dialog', () => ({ CreateAgentDialog: () => null }))
 vi.mock('@/components/managed/shared/action-menu', () => ({
   ActionMenu: ({
@@ -119,7 +116,7 @@ import AgentListPage from './page'
 
 function renderPage(): RenderResult {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  queryClient.setQueryData(['agents', 'scope', '/agents'], { data: agentRows })
+  queryClient.setQueryData(['agents', 'scope', 'managed-agent-list'], { data: agentRows })
   return render(
     <QueryClientProvider client={queryClient}>
       <AgentListPage />

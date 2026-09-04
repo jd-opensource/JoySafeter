@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { managedGet } from '@/lib/api-client'
 import { apiCollectionPath } from '@/lib/managed/api-paths'
+import { parseManagedCursorPage, type ManagedCursorPage } from '@/lib/managed/cursor-page'
 import {
   hasManagedRequestScope,
   managedRequestOptions,
@@ -19,24 +20,55 @@ interface PageResult<T, CursorId extends string> {
   last_id?: CursorId
 }
 
-interface UsePaginatedListOptions<
+export interface ManagedPaginatedListPageRequest<CursorId extends string> {
+  limit: number
+  afterId?: CursorId
+  includeArchived?: boolean
+}
+
+export type ManagedPaginatedListFetcher<T, CursorId extends string> = (
+  request: ManagedPaginatedListPageRequest<CursorId>,
+  scope: ManagedRequestScope,
+) => Promise<ManagedCursorPage<T, CursorId>>
+
+interface UsePaginatedListBaseOptions<
   T extends { id?: CursorId },
   CursorId extends string = Extract<T['id'], string>,
 > {
   queryKey: string
-  path: string
-  query?: Record<string, string | number | boolean | null | undefined>
   cacheVersion?: string
+  paginationScopeKey?: string
+  requiresManagedScope?: boolean
   limit?: number
   pageSize?: number
   onPageSizeChange?: (pageSize: number) => void
   pageSizeOptions?: number[]
   enabled?: boolean
   includeArchived?: boolean
-  parseItem?: (item: unknown) => T
   parseCursor: (cursor: string) => CursorId
   refetchInterval?: (page: PageResult<T, CursorId> | undefined) => number | false
 }
+
+type UsePaginatedListOptions<
+  T extends { id?: CursorId },
+  CursorId extends string = Extract<T['id'], string>,
+> = UsePaginatedListBaseOptions<T, CursorId> &
+  (
+    | {
+        path: string
+        query?: Record<string, string | number | boolean | null | undefined>
+        parseItem?: (item: unknown) => T
+        sourceKey?: never
+        fetchPage?: never
+      }
+    | {
+        sourceKey: string
+        fetchPage: ManagedPaginatedListFetcher<T, CursorId>
+        path?: never
+        query?: never
+        parseItem?: never
+      }
+  )
 
 interface UsePaginatedListResult<T> {
   data: T[]
@@ -148,19 +180,17 @@ async function apiPage<T extends { id?: CursorId }, CursorId extends string>(
     include_archived: includeArchived,
   })
 
-  const res = await managedGet<
-    unknown[] | { data: unknown[]; has_more: boolean; first_id?: string; last_id?: string }
-  >(url, managedRequestOptions(scope))
-
-  if (Array.isArray(res)) {
-    return { data: parseItem ? res.map(parseItem) : (res as T[]), has_more: false }
+  const response = await managedGet<unknown>(url, managedRequestOptions(scope))
+  const page = parseManagedCursorPage(response, {
+    parseItem: parseItem ?? ((item) => item as T),
+    parseCursor,
+  })
+  return {
+    data: page.items,
+    has_more: page.hasMore,
+    first_id: page.firstId,
+    last_id: page.lastId,
   }
-  const items = parseItem ? res.data.map(parseItem) : (res.data as T[])
-  const firstCursor = res.first_id ?? items[0]?.id
-  const lastCursor = res.last_id ?? items[items.length - 1]?.id
-  const firstId = firstCursor ? parseCursor(firstCursor) : undefined
-  const lastId = lastCursor ? parseCursor(lastCursor) : undefined
-  return { data: items, has_more: res.has_more, first_id: firstId, last_id: lastId }
 }
 
 export function usePaginatedList<
@@ -170,7 +200,10 @@ export function usePaginatedList<
   queryKey,
   path,
   query,
+  sourceKey,
   cacheVersion,
+  paginationScopeKey,
+  requiresManagedScope = true,
   limit = 10,
   pageSize: controlledPageSize,
   onPageSizeChange,
@@ -179,15 +212,23 @@ export function usePaginatedList<
   includeArchived,
   parseItem,
   parseCursor,
+  fetchPage,
   refetchInterval,
 }: UsePaginatedListOptions<T, CursorId>): UsePaginatedListResult<T> {
   const queryClient = useQueryClient()
   const managedScope = useManagedRequestScope()
   const queryScope = query ? JSON.stringify(query) : ''
-  const scopedPath = useMemo(
-    () => (query ? apiCollectionPath(path, query) : path),
+  const sourceIdentity = useMemo(
+    () => {
+      if (fetchPage) {
+        if (!sourceKey) throw new TypeError('sourceKey is required with fetchPage')
+        return sourceKey
+      }
+      if (!path) throw new TypeError('path is required without fetchPage')
+      return query ? apiCollectionPath(path, query) : path
+    },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [path, queryScope],
+    [fetchPage, path, queryScope, sourceKey],
   )
   const defaultPageSize = pageSizeOptions.includes(limit) ? limit : pageSizeOptions[0]
   const [internalPageSize, setInternalPageSize] = useState(defaultPageSize)
@@ -195,7 +236,8 @@ export function usePaginatedList<
   const effectivePageSize = pageSizeOptions.includes(requestedPageSize)
     ? requestedPageSize
     : defaultPageSize
-  const listScope = `${queryKey}:${scopedPath}:${managedScope.key}:${includeArchived}:${effectivePageSize}:${cacheVersion ?? ''}`
+  const effectiveScopeKey = paginationScopeKey ?? managedScope.key
+  const listScope = `${queryKey}:${sourceIdentity}:${effectiveScopeKey}:${includeArchived}:${effectivePageSize}:${cacheVersion ?? ''}`
   const [cursorState, setCursorState] = useState<CursorState<CursorId>>(() =>
     loadCursorState(listScope, parseCursor),
   )
@@ -207,14 +249,14 @@ export function usePaginatedList<
 
   const fullKey = [
     queryKey,
-    managedScope.key,
-    scopedPath,
+    effectiveScopeKey,
+    sourceIdentity,
     cursor,
     includeArchived,
     effectivePageSize,
     ...(cacheVersion ? [cacheVersion] : []),
   ]
-  const queryEnabled = enabled && hasManagedRequestScope(managedScope)
+  const queryEnabled = enabled && (!requiresManagedScope || hasManagedRequestScope(managedScope))
 
   useEffect(() => {
     setCursorState((state) =>
@@ -226,26 +268,56 @@ export function usePaginatedList<
     if (cursorState.scope === listScope) saveCursorState(cursorState)
   }, [cursorState, listScope])
 
+  const loadPage = useCallback(
+    async (pageCursor: CursorId | undefined): Promise<PageResult<T, CursorId>> => {
+      if (!fetchPage) {
+        return apiPage<T, CursorId>(
+          sourceIdentity,
+          managedScope,
+          pageCursor,
+          effectivePageSize,
+          includeArchived,
+          parseItem,
+          parseCursor,
+        )
+      }
+      const page = await fetchPage(
+        {
+          limit: effectivePageSize,
+          afterId: pageCursor,
+          includeArchived,
+        },
+        managedScope,
+      )
+      return {
+        data: page.items,
+        has_more: page.hasMore,
+        first_id: page.firstId,
+        last_id: page.lastId,
+      }
+    },
+    [
+      effectivePageSize,
+      fetchPage,
+      includeArchived,
+      managedScope,
+      parseCursor,
+      parseItem,
+      sourceIdentity,
+    ],
+  )
+
   const { data, isLoading, isFetching, isError, error } = useQuery({
     queryKey: fullKey,
-    queryFn: () =>
-      apiPage<T, CursorId>(
-        scopedPath,
-        managedScope,
-        cursor,
-        effectivePageSize,
-        includeArchived,
-        parseItem,
-        parseCursor,
-      ),
+    queryFn: () => loadPage(cursor),
     enabled: queryEnabled,
     placeholderData: (previousData, previousQuery) => {
       const previousKey = previousQuery?.queryKey
       if (
         Array.isArray(previousKey) &&
         previousKey[0] === queryKey &&
-        previousKey[1] === managedScope.key &&
-        previousKey[2] === scopedPath &&
+        previousKey[1] === effectiveScopeKey &&
+        previousKey[2] === sourceIdentity &&
         previousKey[4] === includeArchived &&
         previousKey[5] === effectivePageSize &&
         previousKey[6] === cacheVersion
@@ -267,8 +339,8 @@ export function usePaginatedList<
     if (page.has_more && page.last_id && queryEnabled) {
       const nextKey = [
         queryKey,
-        managedScope.key,
-        scopedPath,
+        effectiveScopeKey,
+        sourceIdentity,
         page.last_id,
         includeArchived,
         effectivePageSize,
@@ -276,16 +348,7 @@ export function usePaginatedList<
       ]
       queryClient.prefetchQuery({
         queryKey: nextKey,
-        queryFn: () =>
-          apiPage<T, CursorId>(
-            scopedPath,
-            managedScope,
-            page.last_id,
-            effectivePageSize,
-            includeArchived,
-            parseItem,
-            parseCursor,
-          ),
+        queryFn: () => loadPage(page.last_id),
         staleTime: 30_000,
       })
     }
@@ -293,15 +356,14 @@ export function usePaginatedList<
     page.has_more,
     page.last_id,
     queryKey,
-    managedScope,
-    scopedPath,
+    effectiveScopeKey,
+    sourceIdentity,
     effectivePageSize,
     cacheVersion,
     includeArchived,
-    parseItem,
-    parseCursor,
     queryEnabled,
     queryClient,
+    loadPage,
   ])
 
   const goNext = useCallback(() => {

@@ -22,7 +22,15 @@ vi.mock('@/providers/permissions-provider', () => ({
 }))
 
 vi.mock('@/stores/managed/project-store', () => ({
-  useProjectStore: { setState: vi.fn() },
+  useProjectStore: Object.assign(
+    vi.fn((selector: (state: { currentOrgId: string; currentProjectId: string }) => unknown) =>
+      selector({
+        currentOrgId: 'org_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020',
+        currentProjectId: 'proj_018f6f42-0a51-7cc4-98c8-4f6f0ca5f021',
+      }),
+    ),
+    { setState: vi.fn() },
+  ),
 }))
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost' })

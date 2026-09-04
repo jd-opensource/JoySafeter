@@ -17,19 +17,20 @@ import {
 import { CompatibleEngineBadges } from '@/components/managed/shared/compatible-engine-badges'
 import { Badge } from '@/components/ui/badge'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
-import { compatibleCredentialsScopePrefix } from '@/hooks/managed/use-compatible-credentials'
+import {
+  changeManagedCredentialLifecycle,
+  compatibleCredentialsScopePrefix,
+  deleteManagedCredential,
+  managedCredentialsQueryPrefix,
+  setManagedCredentialDefault,
+} from '@/lib/managed/credential-client'
 import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
-import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
+import { useManagedCredentialList } from '@/hooks/managed/use-managed-credential-list'
 import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
-import { managedDelete, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
-import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import { filterByCreatedTime, createCreatedTimeFilter, matchesSearch } from '@/lib/managed/filters'
 import { findProtocol, findProvider } from '@/lib/managed/llm-catalog'
-import { managedRequestOptions } from '@/lib/managed/request-scope'
-import { parseCredentialResponse } from '@/lib/managed/credential-response-parsers'
-import { parseCredentialId } from '@/types/entity-id'
 import type { LlmCatalog } from '@/types/llm'
 import type { Credential } from '@/types/managed'
 
@@ -116,17 +117,13 @@ export function ModelConnectionList({
     },
   })
 
-  const list = usePaginatedList<Credential>({
-    queryKey: 'credentials',
-    path: '/credentials',
-    query: { kind: 'model' },
+  const list = useManagedCredentialList({
+    kind: 'model',
     includeArchived: showArchived,
     cacheVersion: catalogVersion || undefined,
     enabled: catalogReady,
     pageSize: listState.pageSize,
     onPageSizeChange: (pageSize) => updateListState({ pageSize }),
-    parseItem: parseCredentialResponse,
-    parseCursor: parseCredentialId,
   })
 
   const filtered = useMemo(
@@ -158,7 +155,7 @@ export function ModelConnectionList({
   ]
 
   const invalidate = (scope: string) => {
-    queryClient.invalidateQueries({ queryKey: ['credentials', scope] })
+    queryClient.invalidateQueries({ queryKey: managedCredentialsQueryPrefix(scope) })
     queryClient.invalidateQueries({ queryKey: compatibleCredentialsScopePrefix(scope) })
   }
   const handleSetDefault = async (s: Credential) => {
@@ -169,11 +166,7 @@ export function ModelConnectionList({
     if (!action) return
     setMutationPending(true)
     try {
-      await managedPost(
-        apiResourcePath('credentials', current.id, 'default'),
-        {},
-        managedRequestOptions(action.requestScope),
-      )
+      await setManagedCredentialDefault(current.id, action.requestScope)
       if (!isCurrentAction(action.runId, action.scope)) return
       invalidate(action.scope)
     } catch (error) {
@@ -197,10 +190,7 @@ export function ModelConnectionList({
     }
     setMutationPending(true)
     try {
-      await managedDelete(
-        apiResourcePath('credentials', current.id),
-        managedRequestOptions(action.requestScope),
-      )
+      await deleteManagedCredential(current.id, action.requestScope)
       if (!isCurrentAction(action.runId, action.scope)) return
       invalidate(action.scope)
     } catch (error) {
@@ -230,11 +220,7 @@ export function ModelConnectionList({
     }
     setMutationPending(true)
     try {
-      await managedPost(
-        apiResourcePath('credentials', current.id, target.action),
-        {},
-        managedRequestOptions(action.requestScope),
-      )
+      await changeManagedCredentialLifecycle(current.id, target.action, action.requestScope)
       if (!isCurrentAction(action.runId, action.scope)) return
       invalidate(action.scope)
     } catch (error) {
@@ -358,7 +344,9 @@ export function ModelConnectionList({
         error={list.error}
         resource="credential"
         onRetry={() =>
-          queryClient.invalidateQueries({ queryKey: ['credentials', managedScope.key] })
+          queryClient.invalidateQueries({
+            queryKey: managedCredentialsQueryPrefix(managedScope.key),
+          })
         }
       />
     )

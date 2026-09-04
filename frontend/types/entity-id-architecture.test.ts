@@ -18,7 +18,10 @@ const REGISTERED_ENTITY_PREFIX_LENGTHS = new Set(
 )
 const DISPLAY_ID_HELPERS = ['entityIdUuid', 'eventIdTimestamp', 'shortEntityId'] as const
 const DISPLAY_ID_HELPER_ALLOWLIST = {
-  'app/managed/quickstart/page.tsx': { 'QuickstartPage::shortEntityId': 6 },
+  'app/managed/quickstart/components/quickstart-prove-phase.tsx': {
+    'QuickstartProvePhase::shortEntityId': 5,
+  },
+  'app/managed/quickstart/page.tsx': { 'QuickstartPage::shortEntityId': 1 },
   'app/managed/sessions/[sessionId]/page.tsx': { 'SessionDetailPageInner::shortEntityId': 2 },
   'components/managed/session/event-detail.tsx': {
     'EventDetail::shortEntityId': 1,
@@ -34,7 +37,9 @@ const DISPLAY_ID_HELPER_ALLOWLIST = {
 const PREFIX_REMOVAL_ALLOWLIST = {
   'lib/managed/entity-id-display.ts': { 'entityIdUuid::prefix_length_slice': 1 },
 } as const
-const NON_ENTITY_CORE_PREFIX_LITERAL_ALLOWLIST = {} as const
+const NON_ENTITY_CORE_PREFIX_LITERAL_ALLOWLIST = {
+  'hooks/managed/use-quickstart-controller.test.tsx': ['agent_blueprint'],
+} as const
 
 const MANUAL_ENTITY_ID_REMOVAL_PATTERNS = [
   new RegExp(`\\.replace\\(\\s*\\/\\^(?:${ENTITY_PREFIX_ALTERNATION})`, 'g'),
@@ -674,11 +679,15 @@ function numeric(sessionId) {
     const agentParsers = readProjectFile('lib/managed/agent-response-parsers.ts')
     const sessionParsers = readProjectFile('lib/managed/session-response-parsers.ts')
     const agentList = readProjectFile('app/managed/agents/page.tsx')
+    const agentClient = readProjectFile('lib/managed/agent-client.ts')
     const agentDetail = readProjectFile('app/managed/agents/[agentId]/page.tsx')
     const agentEdit = readProjectFile('app/managed/agents/[agentId]/edit/page.tsx')
     const agentCreate = readProjectFile('app/managed/agents/components/create-agent-dialog.tsx')
+    const environmentClient = readProjectFile('lib/managed/environment-client.ts')
     const sessionList = readProjectFile('app/managed/sessions/page.tsx')
+    const sessionListHook = readProjectFile('hooks/managed/use-managed-session-list.ts')
     const sessionDetail = readProjectFile('app/managed/sessions/[sessionId]/page.tsx')
+    const sessionClient = readProjectFile('lib/managed/session-client.ts')
 
     expect(agentParsers).toContain('id: parseAgentId(raw.id)')
     expect(agentParsers).toContain('skill_id: parseSkillId(skill.skill_id)')
@@ -686,12 +695,17 @@ function numeric(sessionId) {
     expect(sessionParsers).toContain(
       'credential_group_ids: raw.credential_group_ids?.map(parseCredentialGroupId)',
     )
-    expect(agentList).toContain('parseItem: parseAgentResponse')
-    expect(agentDetail).toContain('.then(parseAgentResponse)')
-    expect(agentEdit).toContain('parseEnvironmentListResponse(res.data || [])')
-    expect(agentCreate).toContain('parseEnvironmentListResponse(res.data || [])')
-    expect(sessionList).toContain('parseItem: parseSessionResponse')
-    expect(sessionDetail).toContain('.then(parseSessionResponse)')
+    expect(agentList).toContain('useManagedAgentList(showArchived)')
+    expect(agentClient).toContain('parseItem: parseAgentResponse')
+    expect(agentClient).toContain('return parseAgentResponse(response)')
+    expect(agentDetail).toContain('fetchManagedAgent(agentId, managedScope)')
+    expect(environmentClient).toContain('parseItem: parseEnvironmentResponse')
+    expect(agentEdit).toContain('useManagedEnvironmentOptions()')
+    expect(agentCreate).toContain('useManagedEnvironmentOptions({ enabled: open })')
+    expect(sessionList).toContain('useManagedSessionList(showArchived)')
+    expect(sessionListHook).toContain('fetchPage: fetchManagedSessions')
+    expect(sessionClient).toContain('return parseSessionResponse(response)')
+    expect(sessionDetail).toContain('fetchManagedSession(id, managedScope)')
   })
 
   it('runtime-validates analytics response ids before branding them', () => {
@@ -723,9 +737,11 @@ function numeric(sessionId) {
   it('keeps environment routes and response data typed end-to-end', () => {
     const listPage = readProjectFile('app/managed/environments/page.tsx')
     const parsers = readProjectFile('lib/managed/environment-response-parsers.ts')
+    const client = readProjectFile('lib/managed/environment-client.ts')
     const storageParsers = readProjectFile('lib/managed/storage-mount-response-parsers.ts')
 
-    expect(listPage).toContain('parseItem: parseEnvironmentResponse')
+    expect(listPage).toContain('useManagedEnvironmentList(showArchived)')
+    expect(client).toContain('parseItem: parseEnvironmentResponse')
     expect(parsers).toContain('id: parseEnvironmentId(raw.id)')
     expect(parsers).toContain('parseStorageVolumeId(volume.volume_id)')
     expect(readProjectFile('lib/managed/api-paths.ts')).toContain('parseAnyEntityId')
@@ -749,17 +765,19 @@ function numeric(sessionId) {
 
   it('builds collection sentinels as explicit static paths', () => {
     const sessionPage = readProjectFile('app/managed/sessions/[sessionId]/page.tsx')
-    const skillsPage = readProjectFile('app/managed/skills/page.tsx')
+    const skillClient = readProjectFile('lib/managed/skill-client.ts')
 
     expect(sessionPage).toContain('`/network-policies/sessions/${encodeURIComponent(id)}`')
     expect(sessionPage).not.toContain("apiResourceSubpath('network-policies', 'sessions'")
-    expect(skillsPage).toContain("apiCollectionPath('skills/usage/search'")
-    expect(skillsPage).not.toContain("apiResourceSubpath('skills', 'usage'")
+    expect(skillClient).toContain("'skills/usage/search',")
+    expect(skillClient).toContain('apiCollectionPath(path, {')
+    expect(skillClient).not.toContain("apiResourceSubpath('skills', 'usage'")
   })
 
   it('parses storage identities at every frontend ingress', () => {
     const types = readProjectFile('types/managed.ts')
     const parsers = readProjectFile('lib/managed/storage-mount-response-parsers.ts')
+    const client = readProjectFile('lib/managed/storage-volume-client.ts')
     const sessionParsers = readProjectFile('lib/managed/session-response-parsers.ts')
     const page = readProjectFile('components/managed/storage-volumes/storage-volumes-page.tsx')
 
@@ -776,55 +794,46 @@ function numeric(sessionId) {
     expect(parsers).toContain('project_id: parseOptionalId<ProjectId>')
     expect(parsers).toContain('id: parseSessionResourceId(raw.id)')
     expect(sessionParsers).toContain('storage_mounts: raw.storage_mounts?.map')
-    expect(page).toContain('managedGet<unknown>')
-    expect(page).toContain('.then(parseStorageVolumeListResponse)')
-    expect(page).toContain('.then(parseStorageVolumeResponse)')
-    expect(page).toContain('.then(parseStorageProjectGrantResponse)')
-    expect(page).toContain('.then(parseStorageOrganizationGrantResponse)')
+    expect(client).toContain('response.data.map(parseStorageVolumeResponse)')
+    expect(client).toContain('parseItem: parseStorageMountAuditResponse')
+    expect(client).toContain('.then(parseStorageVolumeResponse)')
+    expect(client).toContain('.then(parseStorageProjectGrantResponse)')
+    expect(client).toContain('.then(parseStorageOrganizationGrantResponse)')
     expect(page).toContain('orgId: OrganizationId | null')
     expect(page).toContain('projectId: ProjectId | null')
-    expect(page).toContain('.then(parseProjectSummaryPageResponse)')
-    expect(page).toContain('parsePlatformOrganizationPageResponse')
+    expect(page).toContain('useManagedProjectOptions()')
+    expect(page).toContain('useManagedPlatformOrganizations(')
     expect(page).toContain('parseProjectId(value)')
     expect(page).toContain('parseOrganizationId(value)')
     expect(page).not.toMatch(/projectId\s*\|\|\s*['"]['"]|orgId\s*:\s*['"]['"]/)
-    expect(page).toContain('apiResourceId(selectedVolume.id)')
-    expect(page).toContain('parseCursor: parseStorageMountAuditId')
+    expect(client).toContain("apiResourcePath('storage-volumes', volumeId")
+    expect(readProjectFile('hooks/managed/use-managed-storage-mount-audit-list.ts')).toContain(
+      'parseCursor: parseStorageMountAuditId',
+    )
     expect(readProjectFile('hooks/managed/use-paginated-list.ts')).not.toContain('apiResourceId')
   })
 
   it('validates typed entity list cursors with their concrete parsers', () => {
     const typedLists = [
-      ['app/managed/agents/page.tsx', 'parseCursor: parseAgentId'],
-      ['app/managed/sessions/page.tsx', 'parseCursor: parseSessionId'],
-      ['app/managed/environments/page.tsx', 'parseCursor: parseEnvironmentId'],
-      ['app/managed/environments/page.tsx', 'parseCursor: parseCredentialId'],
-      ['app/managed/environments/[envId]/page.tsx', 'parseCursor: parseCredentialId'],
-      [
-        'components/managed/credentials/model-connection-list.tsx',
-        'parseCursor: parseCredentialId',
-      ],
-      ['app/managed/memory-stores/page.tsx', 'parseCursor: parseMemoryStoreId'],
-      ['app/managed/skills/page.tsx', 'parseCursor: parseSkillId'],
-      ['app/managed/files/page.tsx', 'parseCursor: parseFileId'],
+      ['hooks/managed/use-managed-agent-list.ts', 'parseCursor: parseAgentId'],
+      ['hooks/managed/use-managed-session-list.ts', 'parseCursor: parseSessionId'],
+      ['hooks/managed/use-managed-environment-list.ts', 'parseCursor: parseEnvironmentId'],
+      ['hooks/managed/use-managed-credential-list.ts', 'parseCursor: parseCredentialId'],
+      ['hooks/managed/use-managed-memory-store-list.ts', 'parseCursor: parseMemoryStoreId'],
+      ['hooks/managed/use-managed-skill-list.ts', 'parseCursor: parseSkillId'],
+      ['hooks/managed/use-managed-file-list.ts', 'parseCursor: parseFileId'],
       ['app/managed/api-keys/page.tsx', 'parseCursor: parseApiKeyId'],
-      ['app/managed/projects/page.tsx', 'parseCursor: parseProjectId'],
-      ['app/managed/settings/page.tsx', 'parseCursor: parseOrganizationId'],
-      [
-        'app/managed/settings/organizations/[organizationId]/members/page.tsx',
-        'parseCursor: parseOrganizationMemberId',
-      ],
+      ['hooks/managed/use-managed-project-list.ts', 'parseCursor: parseProjectId'],
+      ['hooks/managed/use-managed-organization-list.ts', 'parseCursor: parseOrganizationId'],
+      ['lib/managed/organization-client.ts', 'parseCursor: parseOrganizationMemberId'],
       [
         'components/managed/projects/project-access-page.tsx',
         'parseCursor: parseOrganizationMemberId',
       ],
-      [
-        'components/managed/credentials/mcp-credential-group-list.tsx',
-        'parseCursor: parseCredentialGroupId',
-      ],
+      ['hooks/managed/use-managed-credential-group-list.ts', 'parseCursor: parseCredentialGroupId'],
       ['lib/managed/triggers.ts', 'parseCursor: parseTaskId'],
       [
-        'components/managed/storage-volumes/storage-volumes-page.tsx',
+        'hooks/managed/use-managed-storage-mount-audit-list.ts',
         'parseCursor: parseStorageMountAuditId',
       ],
       ['app/managed/platform/users/page.tsx', 'parseCursor: parseUserId'],
@@ -845,13 +854,16 @@ function numeric(sessionId) {
 
   it('keeps credential routes and response data typed end-to-end', () => {
     const listPage = readProjectFile('components/managed/credentials/model-connection-list.tsx')
+    const client = readProjectFile('lib/managed/credential-client.ts')
     const detailPage = readProjectFile('app/managed/credentials/[credentialId]/page.tsx')
     const detailComponent = readProjectFile('components/managed/credentials/credential-detail.tsx')
     const parsers = readProjectFile('lib/managed/credential-response-parsers.ts')
 
-    expect(listPage).toContain('parseItem: parseCredentialResponse')
+    expect(listPage).toContain('useManagedCredentialList({')
+    expect(client).toContain('parseItem: parseCredentialResponse')
     expect(detailPage).toContain('parseCredentialId(credentialId)')
-    expect(detailComponent).toContain('parseCredentialDetailResponse(res)')
+    expect(detailComponent).toContain('fetchManagedCredential(credentialId, managedScope)')
+    expect(client).toContain('return parseCredentialDetailResponse(response)')
     expect(parsers).toContain('id: parseCredentialId(raw.id)')
     expect(readProjectFile('lib/managed/api-paths.ts')).toContain('parseAnyEntityId')
   })
@@ -863,11 +875,14 @@ function numeric(sessionId) {
       'components/managed/credentials/mcp-credential-group-detail.tsx',
     )
     const parsers = readProjectFile('lib/managed/credential-group-response-parsers.ts')
+    const client = readProjectFile('lib/managed/credential-group-client.ts')
     const managedTypes = readProjectFile('types/managed.ts')
 
-    expect(listPage).toContain('parseItem: parseCredentialGroupResponse')
+    expect(listPage).toContain('useManagedCredentialGroupList({')
+    expect(client).toContain('parseItem: parseCredentialGroupResponse')
+    expect(client).toContain('parseCredentialGroupCredentialListResponse(data)')
     expect(detailPage).toContain('parseCredentialGroupId(credentialGroupId)')
-    expect(detailComponent).toContain('parseCredentialGroupCredentialListResponse(response.data)')
+    expect(detailComponent).toContain('fetchManagedCredentialGroupMembers(')
     expect(parsers).toContain('parseCredentialResponse(response)')
     expect(parsers).toContain("credential.kind !== 'mcp'")
     expect(parsers).not.toContain('RawCredentialGroupCredential')
@@ -895,10 +910,13 @@ function numeric(sessionId) {
     const listPage = readProjectFile('app/managed/memory-stores/page.tsx')
     const detailPage = readProjectFile('app/managed/memory-stores/[storeId]/page.tsx')
     const parsers = readProjectFile('lib/managed/memory-response-parsers.ts')
+    const client = readProjectFile('lib/managed/memory-store-client.ts')
 
-    expect(listPage).toContain('parseItem: parseMemoryStoreResponse')
+    expect(listPage).toContain('useManagedMemoryStoreList(showArchived)')
+    expect(client).toContain('parseItem: parseMemoryStoreResponse')
     expect(detailPage).toContain('parseMemoryStoreId(rawId ||')
-    expect(detailPage).toContain('.then(parseMemoryListResponse)')
+    expect(detailPage).toContain('useManagedMemoryDirectory(storeId)')
+    expect(client).toContain('parseItem: parseMemoryResponse')
     expect(parsers).toContain('id: parseMemoryId(raw.id)')
     expect(parsers).toContain('memory_store_id: parseMemoryStoreId(raw.memory_store_id)')
   })
@@ -909,14 +927,19 @@ function numeric(sessionId) {
     const authoring = readProjectFile('hooks/managed/use-skill-authoring.ts')
     const lifecycle = readProjectFile('components/managed/skills/skill-lifecycle-actions.tsx')
     const parsers = readProjectFile('lib/managed/skill-response-parsers.ts')
+    const client = readProjectFile('lib/managed/skill-client.ts')
 
-    expect(page).toContain('parseItem: parseSkillResponse')
-    expect(page).toContain('parseSkillVersionFileListResponse(res)')
-    expect(page).toContain('parseSkillUsageListResponse(res)')
+    expect(page).toContain('useManagedSkillList()')
+    expect(client).toContain('parseItem: parseSkillResponse')
+    expect(client).toContain('parseSkillVersionFileResponse')
+    expect(client).toContain('parseItem: parseSkillUsageResponse')
     expect(detailPage).toContain('parseSkillId(rawSkillId)')
-    expect(authoring).toContain('parseSkillAuthoringSaveResponse(')
-    expect(authoring).toContain('parseSkillSecurityScanResponse(')
-    expect(lifecycle).toContain('parseSkillLifecycleTransitionResponse(')
+    expect(client).toContain('parseSkillAuthoringSaveResponse')
+    expect(client).toContain('parseSkillSecurityScanResponse')
+    expect(client).toContain('parseSkillLifecycleTransitionResponse')
+    expect(authoring).toContain('saveManagedSkillAuthoringDraft(')
+    expect(authoring).toContain('fetchManagedLatestSkillSecurityScan(')
+    expect(lifecycle).toContain('transitionManagedSkillLifecycle(')
     expect(authoring).not.toMatch(/draftSkillId:\s*string/)
     expect(parsers).toContain('id: parseSkillFileId(raw.id)')
     expect(parsers).toContain('id: parseSkillVersionFileId(raw.id)')
@@ -926,18 +949,22 @@ function numeric(sessionId) {
   it('keeps file and session-resource identities typed at API boundaries', () => {
     const filesPage = readProjectFile('app/managed/files/page.tsx')
     const sessionPage = readProjectFile('app/managed/sessions/[sessionId]/page.tsx')
+    const sessionResourceClient = readProjectFile('lib/managed/session-resource-client.ts')
     const createDialog = readProjectFile(
       'app/managed/sessions/components/create-session-dialog.tsx',
     )
     const parsers = readProjectFile('lib/managed/file-response-parsers.ts')
+    const fileClient = readProjectFile('lib/managed/file-client.ts')
     const apiPaths = readProjectFile('lib/managed/api-paths.ts')
 
     expect(readProjectFile('types/managed.ts')).toContain('id: FileId')
     expect(readProjectFile('types/managed.ts')).toContain('id: SessionResourceId')
-    expect(filesPage).toContain('parseItem: parseFileResponse')
+    expect(filesPage).toContain('useManagedFileList()')
+    expect(fileClient).toContain('parseItem: parseFileResponse')
     expect(filesPage).toContain("apiResourcePath('files', file.id)")
-    expect(createDialog).toContain('parseFileListResponse(response.data)')
-    expect(sessionPage).toContain('parseSessionResourceListResponse(response.data)')
+    expect(createDialog).toContain('useManagedFileOptions')
+    expect(sessionPage).toContain('fetchManagedSessionResources(')
+    expect(sessionResourceClient).toContain('parseSessionResourceListResponse(response.data)')
     expect(parsers).toContain('id: parseFileId(raw.id)')
     expect(parsers).toContain('id: parseSessionResourceId(raw.id)')
     expect(apiPaths).toContain('parseAnyEntityId')
@@ -945,12 +972,14 @@ function numeric(sessionId) {
 
   it('keeps persisted event identities typed across REST and SSE boundaries', () => {
     const page = readProjectFile('app/managed/sessions/[sessionId]/page.tsx')
+    const sessionClient = readProjectFile('lib/managed/session-client.ts')
     const sse = readProjectFile('lib/managed/sse.ts')
     const parsers = readProjectFile('lib/managed/event-response-parsers.ts')
     const eventHelpers = readProjectFile('lib/managed/session-events.ts')
 
     expect(readProjectFile('types/managed.ts')).toContain('id?: EventId')
-    expect(page).toContain('parseSessionEventListResponse(')
+    expect(page).toContain('fetchManagedSessionEvents(')
+    expect(sessionClient).toContain('parseSessionEventListResponse(response.data)')
     expect(sse).toContain('parseSessionEventResponse(parsed)')
     expect(parsers).toContain('id: raw.id ? parseEventId(raw.id) : undefined')
     expect(eventHelpers).not.toContain('replace(/^evt_/')
@@ -989,14 +1018,17 @@ function numeric(sessionId) {
       'parseProjectAccessRecordResponse',
     )
     expect(readProjectFile('components/managed/projects/project-lifecycle-page.tsx')).toContain(
-      'parseProjectSummaryResponse',
+      'fetchManagedProject(',
     )
     expect(readProjectFile('components/managed/projects/project-settings-shell.tsx')).toContain(
-      'parseProjectSummaryResponse',
+      'fetchManagedProject(',
     )
-    expect(
-      readProjectFile('app/managed/settings/organizations/[organizationId]/members/page.tsx'),
-    ).toContain('parseOrganizationMemberResponse')
+    expect(readProjectFile('lib/managed/project-client.ts')).toContain(
+      'return parseProjectSummaryResponse(response)',
+    )
+    expect(readProjectFile('lib/managed/organization-client.ts')).toContain(
+      'parseItem: parseOrganizationMemberResponse',
+    )
     expect(readProjectFile('app/managed/platform/users/page.tsx')).toContain(
       'parseItem: parsePlatformUserResponse',
     )

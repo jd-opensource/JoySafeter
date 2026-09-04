@@ -16,10 +16,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 
-import { managedPost } from '@/lib/api-client'
-import { apiResourcePath } from '@/lib/managed/api-paths'
-import { parseSkillLifecycleTransitionResponse } from '@/lib/managed/skill-response-parsers'
-import { managedRequestOptions, type ManagedRequestScope } from '@/lib/managed/request-scope'
+import {
+  transitionManagedSkillLifecycle,
+  type ManagedSkillLifecycleTransition,
+} from '@/lib/managed/skill-client'
+import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { useTranslation } from '@/lib/i18n'
 import { toastError, toastSuccess } from '@/lib/utils/toast'
 import { Button } from '@/components/ui/button'
@@ -36,7 +37,7 @@ import {
 // pre-filters to avoid that round trip.
 const TRANSITIONS: Array<{
   from: SkillLifecycleStatus
-  endpoint: string
+  endpoint: ManagedSkillLifecycleTransition
   labelKey: string
   // ``rejected`` ↔ ``draft`` re-edit is the destructive-feeling edge;
   // colour it neutral. ``approve`` / ``reject`` carry their own weight.
@@ -86,7 +87,7 @@ interface SkillLifecycleActionsProps {
   requestScope: ManagedRequestScope
   operationScope: string
   canSubmitTransition?: (
-    endpoint: string,
+    endpoint: ManagedSkillLifecycleTransition,
     currentStatus: SkillLifecycleStatus | string | undefined,
   ) => boolean
   // Optional invalidation keys — list views can pass their list key
@@ -126,7 +127,7 @@ export function SkillLifecycleActions({
     [],
   )
 
-  const nextMutation = (endpoint: string) => {
+  const nextMutation = (endpoint: ManagedSkillLifecycleTransition) => {
     if (!currentProjectAllowsWrite()) return null
     const runId = mutationRunRef.current + 1
     mutationRunRef.current = runId
@@ -153,7 +154,7 @@ export function SkillLifecycleActions({
       scope,
     }: {
       skillId: SkillId
-      endpoint: string
+      endpoint: ManagedSkillLifecycleTransition
       invalidateKeys: Array<readonly unknown[]>
       requestScope: ManagedRequestScope
       runId: number
@@ -164,14 +165,7 @@ export function SkillLifecycleActions({
       }
       setBusyEndpoint(endpoint)
       try {
-        const result = parseSkillLifecycleTransitionResponse(
-          await managedPost<unknown>(
-            apiResourcePath('skills', skillId, endpoint),
-            {},
-            managedRequestOptions(requestScope),
-          ),
-        )
-        return result
+        return await transitionManagedSkillLifecycle(skillId, endpoint, requestScope)
       } finally {
         if (isCurrentMutation(runId, scope)) {
           setBusyEndpoint(null)

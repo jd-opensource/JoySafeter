@@ -534,21 +534,6 @@ export interface SessionStorageMount {
 
 export type SessionResource = SessionFileResource | SessionRepoResource
 
-export interface AddFileResourceRequest {
-  type: 'file'
-  file_id: FileId
-  mount_path?: string
-}
-
-export interface AddRepoResourceRequest {
-  type: 'github_repository'
-  url: string
-  branch?: string
-  mount_path?: string
-  authorization_token?: string
-  token_expires_at?: string
-}
-
 export interface SkillSecurityScanSummary {
   status: 'passed' | 'warning' | 'blocked' | 'failed' | 'not_scanned' | string
   score: number | null

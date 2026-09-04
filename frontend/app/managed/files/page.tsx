@@ -3,13 +3,13 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '@/lib/i18n'
 import { Upload, Trash2 } from 'lucide-react'
-import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
+import { useManagedFileList } from '@/hooks/managed/use-managed-file-list'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { FileRecord } from '@/types/managed'
-import { parseFileId } from '@/types/entity-id'
 import { managedUpload, managedDelete } from '@/lib/api-client'
 import { toastOperationError } from '@/lib/managed/errors'
 import { parseFileResponse } from '@/lib/managed/file-response-parsers'
+import { managedFileListQueryPrefix } from '@/lib/managed/file-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import {
   managedRequestOptions,
@@ -69,12 +69,7 @@ export default function FileListPage() {
     goPrev,
     goToPage,
     setPageSize,
-  } = usePaginatedList<FileRecord>({
-    queryKey: 'files',
-    path: '/files',
-    parseItem: parseFileResponse,
-    parseCursor: parseFileId,
-  })
+  } = useManagedFileList()
 
   const files = data.filter(
     (f) =>
@@ -218,7 +213,9 @@ export default function FileListPage() {
     const requestScope = managedRequestScopeRef.current
     if (!currentManagedScopeIsActive(actionScope)) return
     const fileStillCurrent = queryClient
-      .getQueriesData<{ data?: FileRecord[] }>({ queryKey: ['files', actionScope, '/files'] })
+      .getQueriesData<{ data?: FileRecord[] }>({
+        queryKey: managedFileListQueryPrefix(actionScope),
+      })
       .some(([, page]) => page?.data?.some((currentFile) => currentFile.id === file.id))
     if (!fileStillCurrent) return
 

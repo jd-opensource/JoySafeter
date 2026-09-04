@@ -85,17 +85,6 @@ export function parseStorageVolumeResponse(response: unknown): StorageVolume {
   }
 }
 
-export function parseStorageVolumeListResponse(
-  response: unknown,
-): StorageVolume[] | { data?: StorageVolume[] | null } {
-  if (Array.isArray(response)) return response.map(parseStorageVolumeResponse)
-  const raw = response as { data?: unknown[] | null }
-  return {
-    ...raw,
-    data: raw.data?.map(parseStorageVolumeResponse),
-  }
-}
-
 export function parseSessionStorageMountResponse(response: unknown): SessionStorageMount {
   const raw = response as RawSessionStorageMount
   return {

@@ -4,19 +4,15 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useTranslation } from '@/lib/i18n'
 import { Plus } from 'lucide-react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
-import { parseEnvironmentId, parseCredentialId } from '@/types/entity-id'
-import type {
-  StorageVolumeCatalogItem,
-  Environment,
-  EnvironmentMountResource,
-  Credential,
-} from '@/types/managed'
-import { managedGet, managedPost } from '@/lib/api-client'
+import { useQueryClient } from '@tanstack/react-query'
+import { useManagedEnvironmentList } from '@/hooks/managed/use-managed-environment-list'
+import { useManagedStorageMountCatalog } from '@/hooks/managed/use-managed-storage-mount-catalog'
+import { useServiceCredentials } from '@/hooks/managed/use-service-credentials'
+import type { Environment, EnvironmentMountResource } from '@/types/managed'
+import { managedPost } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { parseEnvironmentResponse } from '@/lib/managed/environment-response-parsers'
-import { parseCredentialResponse } from '@/lib/managed/credential-response-parsers'
+import { managedEnvironmentListQueryPrefix } from '@/lib/managed/environment-client'
 import { toastOperationError } from '@/lib/managed/errors'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
 import { Button } from '@/components/ui/button'
@@ -151,28 +147,9 @@ export default function EnvironmentListPage() {
     goPrev,
     goToPage,
     setPageSize,
-  } = usePaginatedList<Environment>({
-    queryKey: 'environments',
-    path: '/environments',
-    includeArchived: showArchived,
-    parseItem: parseEnvironmentResponse,
-    parseCursor: parseEnvironmentId,
-  })
-  const { data: secrets } = usePaginatedList<Credential>({
-    queryKey: 'service-credentials',
-    path: '/credentials?kind=service',
-    includeArchived: false,
-    limit: 50,
-    parseItem: parseCredentialResponse,
-    parseCursor: parseCredentialId,
-  })
-  const { data: storageCatalog } = useQuery({
-    queryKey: ['storage-mount-catalog', managedScope],
-    queryFn: () => managedGet<{ data: StorageVolumeCatalogItem[] }>('/storage-volumes/catalog'),
-    enabled: scopeIsActive(),
-    staleTime: 60_000,
-  })
-  const storageVolumes = storageCatalog?.data || []
+  } = useManagedEnvironmentList(showArchived)
+  const { data: secrets } = useServiceCredentials()
+  const { data: storageVolumes = [] } = useManagedStorageMountCatalog()
 
   const environments = data.filter(
     (e) =>
@@ -286,7 +263,7 @@ export default function EnvironmentListPage() {
     currentProjectAllowsWrite() &&
     queryClient
       .getQueriesData<{ data?: Environment[] }>({
-        queryKey: ['environments', scope, '/environments'],
+        queryKey: managedEnvironmentListQueryPrefix(scope),
       })
       .some(([, page]) =>
         page?.data?.some(

@@ -14,23 +14,28 @@ import {
 } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { managedGet, managedPatch } from '@/lib/api-client'
+import { managedPatch } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
-import { parseProjectInfo, type ProjectInfoPayload } from '@/lib/managed/tenant-response-parsers'
+import {
+  fetchManagedProject,
+  managedProjectQueryKey,
+  MANAGED_PROJECTS_QUERY_ROOT,
+} from '@/lib/managed/project-client'
+import { useManagedRequestScope } from '@/lib/managed/request-scope'
 import { useUserPermissionsContext } from '@/providers/permissions-provider'
 import { useProjectStore } from '@/stores/managed/project-store'
-import type { ProjectInfo } from '@/stores/managed/project-store'
-import type { ProjectId } from '@/types/entity-id'
+import type { ProjectSummary } from '@/lib/managed/tenant-response-parsers'
+import type { OrganizationId, ProjectId } from '@/types/entity-id'
 
-type ProjectDetails = ProjectInfo
+type ProjectDetails = ProjectSummary
 
 export function ProjectOverviewPage({ projectId }: { projectId: ProjectId }) {
   const { t } = useTranslation()
+  const requestScope = useManagedRequestScope()
   const projectQuery = useQuery({
-    queryKey: ['project', projectId],
-    queryFn: async () =>
-      parseProjectInfo(await managedGet<ProjectInfoPayload>(`auth/projects/${projectId}`)),
+    queryKey: managedProjectQueryKey(requestScope.orgId, projectId),
+    queryFn: () => fetchManagedProject(projectId, requestScope),
   })
 
   if (projectQuery.isLoading) {
@@ -46,11 +51,18 @@ export function ProjectOverviewPage({ projectId }: { projectId: ProjectId }) {
     <ProjectOverviewForm
       key={`${project.id}:${project.name}:${project.slug}:${project.archived_at || ''}`}
       project={project}
+      organizationId={requestScope.orgId}
     />
   )
 }
 
-function ProjectOverviewForm({ project }: { project: ProjectDetails }) {
+function ProjectOverviewForm({
+  project,
+  organizationId,
+}: {
+  project: ProjectDetails
+  organizationId: OrganizationId | null
+}) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const { canAdmin } = useUserPermissionsContext()
@@ -72,8 +84,8 @@ function ProjectOverviewForm({ project }: { project: ProjectDetails }) {
       return managedPatch<ProjectDetails>(`/auth/projects/${project.id}`, payload)
     },
     onSuccess: (updatedProject) => {
-      queryClient.setQueryData(['project', project.id], updatedProject)
-      queryClient.invalidateQueries({ queryKey: ['projects-list'] })
+      queryClient.setQueryData(managedProjectQueryKey(organizationId, project.id), updatedProject)
+      queryClient.invalidateQueries({ queryKey: [MANAGED_PROJECTS_QUERY_ROOT] })
       queryClient.invalidateQueries({ queryKey: ['auth-me'] })
       useProjectStore.setState((state) => ({
         currentProject:

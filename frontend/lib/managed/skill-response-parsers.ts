@@ -14,6 +14,7 @@ import {
   parseUserId,
   type AgentId,
   type SessionId,
+  type SkillFileId,
   type SkillId,
   type SkillSecurityScanId,
   type SkillVersionId,
@@ -42,6 +43,20 @@ export type SkillLifecycleTransitionResponse = {
   skill_id: SkillId
   from_status: string
   to_status: string
+}
+
+export type SkillDeleteResponse = {
+  id: SkillId
+  type: 'skill_deleted'
+}
+
+export type SkillFileDeleteResponse = {
+  id: SkillFileId
+  type: 'skill_file_deleted'
+}
+
+export type SkillVersionDeleteResponse = {
+  type: 'skill_version_deleted'
 }
 
 type RawSkillSecurityScanSummary = Omit<SkillSecurityScanSummary, 'scan_id'> & {
@@ -114,6 +129,9 @@ type RawSkillLifecycleTransitionResponse = Omit<SkillLifecycleTransitionResponse
   skill_id: string
 }
 
+type RawSkillDeleteResponse = Omit<SkillDeleteResponse, 'id'> & { id: string }
+type RawSkillFileDeleteResponse = Omit<SkillFileDeleteResponse, 'id'> & { id: string }
+
 function parseSecuritySummary(summary: RawSkillSecurityScanSummary): SkillSecurityScanSummary {
   return {
     ...summary,
@@ -166,10 +184,6 @@ export function parseSkillFileResponse(response: unknown): SkillFileRecord {
   }
 }
 
-export function parseSkillFileListResponse(response: unknown): SkillFileRecord[] {
-  return parseCollection(response, parseSkillFileResponse)
-}
-
 export function parseSkillVersionResponse(response: unknown): SkillVersionRecord {
   const raw = response as RawSkillVersionRecord
   return {
@@ -177,10 +191,6 @@ export function parseSkillVersionResponse(response: unknown): SkillVersionRecord
     id: parseSkillVersionId(raw.id),
     skill_id: parseSkillId(raw.skill_id),
   }
-}
-
-export function parseSkillVersionListResponse(response: unknown): SkillVersionRecord[] {
-  return parseCollection(response, parseSkillVersionResponse)
 }
 
 export function parseSkillVersionFileResponse(response: unknown): SkillVersionFileRecord {
@@ -193,10 +203,6 @@ export function parseSkillVersionFileResponse(response: unknown): SkillVersionFi
   }
 }
 
-export function parseSkillVersionFileListResponse(response: unknown): SkillVersionFileRecord[] {
-  return parseCollection(response, parseSkillVersionFileResponse)
-}
-
 export function parseSkillSecurityScanResponse(response: unknown): SkillSecurityScanRecord {
   const raw = response as RawSkillSecurityScanRecord
   return {
@@ -205,10 +211,6 @@ export function parseSkillSecurityScanResponse(response: unknown): SkillSecurity
     skill_id: parseOptionalId<SkillId>(raw.skill_id, parseSkillId) ?? null,
     owner_id: parseOptionalId(raw.owner_id, parseUserId) ?? null,
   }
-}
-
-export function parseSkillSecurityScanListResponse(response: unknown): SkillSecurityScanRecord[] {
-  return parseCollection(response, parseSkillSecurityScanResponse)
 }
 
 export function parseSkillUsageResponse(response: unknown): SessionSkillUsage {
@@ -244,4 +246,24 @@ export function parseSkillLifecycleTransitionResponse(
 ): SkillLifecycleTransitionResponse {
   const raw = response as RawSkillLifecycleTransitionResponse
   return { ...raw, skill_id: parseSkillId(raw.skill_id) }
+}
+
+export function parseSkillDeleteResponse(response: unknown): SkillDeleteResponse {
+  const raw = response as RawSkillDeleteResponse
+  if (raw?.type !== 'skill_deleted') throw new TypeError('Invalid Skill delete response')
+  return { id: parseSkillId(raw.id), type: raw.type }
+}
+
+export function parseSkillFileDeleteResponse(response: unknown): SkillFileDeleteResponse {
+  const raw = response as RawSkillFileDeleteResponse
+  if (raw?.type !== 'skill_file_deleted') throw new TypeError('Invalid Skill file delete response')
+  return { id: parseSkillFileId(raw.id), type: raw.type }
+}
+
+export function parseSkillVersionDeleteResponse(response: unknown): SkillVersionDeleteResponse {
+  const raw = response as SkillVersionDeleteResponse
+  if (raw?.type !== 'skill_version_deleted') {
+    throw new TypeError('Invalid Skill version delete response')
+  }
+  return { type: raw.type }
 }

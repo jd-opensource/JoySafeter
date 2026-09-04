@@ -349,7 +349,7 @@ describe('MembersPage', () => {
       scope: ORG_A,
     })
 
-    expect(managedPost).toHaveBeenCalledWith(`organizations/${ORG_A}/members`, {
+    expect(managedPost).toHaveBeenCalledWith(`/organizations/${ORG_A}/members`, {
       email: 'new@example.com',
       role: 'member',
     })
@@ -357,7 +357,7 @@ describe('MembersPage', () => {
 
   it('uses explicit organization paths for list, search, update, and removal', async () => {
     const { managedDelete, managedGet, managedPut } = await import('@/lib/api-client')
-    vi.mocked(managedGet).mockResolvedValue([])
+    vi.mocked(managedGet).mockResolvedValue({ data: [], has_more: false })
     vi.mocked(managedPut).mockResolvedValue(members[1])
     vi.mocked(managedDelete).mockResolvedValue(undefined)
     const { default: MembersPage } = await import('./page')
@@ -366,9 +366,14 @@ describe('MembersPage', () => {
     expect(paginatedListOptions).toHaveBeenCalledWith(
       expect.objectContaining({
         queryKey: 'organization-members',
-        path: `/organizations/${ORG_A}/members`,
+        sourceKey: 'managed-organization-member-list',
+        paginationScopeKey: ORG_A,
+        requiresManagedScope: false,
+        cacheVersion: '',
       }),
     )
+    await paginatedListOptions.mock.calls[0]?.[0].fetchPage({ limit: 10 })
+    expect(managedGet).toHaveBeenCalledWith(`/organizations/${ORG_A}/members?limit=10`)
 
     fireEvent.click(view.getByRole('button', { name: 'manage.members.add' }))
     fireEvent.change(view.getByPlaceholderText('user@example.com'), {
@@ -376,7 +381,7 @@ describe('MembersPage', () => {
     })
     await waitFor(() =>
       expect(managedGet).toHaveBeenCalledWith(
-        `organizations/${ORG_A}/member-candidates?q=new%40example.com&limit=5`,
+        `/organizations/${ORG_A}/member-candidates?q=new%40example.com&limit=5`,
       ),
     )
 
@@ -385,7 +390,7 @@ describe('MembersPage', () => {
       runId: 0,
       scope: ORG_A,
     })
-    expect(managedDelete).toHaveBeenCalledWith(`organizations/${ORG_A}/members/${USER_MEMBER}`)
+    expect(managedDelete).toHaveBeenCalledWith(`/organizations/${ORG_A}/members/${USER_MEMBER}`)
 
     await mutationOptions[2]?.mutationFn?.({
       userId: USER_MEMBER,
@@ -393,7 +398,7 @@ describe('MembersPage', () => {
       runId: 0,
       scope: ORG_A,
     })
-    expect(managedPut).toHaveBeenCalledWith(`organizations/${ORG_A}/members/${USER_MEMBER}`, {
+    expect(managedPut).toHaveBeenCalledWith(`/organizations/${ORG_A}/members/${USER_MEMBER}`, {
       role: 'admin',
     })
   })

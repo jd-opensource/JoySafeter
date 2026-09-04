@@ -7,15 +7,9 @@ import { useEffect } from 'react'
 
 import { ResourceErrorState } from '@/components/managed/shared'
 import { Button } from '@/components/ui/button'
-import { managedGet } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
-import { apiResourcePath } from '@/lib/managed/api-paths'
-import {
-  hasManagedRequestScope,
-  managedRequestOptions,
-  useManagedRequestScope,
-} from '@/lib/managed/request-scope'
-import { parseCredentialDetailResponse } from '@/lib/managed/credential-response-parsers'
+import { fetchManagedCredential, managedCredentialQueryKey } from '@/lib/managed/credential-client'
+import { hasManagedRequestScope, useManagedRequestScope } from '@/lib/managed/request-scope'
 import type { CredentialId } from '@/types/entity-id'
 
 import { ModelConnectionDetail } from './model-connection-detail'
@@ -27,14 +21,8 @@ export function CredentialDetail({ credentialId }: { credentialId: CredentialId 
   const managedScope = useManagedRequestScope()
 
   const query = useQuery({
-    queryKey: ['credential-detail', managedScope.key, credentialId],
-    queryFn: async () => {
-      const res = await managedGet<unknown>(
-        apiResourcePath('credentials', credentialId),
-        managedRequestOptions(managedScope),
-      )
-      return parseCredentialDetailResponse(res)
-    },
+    queryKey: managedCredentialQueryKey(managedScope.key, credentialId),
+    queryFn: () => fetchManagedCredential(credentialId, managedScope),
     enabled: hasManagedRequestScope(managedScope),
   })
 

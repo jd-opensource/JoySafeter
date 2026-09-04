@@ -24,22 +24,24 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
+import { useManagedOrganizationList } from '@/hooks/managed/use-managed-organization-list'
 import { managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { canAdmin, roleLabel } from '@/lib/managed/roles'
 import {
-  parseOrganizationInfo,
   parseSwitchContextResponse,
-  type OrganizationInfoPayload,
   type SwitchContextResponsePayload,
 } from '@/lib/managed/tenant-response-parsers'
+import {
+  createManagedOrganization,
+  MANAGED_ORGANIZATIONS_QUERY_ROOT,
+} from '@/lib/managed/organization-client'
 import { resetManagedScopeQueries } from '@/lib/query-client-lifecycle'
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { OrgInfo } from '@/stores/managed/project-store'
-import { parseOrganizationId, type OrganizationId } from '@/types/entity-id'
+import type { OrganizationId } from '@/types/entity-id'
 
 type OrganizationRecord = OrgInfo
 
@@ -85,12 +87,7 @@ export default function OrganizationPage() {
     goToPage,
     setPageSize,
     reset: resetOrganizationsPagination,
-  } = usePaginatedList<OrganizationRecord>({
-    queryKey: 'organizations-list',
-    path: `/organizations${organizationSearch.trim() ? `?q=${encodeURIComponent(organizationSearch.trim())}` : ''}`,
-    parseItem: (item) => parseOrganizationInfo(item as OrganizationInfoPayload),
-    parseCursor: parseOrganizationId,
-  })
+  } = useManagedOrganizationList(organizationSearch)
 
   const filteredOrganizations = organizations.filter(
     (organization) =>
@@ -110,13 +107,13 @@ export default function OrganizationPage() {
       if (JSON.stringify([state.currentOrgId, state.currentProjectId]) !== scope) {
         throw new Error('Stale organization creation ignored')
       }
-      return managedPost<{ id: string; name: string; slug: string }>('organizations', { name })
+      return createManagedOrganization({ name })
     },
     onSuccess: (_organization, variables) => {
       if (variables.runId !== createRunRef.current || variables.scope !== managedScope) return
       resetOrganizationsPagination()
       queryClient.invalidateQueries({ queryKey: ['auth-me'] })
-      queryClient.invalidateQueries({ queryKey: ['organizations-list'] })
+      queryClient.invalidateQueries({ queryKey: [MANAGED_ORGANIZATIONS_QUERY_ROOT] })
       setShowCreateOrganization(false)
       setNewOrganizationName('')
     },

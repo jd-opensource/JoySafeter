@@ -82,7 +82,7 @@ describe('OrganizationDetailShell', () => {
       </OrganizationDetailShell>,
     )
 
-    expect(managedGet).toHaveBeenCalledWith(`organizations/${OTHER_ORGANIZATION_ID}`)
+    expect(managedGet).toHaveBeenCalledWith(`/organizations/${OTHER_ORGANIZATION_ID}`)
     expect(view.getByText('Organization B')).toBeTruthy()
     expect(view.getByText('manage.organization.detail.role.admin')).toBeTruthy()
     expect(view.getByText(/Workspace Owner/)).toBeTruthy()

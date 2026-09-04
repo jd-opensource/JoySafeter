@@ -46,6 +46,8 @@ import {
   canRevokeApiKey,
 } from '@/lib/managed/api-key-lifecycle'
 import { toastOperationError } from '@/lib/managed/errors'
+import { fetchManagedProject, managedProjectQueryKey } from '@/lib/managed/project-client'
+import { useManagedRequestScope } from '@/lib/managed/request-scope'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { projectRoleLabel, projectRoleOptions } from '@/lib/managed/roles'
 import { parseProjectSummaryResponse } from '@/lib/managed/tenant-response-parsers'
@@ -85,11 +87,11 @@ export default function ApiKeysPage({ projectId }: { projectId?: ProjectId } = {
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const currentProjectId = useProjectStore((state) => state.currentProjectId)
   const currentProject = useProjectStore((state) => state.currentProject)
+  const requestScope = useManagedRequestScope()
   const targetProjectId = projectId ?? currentProjectId
   const targetProjectQuery = useQuery({
-    queryKey: ['project', targetProjectId],
-    queryFn: () =>
-      managedGet<unknown>(`auth/projects/${targetProjectId}`).then(parseProjectSummaryResponse),
+    queryKey: managedProjectQueryKey(requestScope.orgId, targetProjectId),
+    queryFn: () => fetchManagedProject(targetProjectId!, requestScope),
     enabled: projectId !== undefined,
   })
   const targetProject = projectId ? targetProjectQuery.data : currentProject

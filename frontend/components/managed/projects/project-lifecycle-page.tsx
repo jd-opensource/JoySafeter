@@ -25,9 +25,15 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
-import { managedDelete, managedGet, managedPatch, managedPost } from '@/lib/api-client'
+import { managedDelete, managedPatch, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
+import {
+  fetchManagedProject,
+  managedProjectQueryKey,
+  MANAGED_PROJECTS_QUERY_ROOT,
+} from '@/lib/managed/project-client'
+import { useManagedRequestScope } from '@/lib/managed/request-scope'
 import {
   parseProjectSummaryResponse,
   type ProjectSummary,
@@ -39,20 +45,21 @@ export function ProjectLifecyclePage({ projectId }: { projectId: ProjectId }) {
   const { t } = useTranslation()
   const router = useRouter()
   const queryClient = useQueryClient()
+  const requestScope = useManagedRequestScope()
   const { canAdmin } = useUserPermissionsContext()
   const [archiveOpen, setArchiveOpen] = useState(false)
   const [archiveName, setArchiveName] = useState('')
 
   const projectQuery = useQuery({
-    queryKey: ['project', projectId],
-    queryFn: () =>
-      managedGet<unknown>(`auth/projects/${projectId}`).then(parseProjectSummaryResponse),
+    queryKey: managedProjectQueryKey(requestScope.orgId, projectId),
+    queryFn: () => fetchManagedProject(projectId, requestScope),
   })
 
   const refreshProject = (project?: ProjectSummary) => {
-    if (project) queryClient.setQueryData(['project', projectId], project)
-    queryClient.invalidateQueries({ queryKey: ['project', projectId] })
-    queryClient.invalidateQueries({ queryKey: ['projects-list'] })
+    const queryKey = managedProjectQueryKey(requestScope.orgId, projectId)
+    if (project) queryClient.setQueryData(queryKey, project)
+    queryClient.invalidateQueries({ queryKey })
+    queryClient.invalidateQueries({ queryKey: [MANAGED_PROJECTS_QUERY_ROOT] })
     queryClient.invalidateQueries({ queryKey: ['auth-me'] })
   }
 

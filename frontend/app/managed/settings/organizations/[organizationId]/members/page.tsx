@@ -1,6 +1,6 @@
 'use client'
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Info, Search, Settings2, Trash2, UserPlus } from 'lucide-react'
 import { useParams } from 'next/navigation'
 import { useState, useRef, useEffect, type MutableRefObject } from 'react'
@@ -31,31 +31,30 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
-import { managedGet, managedPost, managedPut, managedDelete } from '@/lib/api-client'
+import { useManagedOrganization } from '@/hooks/managed/use-managed-organization'
+import { useManagedOrganizationMemberList } from '@/hooks/managed/use-managed-organization-member-list'
 import { useSession } from '@/lib/auth/auth-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
+import {
+  addManagedOrganizationMember,
+  managedOrganizationMembersQueryPrefix,
+  removeManagedOrganizationMember,
+  searchManagedOrganizationMemberCandidates,
+  updateManagedOrganizationMemberRole,
+} from '@/lib/managed/organization-client'
 import {
   DEFAULT_ORGANIZATION_ROLE,
   normalizeManagedRole,
   roleLabel,
   roleOptions,
 } from '@/lib/managed/roles'
-import {
-  parseMemberCandidateListResponse,
-  parseOrganizationDetailResponse,
-  parseOrganizationMemberResponse,
-  type MemberCandidate,
-  type OrganizationMemberRecord,
+import type {
+  MemberCandidate,
+  OrganizationMemberRecord,
 } from '@/lib/managed/tenant-response-parsers'
-import {
-  parseOrganizationId,
-  parseOrganizationMemberId,
-  type OrganizationId,
-  type UserId,
-} from '@/types/entity-id'
+import { parseOrganizationId, type OrganizationId, type UserId } from '@/types/entity-id'
 
 export default function MembersPage() {
   const { t } = useTranslation()
@@ -63,12 +62,7 @@ export default function MembersPage() {
   const session = useSession()
   const params = useParams<{ organizationId: string }>()
   const organizationId = parseOrganizationId(params.organizationId)
-  const organizationQuery = useQuery({
-    queryKey: ['organization-detail', organizationId],
-    queryFn: () =>
-      managedGet<unknown>(`organizations/${organizationId}`).then(parseOrganizationDetailResponse),
-    enabled: Boolean(organizationId),
-  })
+  const organizationQuery = useManagedOrganization(organizationId)
   const currentOrganization = organizationQuery.data
   const canManage = ['owner', 'admin'].includes(normalizeManagedRole(currentOrganization?.role))
   const orgScope = organizationId
@@ -112,13 +106,7 @@ export default function MembersPage() {
     goToPage,
     setPageSize,
     reset: resetMembersPagination,
-  } = usePaginatedList<OrganizationMemberRecord>({
-    queryKey: 'organization-members',
-    path: `/organizations/${organizationId}/members${memberSearch.trim() ? `?q=${encodeURIComponent(memberSearch.trim())}` : ''}`,
-    enabled: Boolean(organizationId),
-    parseItem: parseOrganizationMemberResponse,
-    parseCursor: parseOrganizationMemberId,
-  })
+  } = useManagedOrganizationMemberList(organizationId, memberSearch)
   const filteredMembers = members.filter(
     (member) =>
       filterByCreatedTime(member.joined_at || '', createdFilter) &&
@@ -220,18 +208,17 @@ export default function MembersPage() {
       if (!currentOrgScopeIsActive(data.scope) || data.runId !== addMemberRunRef.current) {
         throw new Error('Stale member addition ignored')
       }
-      return managedPost<unknown>(`organizations/${data.scope}/members`, {
+      return addManagedOrganizationMember(data.scope, {
         email: data.email,
         role: data.role,
-      })
-        .then(parseOrganizationMemberResponse)
-        .then((member) => ({ member, runId: data.runId, scope: data.scope }))
+      }).then((member) => ({ member, runId: data.runId, scope: data.scope }))
     },
     onSuccess: ({ runId, scope }) => {
       if (!isCurrentScopedRun(addMemberRunRef, runId, scope)) return
       resetMembersPagination()
-      queryClient.invalidateQueries({ queryKey: ['organization-members'] })
-      queryClient.invalidateQueries({ queryKey: ['organization-members', scope] })
+      queryClient.invalidateQueries({
+        queryKey: managedOrganizationMembersQueryPrefix(scope),
+      })
       resetAddMemberDialog(false)
     },
     onError: (err: Error, variables) => {
@@ -253,7 +240,7 @@ export default function MembersPage() {
       if (!currentOrgScopeIsActive(scope) || runId !== removeRunRef.current) {
         throw new Error('Stale member removal ignored')
       }
-      return managedDelete(`organizations/${scope}/members/${userId}`).then(() => ({
+      return removeManagedOrganizationMember(scope, userId).then(() => ({
         runId,
         scope,
       }))
@@ -261,8 +248,9 @@ export default function MembersPage() {
     onSuccess: ({ runId, scope }) => {
       if (!isCurrentScopedRun(removeRunRef, runId, scope)) return
       resetMembersPagination()
-      queryClient.invalidateQueries({ queryKey: ['organization-members'] })
-      queryClient.invalidateQueries({ queryKey: ['organization-members', scope] })
+      queryClient.invalidateQueries({
+        queryKey: managedOrganizationMembersQueryPrefix(scope),
+      })
       setRemoveTarget(null)
     },
     onError: (err: Error, variables) => {
@@ -286,18 +274,17 @@ export default function MembersPage() {
       if (!currentOrgScopeIsActive(scope) || runId !== roleRunRef.current) {
         throw new Error('Stale member role update ignored')
       }
-      return managedPut<unknown>(`organizations/${scope}/members/${userId}`, { role })
-        .then(parseOrganizationMemberResponse)
-        .then((member) => ({
-          member,
-          runId,
-          scope,
-        }))
+      return updateManagedOrganizationMemberRole(scope, userId, role).then((member) => ({
+        member,
+        runId,
+        scope,
+      }))
     },
     onSuccess: ({ runId, scope }) => {
       if (!isCurrentScopedRun(roleRunRef, runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['organization-members'] })
-      queryClient.invalidateQueries({ queryKey: ['organization-members', scope] })
+      queryClient.invalidateQueries({
+        queryKey: managedOrganizationMembersQueryPrefix(scope),
+      })
       setRoleTarget(null)
     },
     onError: (err: Error, variables) => {
@@ -338,9 +325,7 @@ export default function MembersPage() {
     searchTimeoutRef.current = setTimeout(async () => {
       if (!currentOrgScopeIsActive(requestScope)) return
       try {
-        const results = await managedGet<unknown>(
-          `organizations/${requestScope}/member-candidates?q=${encodeURIComponent(value)}&limit=5`,
-        ).then(parseMemberCandidateListResponse)
+        const results = await searchManagedOrganizationMemberCandidates(requestScope, value, 5)
         if (requestSeq !== searchRequestSeqRef.current || !currentOrgScopeIsActive(requestScope))
           return
         setSearchResults(results)

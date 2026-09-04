@@ -144,17 +144,27 @@ function mockManagedApi({
         last_id: SERVICE_CREDENTIAL_ID,
       }
     }
-    if (path.startsWith('/agents/')) return []
-    if (path.startsWith('/agents')) {
-      return [
-        {
-          id: 'agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f001',
-          name: 'Agent 1',
-          archived_at: null,
-        },
-      ]
+    if (path.startsWith('/agents/')) {
+      return { data: [], has_more: false, first_id: null, last_id: null }
     }
-    if (path.startsWith('/environments')) return []
+    if (path.startsWith('/agents')) {
+      return {
+        data: [
+          {
+            id: 'agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f001',
+            name: 'Agent 1',
+            engine_kind: 'claude',
+            archived_at: null,
+          },
+        ],
+        has_more: false,
+        first_id: 'agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f001',
+        last_id: 'agent_018f6f42-0a51-7cc4-98c8-4f6f0ca5f001',
+      }
+    }
+    if (path.startsWith('/environments')) {
+      return { data: [], has_more: false, first_id: null, last_id: null }
+    }
     return []
   })
 }

@@ -22,19 +22,19 @@ import {
 import { Button } from '@/components/ui/button'
 import { ToastAction } from '@/components/ui/toast'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
-import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
+import { useManagedAgentList } from '@/hooks/managed/use-managed-agent-list'
 import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { toast } from '@/hooks/use-toast'
 import { managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
+import { managedAgentListQueryPrefix } from '@/lib/managed/agent-client'
 import { getAgentModelSearchTokens } from '@/lib/managed/agent-model-display'
-import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
-import { apiResourceId, apiResourcePath } from '@/lib/managed/api-paths'
+import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { managedRequestOptions } from '@/lib/managed/request-scope'
-import { parseSessionCreateResponse } from '@/lib/managed/session-response-parsers'
-import { isEntityId, parseAgentId } from '@/types/entity-id'
+import { createManagedSession } from '@/lib/managed/session-client'
+import { isEntityId } from '@/types/entity-id'
 import type { Agent } from '@/types/managed'
 
 import { CreateAgentDialog } from './components/create-agent-dialog'
@@ -87,13 +87,7 @@ export default function AgentListPage() {
     goPrev,
     goToPage,
     setPageSize,
-  } = usePaginatedList<Agent>({
-    queryKey: 'agents',
-    path: '/agents',
-    includeArchived: showArchived,
-    parseItem: parseAgentResponse,
-    parseCursor: parseAgentId,
-  })
+  } = useManagedAgentList(showArchived)
 
   const getEngineKindLabel = (engineKind?: string | null) => {
     switch (engineKind) {
@@ -135,7 +129,7 @@ export default function AgentListPage() {
   const currentAgentIsActive = (agent: Agent, scope: string) =>
     currentProjectAllowsWrite() &&
     queryClient
-      .getQueriesData<{ data?: Agent[] }>({ queryKey: ['agents', scope, '/agents'] })
+      .getQueriesData<{ data?: Agent[] }>({ queryKey: managedAgentListQueryPrefix(scope) })
       .some(([, page]) =>
         page?.data?.some(
           (currentAgent) => currentAgent.id === agent.id && !currentAgent.archived_at,
@@ -145,7 +139,7 @@ export default function AgentListPage() {
   const currentAgentIsArchived = (agent: Agent, scope: string) =>
     currentProjectAllowsWrite() &&
     queryClient
-      .getQueriesData<{ data?: Agent[] }>({ queryKey: ['agents', scope, '/agents'] })
+      .getQueriesData<{ data?: Agent[] }>({ queryKey: managedAgentListQueryPrefix(scope) })
       .some(([, page]) =>
         page?.data?.some(
           (currentAgent) => currentAgent.id === agent.id && !!currentAgent.archived_at,
@@ -222,15 +216,9 @@ export default function AgentListPage() {
     const { runId, scope, requestScope } = action
     setPendingAction({ agentId: agent.id, type: 'start' })
     try {
-      const response = parseSessionCreateResponse(
-        await managedPost<unknown>(
-          '/sessions',
-          { agent: apiResourceId(agent.id) },
-          managedRequestOptions(requestScope),
-        ),
-      )
+      const sessionId = await createManagedSession({ agentId: agent.id }, requestScope)
       if (!isCurrentAction(runId, scope)) return
-      router.push(`/managed/sessions/${response.id}`)
+      router.push(`/managed/sessions/${sessionId}`)
     } catch (error) {
       if (!isCurrentAction(runId, scope)) return
       toastOperationError(t, error, 'common.operationFailed')

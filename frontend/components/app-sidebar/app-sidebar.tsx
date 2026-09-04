@@ -52,11 +52,10 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { toast } from '@/hooks/use-toast'
 import { useProjectContext } from '@/hooks/managed/use-project-context'
-import { managedGet } from '@/lib/api-client'
 import { useSession, client } from '@/lib/auth/auth-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
-import { parseProjectInfo, type ProjectInfoPayload } from '@/lib/managed/tenant-response-parsers'
+import { fetchManagedOrganizationProjectOptions } from '@/lib/managed/project-client'
 import { roleLabel } from '@/lib/managed/roles'
 import { cn } from '@/lib/utils'
 import { useProjectStore } from '@/stores/managed/project-store'
@@ -248,14 +247,7 @@ function ProjectSwitcher({ collapsed }: { collapsed?: boolean }) {
         }
 
         try {
-          const data = await managedGet<ProjectInfoPayload[] | { data: ProjectInfoPayload[] }>(
-            '/auth/projects?include_archived=false&limit=200',
-            {
-              skipManagedContext: true,
-              headers: { 'X-Org-Id': organization.id },
-            },
-          )
-          const rows = (Array.isArray(data) ? data : data?.data || []).map(parseProjectInfo)
+          const rows = await fetchManagedOrganizationProjectOptions(organization.id)
           return [
             organization.id,
             rows

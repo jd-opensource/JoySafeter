@@ -1,27 +1,32 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef } from 'react'
 
+import { managedSessionSkillUsageQueryKey } from '@/lib/managed/session-client'
+import type { SessionId } from '@/types/entity-id'
+
 interface UseSessionSkillUsageRefreshOptions {
   isRunning: boolean
-  sessionScope: string
+  scopeKey: string
+  sessionId: SessionId
 }
 
 export function useSessionSkillUsageRefresh({
   isRunning,
-  sessionScope,
+  scopeKey,
+  sessionId,
 }: UseSessionSkillUsageRefreshOptions) {
   const queryClient = useQueryClient()
-  const previousStateRef = useRef({ isRunning, sessionScope })
+  const previousStateRef = useRef({ isRunning, scopeKey, sessionId })
 
   useEffect(() => {
     const previousState = previousStateRef.current
-    previousStateRef.current = { isRunning, sessionScope }
+    previousStateRef.current = { isRunning, scopeKey, sessionId }
 
-    if (previousState.sessionScope !== sessionScope) return
+    if (previousState.scopeKey !== scopeKey || previousState.sessionId !== sessionId) return
     if (!previousState.isRunning || isRunning) return
 
     void queryClient.invalidateQueries({
-      queryKey: ['session-skill-usage', sessionScope],
+      queryKey: managedSessionSkillUsageQueryKey(scopeKey, sessionId),
     })
-  }, [isRunning, queryClient, sessionScope])
+  }, [isRunning, queryClient, scopeKey, sessionId])
 }

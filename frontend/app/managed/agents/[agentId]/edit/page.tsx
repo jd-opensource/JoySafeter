@@ -8,8 +8,15 @@ import React, { useEffect, useMemo, useRef, useState } from 'react'
 
 import { McpServerEditor } from '@/components/managed/agent/mcp-server-editor'
 import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
+import { useManagedEnvironmentOptions } from '@/hooks/managed/use-managed-environment-options'
+import { useManagedSkillOptions } from '@/hooks/managed/use-managed-skill-options'
 import { useTranslation } from '@/lib/i18n'
-import { managedGet, managedPost } from '@/lib/api-client'
+import { managedPost } from '@/lib/api-client'
+import {
+  fetchManagedAgent,
+  managedAgentQueryKey,
+  managedAgentVersionsQueryKey,
+} from '@/lib/managed/agent-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import { getEnabledEngines } from '@/lib/managed/llm-catalog'
@@ -31,9 +38,9 @@ import {
   type EnvironmentId,
   type SkillId,
 } from '@/types/entity-id'
-import { parseSkillResponse } from '@/lib/managed/skill-response-parsers'
 import { parseAgentResponse } from '@/lib/managed/agent-response-parsers'
-import { parseEnvironmentListResponse } from '@/lib/managed/environment-response-parsers'
+import { managedEnvironmentOptionsQueryKey } from '@/lib/managed/environment-client'
+import { managedSkillOptionsQueryKey } from '@/lib/managed/skill-client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -61,10 +68,10 @@ import {
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
 import {
-  compatibleCredentialsQueryPrefix,
   useCompatibleCredentials,
   useModelConnectionByName,
 } from '@/hooks/managed/use-compatible-credentials'
+import { compatibleCredentialsQueryPrefix } from '@/lib/managed/credential-client'
 import { ModelConnectionSelectionFlow } from '@/components/managed/llm/model-connection-selection-flow'
 import { recordCreatedModelConnection } from '@/lib/managed/model-connection-cache'
 import { SearchableAgentConfigSelect } from '../../components/searchable-agent-config-select'
@@ -75,10 +82,6 @@ const PERMISSION_MODES = [
   { value: 'bypassPermissions', labelKey: 'agents.edit.permBypass' },
   { value: 'default', labelKey: 'agents.edit.permAsk' },
 ]
-
-interface ManagedListResponse<T> {
-  data: T[]
-}
 
 interface SkillListItem {
   id: SkillId
@@ -119,40 +122,15 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
 
   // ── Fetch agent ──
   const { data: agent, isLoading } = useQuery({
-    queryKey: ['agent', managedScope.key, agentId],
-    queryFn: () =>
-      managedGet<unknown>(
-        apiResourcePath('agents', agentId),
-        managedRequestOptions(managedScope),
-      ).then(parseAgentResponse),
+    queryKey: managedAgentQueryKey(managedScope.key, agentId),
+    queryFn: () => fetchManagedAgent(agentId, managedScope),
     enabled: !!agentId && hasManagedRequestScope(managedScope),
   })
 
   // ── Fetch skills ──
-  const { data: skills } = useQuery({
-    queryKey: ['skills', managedScope.key],
-    queryFn: async () => {
-      const res = await managedGet<ManagedListResponse<unknown>>(
-        '/skills',
-        managedRequestOptions(managedScope),
-      )
-      return (res.data || []).map(parseSkillResponse)
-    },
-    enabled: hasManagedRequestScope(managedScope),
-  })
+  const { data: skills } = useManagedSkillOptions()
 
-  // ── Fetch environments ──
-  const { data: environments } = useQuery({
-    queryKey: ['environments', managedScope.key],
-    queryFn: async () => {
-      const res = await managedGet<ManagedListResponse<unknown>>(
-        '/environments',
-        managedRequestOptions(managedScope),
-      )
-      return parseEnvironmentListResponse(res.data || [])
-    },
-    enabled: hasManagedRequestScope(managedScope),
-  })
+  const { data: environments } = useManagedEnvironmentOptions()
 
   // ── Basic info state ──
   const [name, setName] = useState('')
@@ -396,8 +374,10 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
         })
         .at(-1)?.[1] ?? secrets
     const currentEnvironments =
-      queryClient.getQueryData<Environment[]>(['environments', scopeKey]) ?? environments
-    const currentSkills = queryClient.getQueryData<SkillListItem[]>(['skills', scopeKey]) ?? skills
+      queryClient.getQueryData<Environment[]>(managedEnvironmentOptionsQueryKey(scopeKey)) ??
+      environments
+    const currentSkills =
+      queryClient.getQueryData<SkillListItem[]>(managedSkillOptionsQueryKey(scopeKey)) ?? skills
 
     const currentModelCredentialId =
       modelCredentialId &&
@@ -453,7 +433,9 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
   const currentEditableAgent = () => {
     if (!currentOperationScopeIsActive()) return null
     if (!currentProjectAllowsWrite()) return null
-    const current = queryClient.getQueryData<Agent>(['agent', getCurrentManagedScope(), agentId])
+    const current = queryClient.getQueryData<Agent>(
+      managedAgentQueryKey(getCurrentManagedScope(), agentId),
+    )
     return current?.id === agentId && !current.archived_at ? current : null
   }
 
@@ -476,9 +458,11 @@ function AgentEditPageInner({ params }: { params: Promise<{ agentId: string }> }
     },
     onSuccess: (updatedAgent, { agentId, requestScope, runId, scope }) => {
       if (!isCurrentSaveRun(runId, scope) || !updatedAgent) return
-      queryClient.setQueryData(['agent', requestScope.key, agentId], updatedAgent)
+      queryClient.setQueryData(managedAgentQueryKey(requestScope.key, agentId), updatedAgent)
       queryClient.invalidateQueries({ queryKey: ['agents', requestScope.key] })
-      queryClient.invalidateQueries({ queryKey: ['agent-versions', requestScope.key, agentId] })
+      queryClient.invalidateQueries({
+        queryKey: managedAgentVersionsQueryKey(requestScope.key, agentId),
+      })
       router.push(`/managed/agents/${agentId}`)
     },
     onError: (error, { runId, scope }) => {

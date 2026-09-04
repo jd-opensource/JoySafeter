@@ -3,6 +3,8 @@ import { renderHook, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 
+import { ORGANIZATION_ID, PROJECT_ID, SESSION_ID } from '@/test-utils/entity-ids'
+
 import { useSessionSkillUsageRefresh } from './use-session-skill-usage-refresh'
 
 describe('useSessionSkillUsageRefresh', () => {
@@ -17,7 +19,8 @@ describe('useSessionSkillUsageRefresh', () => {
       ({ isRunning }) =>
         useSessionSkillUsageRefresh({
           isRunning,
-          sessionScope: 'sess-a:org-a:project-a',
+          scopeKey: `${ORGANIZATION_ID}:${PROJECT_ID}`,
+          sessionId: SESSION_ID,
         }),
       { initialProps: { isRunning: false }, wrapper },
     )
@@ -29,7 +32,7 @@ describe('useSessionSkillUsageRefresh', () => {
 
     await waitFor(() =>
       expect(invalidateQueries).toHaveBeenCalledWith({
-        queryKey: ['session-skill-usage', 'sess-a:org-a:project-a'],
+        queryKey: ['session-skill-usage', `${ORGANIZATION_ID}:${PROJECT_ID}`, SESSION_ID],
       }),
     )
   })

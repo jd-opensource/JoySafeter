@@ -7,11 +7,7 @@ import {
   CREDENTIAL_REFERENCE_NORMALIZATION,
   CREDENTIAL_SNAPSHOT_SCHEMAS,
 } from './credential-reference-contract'
-import {
-  CredentialReferenceCodec,
-  parseEnvironmentListResponse,
-  parseEnvironmentResponse,
-} from './environment-response-parsers'
+import { CredentialReferenceCodec, parseEnvironmentResponse } from './environment-response-parsers'
 
 const UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f010'
 const referenceCodec = new CredentialReferenceCodec()
@@ -79,7 +75,6 @@ describe('environment response parsers', () => {
 
     expect(environment.id).toBe(`env_${UUID}`)
     expect(environment.config?.storage_volumes?.[0].volume_id).toBe(`vol_${UUID}`)
-    expect(parseEnvironmentListResponse([rawEnvironment()])[0].id).toBe(`env_${UUID}`)
   })
 
   it('rejects bare and cross-entity ids', () => {

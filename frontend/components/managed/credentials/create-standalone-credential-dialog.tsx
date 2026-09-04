@@ -15,10 +15,8 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
-import { managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
-import { managedRequestOptions } from '@/lib/managed/request-scope'
-import { parseCredentialDetailResponse } from '@/lib/managed/credential-response-parsers'
+import { createManagedCredential } from '@/lib/managed/credential-client'
 import { cn } from '@/lib/utils'
 import type { CredentialDetail } from '@/types/managed'
 
@@ -95,18 +93,17 @@ export function CreateStandaloneCredentialDialog({
     setSubmitting(true)
     setError(null)
     try {
-      const response = await managedPost<unknown>(
-        '/credentials',
+      const credential = await createManagedCredential(
         {
           kind: 'service',
           name: name.trim(),
           data: genericData,
-          is_default: false,
+          isDefault: false,
         },
-        managedRequestOptions(action.requestScope),
+        action.requestScope,
       )
       if (!isCurrentAction(action.runId, action.scope)) return
-      onCreated(parseCredentialDetailResponse(response))
+      onCreated(credential)
       onOpenChange(false)
     } catch (requestError) {
       if (!isCurrentAction(action.runId, action.scope)) return

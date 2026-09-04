@@ -20,15 +20,19 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
-import { compatibleCredentialsScopePrefix } from '@/hooks/managed/use-compatible-credentials'
+import {
+  changeManagedCredentialLifecycle,
+  compatibleCredentialsScopePrefix,
+  deleteManagedCredential,
+  managedCredentialQueryKey,
+  managedCredentialsQueryPrefix,
+  setManagedCredentialDefault,
+  updateManagedCredential,
+} from '@/lib/managed/credential-client'
 import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
-import { managedDelete, managedPatch, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
-import { apiResourcePath } from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import { findCredentialProfileForBinding } from '@/lib/managed/llm-catalog'
-import { managedRequestOptions } from '@/lib/managed/request-scope'
-import { parseCredentialDetailResponse } from '@/lib/managed/credential-response-parsers'
 import type { LlmCredentialField } from '@/types/llm'
 import type { CredentialDetail } from '@/types/managed'
 
@@ -91,15 +95,14 @@ export function ModelConnectionDetail({ credential }: { credential: CredentialDe
     if (!action) return
     setSaving(true)
     try {
-      const response = await managedPatch<unknown>(
-        apiResourcePath('credentials', credential.id),
+      const updated = await updateManagedCredential(
+        credential.id,
         { data: values },
-        managedRequestOptions(action.requestScope),
+        action.requestScope,
       )
       if (!isCurrentAction(action.runId, action.scope)) return
-      const updated = parseCredentialDetailResponse(response)
-      queryClient.setQueryData(['credential-detail', action.scope, credential.id], updated)
-      queryClient.invalidateQueries({ queryKey: ['credentials', action.scope] })
+      queryClient.setQueryData(managedCredentialQueryKey(action.scope, credential.id), updated)
+      queryClient.invalidateQueries({ queryKey: managedCredentialsQueryPrefix(action.scope) })
       queryClient.invalidateQueries({ queryKey: compatibleCredentialsScopePrefix(action.scope) })
       sourceDataRef.current = updated.data
       setValues(updated.data)
@@ -113,8 +116,8 @@ export function ModelConnectionDetail({ credential }: { credential: CredentialDe
   }
 
   const invalidate = (scope: string) => {
-    queryClient.invalidateQueries({ queryKey: ['credential-detail', scope, credential.id] })
-    queryClient.invalidateQueries({ queryKey: ['credentials', scope] })
+    queryClient.invalidateQueries({ queryKey: managedCredentialQueryKey(scope, credential.id) })
+    queryClient.invalidateQueries({ queryKey: managedCredentialsQueryPrefix(scope) })
     queryClient.invalidateQueries({ queryKey: compatibleCredentialsScopePrefix(scope) })
   }
 
@@ -124,11 +127,7 @@ export function ModelConnectionDetail({ credential }: { credential: CredentialDe
     if (!action) return
     setLifecyclePending(true)
     try {
-      await managedPost(
-        apiResourcePath('credentials', credential.id, 'default'),
-        {},
-        managedRequestOptions(action.requestScope),
-      )
+      await setManagedCredentialDefault(credential.id, action.requestScope)
       if (!isCurrentAction(action.runId, action.scope)) return
       invalidate(action.scope)
     } catch (error) {
@@ -152,25 +151,20 @@ export function ModelConnectionDetail({ credential }: { credential: CredentialDe
     setLifecyclePending(true)
     try {
       if (action === 'delete') {
-        await managedDelete(
-          apiResourcePath('credentials', credential.id),
-          managedRequestOptions(scopedAction.requestScope),
-        )
+        await deleteManagedCredential(credential.id, scopedAction.requestScope)
         if (!isCurrentAction(scopedAction.runId, scopedAction.scope)) return
         queryClient.removeQueries({
-          queryKey: ['credential-detail', scopedAction.scope, credential.id],
+          queryKey: managedCredentialQueryKey(scopedAction.scope, credential.id),
         })
-        queryClient.invalidateQueries({ queryKey: ['credentials', scopedAction.scope] })
+        queryClient.invalidateQueries({
+          queryKey: managedCredentialsQueryPrefix(scopedAction.scope),
+        })
         queryClient.invalidateQueries({
           queryKey: compatibleCredentialsScopePrefix(scopedAction.scope),
         })
         router.push('/managed/credentials?tab=models')
       } else {
-        await managedPost(
-          apiResourcePath('credentials', credential.id, action),
-          {},
-          managedRequestOptions(scopedAction.requestScope),
-        )
+        await changeManagedCredentialLifecycle(credential.id, action, scopedAction.requestScope)
         if (!isCurrentAction(scopedAction.runId, scopedAction.scope)) return
         invalidate(scopedAction.scope)
       }

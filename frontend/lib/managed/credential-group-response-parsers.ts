@@ -9,10 +9,6 @@ export function parseCredentialGroupResponse(response: unknown): CredentialGroup
   return { ...raw, id: parseCredentialGroupId(raw.id) }
 }
 
-export function parseCredentialGroupListResponse(response: unknown[]): CredentialGroup[] {
-  return response.map(parseCredentialGroupResponse)
-}
-
 export function parseCredentialGroupCredentialResponse(
   response: unknown,
 ): CredentialGroupCredential {

@@ -79,7 +79,8 @@ import {
 } from '@/components/ui/select'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useToast } from '@/hooks/use-toast'
-import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
+import { useManagedSkillList } from '@/hooks/managed/use-managed-skill-list'
+import { useManagedSkillVersions } from '@/hooks/managed/use-managed-skill-versions'
 import { useProjectStore } from '@/stores/managed/project-store'
 import {
   currentProjectAllowsWrite,
@@ -87,19 +88,11 @@ import {
   useCurrentProjectReadOnly,
   useCurrentProjectIsAdmin,
 } from '@/hooks/managed/use-current-project-read-only'
-import { managedGet, managedPost, managedPut, managedDelete, managedUpload } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
-import {
-  apiCollectionPath,
-  apiResourceId,
-  apiResourcePath,
-  apiResourceSubpath,
-} from '@/lib/managed/api-paths'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import {
   hasManagedRequestScope,
-  managedRequestOptions,
   managedScopeKey,
   useManagedRequestScope,
   type ManagedRequestScope,
@@ -112,18 +105,39 @@ import {
 } from '@/lib/managed/skill-import'
 import { severityLabelKey } from '@/lib/managed/skill-severity'
 import {
-  parseSkillFileListResponse,
-  parseSkillFileResponse,
-  parseSkillResponse,
-  parseSkillSecurityScanListResponse,
-  parseSkillSecurityScanResponse,
-  parseSkillUsageListResponse,
-  parseSkillVersionFileListResponse,
-  parseSkillVersionListResponse,
-  parseSkillVersionResponse,
-} from '@/lib/managed/skill-response-parsers'
+  approveManagedSkillPromotion,
+  createManagedSkill,
+  createManagedSkillFile,
+  deleteManagedSkill,
+  deleteManagedSkillFile,
+  deleteManagedSkillVersion,
+  fetchManagedSkill,
+  fetchManagedSkillFiles,
+  fetchManagedSkillRecentUsage,
+  fetchManagedSkillSecurityHistory,
+  fetchManagedSkillTargetUsage,
+  fetchManagedSkillVersionFiles,
+  importManagedSkillZip,
+  managedSkillListQueryPrefix,
+  managedSkillFilesQueryKey,
+  managedSkillQueryKey,
+  managedSkillRecentUsageQueryKey,
+  managedSkillSecurityHistoryQueryKey,
+  managedSkillScopeQueryPrefix,
+  managedSkillTargetUsageQueryKey,
+  managedSkillVersionFilesQueryKey,
+  managedSkillVersionsQueryKey,
+  publishManagedSkillVersion,
+  rejectManagedSkillPromotion,
+  rescanManagedSkillSecurity,
+  restoreManagedSkillVersion,
+  submitManagedSkillPromotion,
+  takedownManagedSkill,
+  updateManagedSkill,
+  updateManagedSkillFile,
+} from '@/lib/managed/skill-client'
 import { diffSkillVersionFiles } from '@/lib/managed/skill-version-diff'
-import { parseSkillId, type SkillFileId, type SkillId } from '@/types/entity-id'
+import type { SkillFileId, SkillId } from '@/types/entity-id'
 import type {
   SkillRecord,
   SkillFileRecord,
@@ -196,8 +210,6 @@ const MAX_FOLDER_DEPTH = 2
 // security scan synchronously on the backend. With LLM semantic analysis
 // enabled a scan can take well over a minute, so these calls override the
 // default 30s client timeout. Backend scanner timeout is 180s.
-const SKILL_SCAN_TIMEOUT_MS = 200000
-
 const FILE_TYPE_EXT: Record<string, string> = {
   text: '.txt',
   markdown: '.md',
@@ -579,27 +591,25 @@ function SkillEditor({
   // Fetch the FULL file snapshot of both compared versions on demand. The
   // version list only carries SKILL.md's main content, so we hit the
   // per-version files endpoint to diff the whole skill package.
-  const skillIdForDiff = apiResourceId(skill.id)
+  const skillIdForDiff = skill.id
   const { data: fromFiles = [] } = useQuery({
-    queryKey: ['skill-version-files', queryScope, skillIdForDiff, diffTarget?.fromVersion],
-    queryFn: async () => {
-      const res = await managedGet<unknown>(
-        apiResourcePath('skills', skillIdForDiff, 'versions', diffTarget!.fromVersion, 'files'),
-        managedRequestOptions(requestScope),
-      )
-      return parseSkillVersionFileListResponse(res)
-    },
+    queryKey: managedSkillVersionFilesQueryKey(
+      queryScope,
+      skillIdForDiff,
+      diffTarget?.fromVersion ?? null,
+    ),
+    queryFn: () =>
+      fetchManagedSkillVersionFiles(skillIdForDiff, diffTarget!.fromVersion, requestScope),
     enabled: !!diffTarget,
   })
   const { data: toFiles = [], isFetching: toFilesFetching } = useQuery({
-    queryKey: ['skill-version-files', queryScope, skillIdForDiff, diffTarget?.toVersion],
-    queryFn: async () => {
-      const res = await managedGet<unknown>(
-        apiResourcePath('skills', skillIdForDiff, 'versions', diffTarget!.toVersion, 'files'),
-        managedRequestOptions(requestScope),
-      )
-      return parseSkillVersionFileListResponse(res)
-    },
+    queryKey: managedSkillVersionFilesQueryKey(
+      queryScope,
+      skillIdForDiff,
+      diffTarget?.toVersion ?? null,
+    ),
+    queryFn: () =>
+      fetchManagedSkillVersionFiles(skillIdForDiff, diffTarget!.toVersion, requestScope),
     enabled: !!diffTarget,
   })
   const versionDiff = useMemo(
@@ -1523,7 +1533,7 @@ export function SkillManagerPageContent({
       return (
         queryClient
           .getQueriesData<{ data?: SkillRecord[] }>({
-            queryKey: ['skills', managedScopeRef.current.key, '/skills'],
+            queryKey: managedSkillListQueryPrefix(managedScopeRef.current.key),
           })
           .flatMap(([, page]) => page?.data ?? [])
           .find((skill) => skill.id === skillId) ?? null
@@ -1537,8 +1547,9 @@ export function SkillManagerPageContent({
       if (!skillId) return null
       if (!currentManagedScopeIsActive()) return null
       return (
-        queryClient.getQueryData<SkillRecord>(['skill', managedScopeRef.current.key, skillId]) ??
-        null
+        queryClient.getQueryData<SkillRecord>(
+          managedSkillQueryKey(managedScopeRef.current.key, skillId),
+        ) ?? null
       )
     },
     [currentManagedScopeIsActive, queryClient],
@@ -1566,11 +1577,9 @@ export function SkillManagerPageContent({
       if (!skillId) return []
       if (!currentManagedScopeIsActive()) return []
       return (
-        queryClient.getQueryData<SkillFileRecord[]>([
-          'skill-files',
-          managedScopeRef.current.key,
-          skillId,
-        ]) ?? []
+        queryClient.getQueryData<SkillFileRecord[]>(
+          managedSkillFilesQueryKey(managedScopeRef.current.key, skillId),
+        ) ?? []
       )
     },
     [currentManagedScopeIsActive, queryClient],
@@ -1597,11 +1606,9 @@ export function SkillManagerPageContent({
       if (!version || !skillId) return null
       if (!currentManagedScopeIsActive()) return null
       const currentVersions =
-        queryClient.getQueryData<SkillVersionRecord[]>([
-          'skill-versions',
-          managedScopeRef.current.key,
-          skillId,
-        ]) ?? []
+        queryClient.getQueryData<SkillVersionRecord[]>(
+          managedSkillVersionsQueryKey(managedScopeRef.current.key, skillId),
+        ) ?? []
       return currentVersions.find((item) => item.version === version) ?? null
     },
     [currentManagedScopeIsActive, queryClient],
@@ -1609,11 +1616,11 @@ export function SkillManagerPageContent({
 
   const invalidateSkillResources = useCallback(
     (skillId: SkillId, scopeKey = managedScopeRef.current.key) => {
-      queryClient.invalidateQueries({ queryKey: ['skills', scopeKey] })
-      queryClient.invalidateQueries({ queryKey: ['skill', scopeKey, skillId] })
-      queryClient.invalidateQueries({ queryKey: ['skill-files', scopeKey, skillId] })
+      queryClient.invalidateQueries({ queryKey: managedSkillScopeQueryPrefix(scopeKey) })
+      queryClient.invalidateQueries({ queryKey: managedSkillQueryKey(scopeKey, skillId) })
+      queryClient.invalidateQueries({ queryKey: managedSkillFilesQueryKey(scopeKey, skillId) })
       queryClient.invalidateQueries({
-        queryKey: ['skill-security-scans', scopeKey, skillId],
+        queryKey: managedSkillSecurityHistoryQueryKey(scopeKey, skillId),
       })
     },
     [queryClient],
@@ -1636,24 +1643,15 @@ export function SkillManagerPageContent({
     goPrev,
     goToPage,
     setPageSize,
-  } = usePaginatedList<SkillRecord>({
-    queryKey: 'skills',
-    path: '/skills',
-    parseItem: parseSkillResponse,
-    parseCursor: parseSkillId,
-  })
+  } = useManagedSkillList()
 
   const {
     data: selectedSkill,
     isError: selectedSkillIsError,
     error: selectedSkillError,
   } = useQuery({
-    queryKey: ['skill', managedScope.key, selectedSkillId],
-    queryFn: () =>
-      managedGet<unknown>(
-        apiResourcePath('skills', selectedSkillId!),
-        managedRequestOptions(managedScope),
-      ).then(parseSkillResponse),
+    queryKey: managedSkillQueryKey(managedScope.key, selectedSkillId),
+    queryFn: () => fetchManagedSkill(selectedSkillId!, managedScope),
     enabled: !!selectedSkillId && hasManagedRequestScope(managedScope),
     // While a security scan is running in the background (rescan dispatches
     // async because LLM analysis is slow), poll the skill so the security
@@ -1672,47 +1670,32 @@ export function SkillManagerPageContent({
     const prev = prevSecurityStatusRef.current
     prevSecurityStatusRef.current = status
     if (prev === 'scanning' && status && status !== 'scanning') {
-      queryClient.invalidateQueries({ queryKey: ['skills', managedScope.key] })
+      queryClient.invalidateQueries({
+        queryKey: managedSkillScopeQueryPrefix(managedScope.key),
+      })
     }
   }, [selectedSkill?.security_scan?.status, queryClient, managedScope.key])
 
   const { data: skillFiles = [] } = useQuery({
-    queryKey: ['skill-files', managedScope.key, selectedSkillId],
-    queryFn: async () => {
-      const res = await managedGet<unknown>(
-        apiResourcePath('skills', selectedSkillId!, 'files'),
-        managedRequestOptions(managedScope),
-      )
-      return parseSkillFileListResponse(res)
-    },
+    queryKey: managedSkillFilesQueryKey(managedScope.key, selectedSkillId),
+    queryFn: () => fetchManagedSkillFiles(selectedSkillId!, managedScope),
     enabled: !!selectedSkillId && hasManagedRequestScope(managedScope),
   })
 
-  const { data: versions = [] } = useQuery({
-    queryKey: ['skill-versions', managedScope.key, selectedSkillId],
-    queryFn: async () => {
-      const res = await managedGet<unknown>(
-        apiResourceSubpath('skills', selectedSkillId!, ['versions'], { limit: 50 }),
-        managedRequestOptions(managedScope),
-      )
-      return parseSkillVersionListResponse(res)
-    },
-    enabled: !!selectedSkillId && hasManagedRequestScope(managedScope),
-  })
+  const { data: versions = [] } = useManagedSkillVersions(selectedSkillId)
 
   // Files of the latest published version — used to detect "unpublished
   // changes" across the WHOLE package (SKILL.md + sub-files), not just the
   // main content. Only fetched when at least one version exists.
   const latestPublishedVersion = versions.length > 0 ? versions[0].version : null
   const { data: latestVersionFiles = [] } = useQuery({
-    queryKey: ['skill-version-files', managedScope.key, selectedSkillId, latestPublishedVersion],
-    queryFn: async () => {
-      const res = await managedGet<unknown>(
-        apiResourcePath('skills', selectedSkillId!, 'versions', latestPublishedVersion!, 'files'),
-        managedRequestOptions(managedScope),
-      )
-      return parseSkillVersionFileListResponse(res)
-    },
+    queryKey: managedSkillVersionFilesQueryKey(
+      managedScope.key,
+      selectedSkillId!,
+      latestPublishedVersion,
+    ),
+    queryFn: () =>
+      fetchManagedSkillVersionFiles(selectedSkillId!, latestPublishedVersion!, managedScope),
     enabled: !!selectedSkillId && !!latestPublishedVersion && hasManagedRequestScope(managedScope),
   })
 
@@ -1721,41 +1704,20 @@ export function SkillManagerPageContent({
     isFetching: securityScansFetching,
     isError: securityScansIsError,
   } = useQuery({
-    queryKey: ['skill-security-scans', managedScope.key, selectedSkillId],
-    queryFn: async () => {
-      const res = await managedGet<unknown>(
-        apiResourceSubpath('skills', selectedSkillId!, ['security-scans'], { limit: 20 }),
-        managedRequestOptions(managedScope),
-      )
-      return parseSkillSecurityScanListResponse(res)
-    },
+    queryKey: managedSkillSecurityHistoryQueryKey(managedScope.key, selectedSkillId),
+    queryFn: () => fetchManagedSkillSecurityHistory(selectedSkillId!, managedScope),
     enabled: !!selectedSkillId && showSecurityHistoryDialog && hasManagedRequestScope(managedScope),
   })
 
   const { data: recentSkillUsage = [] } = useQuery({
-    queryKey: ['skill-usage', managedScope.key, selectedSkillId],
-    queryFn: async () => {
-      const res = await managedGet<unknown>(
-        apiResourceSubpath('skills', selectedSkillId!, ['usage'], { limit: 5 }),
-        managedRequestOptions(managedScope),
-      )
-      return parseSkillUsageListResponse(res)
-    },
+    queryKey: managedSkillRecentUsageQueryKey(managedScope.key, selectedSkillId),
+    queryFn: () => fetchManagedSkillRecentUsage(selectedSkillId!, managedScope),
     enabled: !!selectedSkillId && hasManagedRequestScope(managedScope),
   })
   const currentTargetHash = selectedSkill?.security_scan?.target_hash || null
   const { data: targetHashUsage = [] } = useQuery({
-    queryKey: ['skill-usage-search', managedScope.key, currentTargetHash],
-    queryFn: async () => {
-      const res = await managedGet<unknown>(
-        apiCollectionPath('skills/usage/search', {
-          limit: 5,
-          target_hash: currentTargetHash,
-        }),
-        managedRequestOptions(managedScope),
-      )
-      return parseSkillUsageListResponse(res)
-    },
+    queryKey: managedSkillTargetUsageQueryKey(managedScope.key, currentTargetHash),
+    queryFn: () => fetchManagedSkillTargetUsage(currentTargetHash!, managedScope),
     enabled: !!currentTargetHash && hasManagedRequestScope(managedScope),
   })
 
@@ -1846,14 +1808,13 @@ export function SkillManagerPageContent({
       if (!isCurrentManagedAction(variables)) {
         throw new Error('Stale skill folder import ignored')
       }
-      return managedPost<unknown>('/skills', result.skillData, {
-        ...managedRequestOptions(variables.scope),
-        timeout: SKILL_SCAN_TIMEOUT_MS,
-      }).then(parseSkillResponse)
+      return createManagedSkill(result.skillData, variables.scope)
     },
     onSuccess: (skill, variables) => {
       if (!isCurrentManagedAction(variables)) return
-      queryClient.invalidateQueries({ queryKey: ['skills', variables.scope.key] })
+      queryClient.invalidateQueries({
+        queryKey: managedSkillScopeQueryPrefix(variables.scope.key),
+      })
       mutationRunRef.current += 1
       selectedSkillIdRef.current = skill.id
       selectedFileIdRef.current = null
@@ -1877,17 +1838,13 @@ export function SkillManagerPageContent({
       if (!isCurrentManagedAction(variables)) {
         throw new Error('Stale skill zip import ignored')
       }
-      const formData = new FormData()
-      formData.append('file', variables.file)
-      return managedUpload<unknown>(
-        '/skills/import-zip',
-        formData,
-        managedRequestOptions(variables.scope),
-      ).then(parseSkillResponse)
+      return importManagedSkillZip(variables.file, variables.scope)
     },
     onSuccess: (skill, variables) => {
       if (!isCurrentManagedAction(variables)) return
-      queryClient.invalidateQueries({ queryKey: ['skills', variables.scope.key] })
+      queryClient.invalidateQueries({
+        queryKey: managedSkillScopeQueryPrefix(variables.scope.key),
+      })
       mutationRunRef.current += 1
       selectedSkillIdRef.current = skill.id
       selectedFileIdRef.current = null
@@ -1941,8 +1898,8 @@ export function SkillManagerPageContent({
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean)
-      return managedPut<unknown>(
-        apiResourcePath('skills', skillId),
+      return updateManagedSkill(
+        skillId,
         {
           name: form.name,
           description: form.description,
@@ -1952,11 +1909,8 @@ export function SkillManagerPageContent({
           source_type: form.source_type,
           source_url: form.source_url,
         },
-        {
-          ...managedRequestOptions(variables.scope),
-          timeout: SKILL_SCAN_TIMEOUT_MS,
-        },
-      ).then(parseSkillResponse)
+        variables.scope,
+      )
     },
     onSuccess: (updated, variables) => {
       if (!isCurrentSkillAction(variables)) return
@@ -1975,14 +1929,13 @@ export function SkillManagerPageContent({
       if (!isCurrentManagedAction(variables)) {
         throw new Error('Stale skill delete ignored')
       }
-      return managedDelete(
-        apiResourcePath('skills', variables.id),
-        managedRequestOptions(variables.scope),
-      )
+      return deleteManagedSkill(variables.id, variables.scope)
     },
     onSuccess: (_result, variables) => {
       if (!isCurrentManagedAction(variables)) return
-      queryClient.invalidateQueries({ queryKey: ['skills', variables.scope.key] })
+      queryClient.invalidateQueries({
+        queryKey: managedSkillScopeQueryPrefix(variables.scope.key),
+      })
       if (selectedSkillIdRef.current === variables.id) {
         selectedSkillIdRef.current = null
         selectedFileIdRef.current = null
@@ -2019,19 +1972,16 @@ export function SkillManagerPageContent({
         name = ensureExtension(fileName, fileType)
       }
 
-      return managedPost<unknown>(
-        apiResourcePath('skills', skillId, 'files'),
+      return createManagedSkillFile(
+        skillId,
         {
           path,
           file_name: name,
           file_type: fileType,
           content: '',
         },
-        {
-          ...managedRequestOptions(variables.scope),
-          timeout: SKILL_SCAN_TIMEOUT_MS,
-        },
-      ).then(parseSkillFileResponse)
+        variables.scope,
+      )
     },
     onSuccess: (_file, variables) => {
       if (!isCurrentSkillAction(variables)) return
@@ -2058,14 +2008,12 @@ export function SkillManagerPageContent({
       if (!isCurrentSkillAction(variables)) {
         throw new Error('Stale skill file save ignored')
       }
-      return managedPut<unknown>(
-        apiResourcePath('skills', variables.skillId, 'files', apiResourceId(variables.fileId)),
+      return updateManagedSkillFile(
+        variables.skillId,
+        variables.fileId,
         { content: variables.content },
-        {
-          ...managedRequestOptions(variables.scope),
-          timeout: SKILL_SCAN_TIMEOUT_MS,
-        },
-      ).then(parseSkillFileResponse)
+        variables.scope,
+      )
     },
     onSuccess: (_file, variables) => {
       if (!isCurrentSkillAction(variables)) return
@@ -2084,10 +2032,7 @@ export function SkillManagerPageContent({
       if (!isCurrentSkillAction(variables)) {
         throw new Error('Stale skill file delete ignored')
       }
-      return managedDelete(
-        apiResourcePath('skills', variables.skillId, 'files', apiResourceId(variables.fileId)),
-        managedRequestOptions(variables.scope),
-      )
+      return deleteManagedSkillFile(variables.skillId, variables.fileId, variables.scope)
     },
     onSuccess: (_result, variables) => {
       if (!isCurrentSkillAction(variables)) return
@@ -2111,12 +2056,7 @@ export function SkillManagerPageContent({
       }
       const { filesToDelete, skillId } = variables
       return Promise.all(
-        filesToDelete.map((f) =>
-          managedDelete(
-            apiResourcePath('skills', skillId, 'files', apiResourceId(f.id)),
-            managedRequestOptions(variables.scope),
-          ),
-        ),
+        filesToDelete.map((file) => deleteManagedSkillFile(skillId, file.id, variables.scope)),
       )
     },
     onSuccess: (_result, variables) => {
@@ -2165,16 +2105,7 @@ export function SkillManagerPageContent({
         ) {
           throw new Error('MOVE_CONFLICT')
         }
-        parseSkillFileResponse(
-          await managedPut<unknown>(
-            apiResourcePath('skills', skillId, 'files', apiResourceId(source.fileKey)),
-            { path: dest },
-            {
-              ...managedRequestOptions(variables.scope),
-              timeout: SKILL_SCAN_TIMEOUT_MS,
-            },
-          ),
-        )
+        await updateManagedSkillFile(skillId, source.fileKey, { path: dest }, variables.scope)
         return
       }
 
@@ -2195,14 +2126,7 @@ export function SkillManagerPageContent({
           if (newDir !== f.path && existing.has(newDir + f.file_name)) {
             throw new Error('MOVE_CONFLICT')
           }
-          return managedPut<unknown>(
-            apiResourcePath('skills', skillId, 'files', apiResourceId(f.id)),
-            { path: newDir },
-            {
-              ...managedRequestOptions(variables.scope),
-              timeout: SKILL_SCAN_TIMEOUT_MS,
-            },
-          ).then(parseSkillFileResponse)
+          return updateManagedSkillFile(skillId, f.id, { path: newDir }, variables.scope)
         }),
       )
     },
@@ -2228,22 +2152,19 @@ export function SkillManagerPageContent({
       if (!isCurrentSkillAction(variables)) {
         throw new Error('Stale skill version create ignored')
       }
-      return managedPost<unknown>(
-        apiResourcePath('skills', variables.skillId, 'versions'),
+      return publishManagedSkillVersion(
+        variables.skillId,
         {
-          name: form.name,
-          description: form.description,
-          content: form.content,
           release_notes: variables.releaseNotes,
           ...(variables.version ? { version: variables.version } : {}),
         },
-        managedRequestOptions(variables.scope),
-      ).then(parseSkillVersionResponse)
+        variables.scope,
+      )
     },
     onSuccess: (_version, variables) => {
       if (!isCurrentSkillAction(variables)) return
       queryClient.invalidateQueries({
-        queryKey: ['skill-versions', variables.scope.key, variables.skillId],
+        queryKey: managedSkillVersionsQueryKey(variables.scope.key, variables.skillId),
       })
     },
     onError: (error, variables) => {
@@ -2259,9 +2180,11 @@ export function SkillManagerPageContent({
   // the version's lifecycle_status, but never the scan state or file tree.
   const invalidatePromotion = useCallback(
     (skillId: SkillId, scope: ManagedRequestScope) => {
-      queryClient.invalidateQueries({ queryKey: ['skills', scope.key] })
-      queryClient.invalidateQueries({ queryKey: ['skill', scope.key, skillId] })
-      queryClient.invalidateQueries({ queryKey: ['skill-versions', scope.key, skillId] })
+      queryClient.invalidateQueries({ queryKey: managedSkillScopeQueryPrefix(scope.key) })
+      queryClient.invalidateQueries({ queryKey: managedSkillQueryKey(scope.key, skillId) })
+      queryClient.invalidateQueries({
+        queryKey: managedSkillVersionsQueryKey(scope.key, skillId),
+      })
     },
     [queryClient],
   )
@@ -2272,12 +2195,7 @@ export function SkillManagerPageContent({
       scope: ManagedRequestScope
       version: string
       targetTier: PromotableTier
-    }) =>
-      managedPost<unknown>(
-        apiResourcePath('skills', v.skillId, 'versions', v.version, 'submit-promotion'),
-        { target_tier: v.targetTier },
-        managedRequestOptions(v.scope),
-      ).then(parseSkillVersionResponse),
+    }) => submitManagedSkillPromotion(v.skillId, v.version, v.targetTier, v.scope),
     onSuccess: (_r, v) => {
       invalidatePromotion(v.skillId, v.scope)
       toast({ title: t('managed.skills.promotion.submitted') })
@@ -2287,11 +2205,7 @@ export function SkillManagerPageContent({
 
   const approvePromotionMutation = useMutation({
     mutationFn: (v: { skillId: SkillId; scope: ManagedRequestScope; version: string }) =>
-      managedPost<unknown>(
-        apiResourcePath('skills', v.skillId, 'versions', v.version, 'approve-promotion'),
-        {},
-        managedRequestOptions(v.scope),
-      ).then(parseSkillVersionResponse),
+      approveManagedSkillPromotion(v.skillId, v.version, v.scope),
     onSuccess: (_r, v) => {
       invalidatePromotion(v.skillId, v.scope)
       toast({ title: t('managed.skills.promotion.approved') })
@@ -2305,12 +2219,7 @@ export function SkillManagerPageContent({
       scope: ManagedRequestScope
       version: string
       reason: string
-    }) =>
-      managedPost<unknown>(
-        apiResourcePath('skills', v.skillId, 'versions', v.version, 'reject-promotion'),
-        { reason: v.reason || null },
-        managedRequestOptions(v.scope),
-      ).then(parseSkillVersionResponse),
+    }) => rejectManagedSkillPromotion(v.skillId, v.version, v.reason, v.scope),
     onSuccess: (_r, v) => {
       invalidatePromotion(v.skillId, v.scope)
       toast({ title: t('managed.skills.promotion.rejectedDone') })
@@ -2320,11 +2229,7 @@ export function SkillManagerPageContent({
 
   const takedownMutation = useMutation({
     mutationFn: (v: { skillId: SkillId; scope: ManagedRequestScope; tier: PromotableTier }) =>
-      managedPost<unknown>(
-        apiResourcePath('skills', v.skillId, 'takedown'),
-        { tier: v.tier },
-        managedRequestOptions(v.scope),
-      ).then(parseSkillResponse),
+      takedownManagedSkill(v.skillId, v.tier, v.scope),
     onSuccess: (_r, v) => {
       invalidatePromotion(v.skillId, v.scope)
       toast({ title: t('managed.skills.promotion.takenDown') })
@@ -2346,15 +2251,10 @@ export function SkillManagerPageContent({
       if (!currentSkillVersion(version, action.skillId)) return { ok: true }
       if (!isCurrentSkillAction(action)) return { ok: true }
       try {
-        await managedDelete(
-          apiResourceSubpath('skills', action.skillId, ['versions', version], {
-            force: force || undefined,
-          }),
-          managedRequestOptions(action.scope),
-        )
+        await deleteManagedSkillVersion(action.skillId, version, force, action.scope)
         if (isCurrentSkillAction(action)) {
           queryClient.invalidateQueries({
-            queryKey: ['skill-versions', action.scope.key, action.skillId],
+            queryKey: managedSkillVersionsQueryKey(action.scope.key, action.skillId),
           })
         }
         return { ok: true }
@@ -2387,13 +2287,7 @@ export function SkillManagerPageContent({
       if (!currentSkillVersion(version, action.skillId)) return false
       if (!isCurrentSkillAction(action)) return false
       try {
-        parseSkillResponse(
-          await managedPost<unknown>(
-            apiResourcePath('skills', action.skillId, 'versions', 'restore', version),
-            {},
-            managedRequestOptions(action.scope),
-          ),
-        )
+        await restoreManagedSkillVersion(action.skillId, version, action.scope)
         if (isCurrentSkillAction(action)) {
           // Restore rewrites the draft (content + files) from the version,
           // so refresh the skill detail, files, and version list together.
@@ -2420,24 +2314,18 @@ export function SkillManagerPageContent({
       if (!isCurrentSkillAction(variables)) {
         throw new Error('Stale skill security rescan ignored')
       }
-      return managedPost<unknown>(
-        apiResourcePath('skills', variables.skillId, 'security-scans', 'rescan'),
-        {},
-        managedRequestOptions(variables.scope),
-        // Rescan dispatches asynchronously on the backend and returns
-        // immediately with a scanning-state row, so the default 30s client
-        // timeout is plenty — no override needed. The selectedSkill query
-        // polls (refetchInterval) until the background verdict lands.
-      ).then(parseSkillSecurityScanResponse)
+      return rescanManagedSkillSecurity(variables.skillId, variables.scope)
     },
     onSuccess: (_scan, variables) => {
       if (!isCurrentSkillAction(variables)) return
-      queryClient.invalidateQueries({ queryKey: ['skills', variables.scope.key] })
       queryClient.invalidateQueries({
-        queryKey: ['skill', variables.scope.key, variables.skillId],
+        queryKey: managedSkillScopeQueryPrefix(variables.scope.key),
       })
       queryClient.invalidateQueries({
-        queryKey: ['skill-security-scans', variables.scope.key, variables.skillId],
+        queryKey: managedSkillQueryKey(variables.scope.key, variables.skillId),
+      })
+      queryClient.invalidateQueries({
+        queryKey: managedSkillSecurityHistoryQueryKey(variables.scope.key, variables.skillId),
       })
       // Scan now runs in the background; tell the user it started rather
       // than that it completed.
@@ -2639,7 +2527,11 @@ export function SkillManagerPageContent({
       <ResourceErrorState
         error={skillsError}
         resource="skill"
-        onRetry={() => queryClient.invalidateQueries({ queryKey: ['skills', managedScope.key] })}
+        onRetry={() =>
+          queryClient.invalidateQueries({
+            queryKey: managedSkillScopeQueryPrefix(managedScope.key),
+          })
+        }
       />
     )
   }
@@ -2651,7 +2543,7 @@ export function SkillManagerPageContent({
         resource="skill"
         onRetry={() =>
           queryClient.invalidateQueries({
-            queryKey: ['skill', managedScope.key, selectedSkillId],
+            queryKey: managedSkillQueryKey(managedScope.key, selectedSkillId),
           })
         }
       />
@@ -3008,8 +2900,8 @@ export function SkillManagerPageContent({
                     return true
                   }}
                   invalidateKeys={[
-                    ['skill', managedScope.key, selectedSkillId],
-                    ['skills', managedScope.key],
+                    managedSkillQueryKey(managedScope.key, selectedSkillId),
+                    managedSkillScopeQueryPrefix(managedScope.key),
                   ]}
                   impact={selectedSkill.impact}
                 />

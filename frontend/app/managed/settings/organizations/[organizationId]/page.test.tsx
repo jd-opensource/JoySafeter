@@ -36,18 +36,16 @@ vi.mock('@tanstack/react-query', () => ({
     queryKey[0] === 'organization-detail'
       ? { data: organization(), isLoading: false }
       : {
-          data: {
-            data: [
-              {
-                id: MEMBER_ID,
-                user_id: USER_MEMBER,
-                organization_id: ORG_B,
-                role: 'member',
-                user_name: 'Member',
-                user_email: 'member@example.com',
-              },
-            ],
-          },
+          data: [
+            {
+              id: MEMBER_ID,
+              user_id: USER_MEMBER,
+              organization_id: ORG_B,
+              role: 'member',
+              user_name: 'Member',
+              user_email: 'member@example.com',
+            },
+          ],
           isLoading: false,
         },
   useMutation: (options: {
@@ -126,6 +124,12 @@ describe('OrganizationOverviewPage', () => {
   })
 
   it('edits the route organization without switching active context', async () => {
+    managedPut.mockResolvedValue({
+      id: ORG_B,
+      name: 'Renamed Organization',
+      slug: 'organization-b',
+      project_creation_policy: 'all_members',
+    })
     const { default: OrganizationOverviewPage } = await import('./page')
     const view = render(<OrganizationOverviewPage />)
 
@@ -137,7 +141,7 @@ describe('OrganizationOverviewPage', () => {
       name: 'Renamed Organization',
       projectCreationPolicy: 'all_members',
     })
-    expect(managedPut).toHaveBeenCalledWith(`organizations/${ORG_B}`, {
+    expect(managedPut).toHaveBeenCalledWith(`/organizations/${ORG_B}`, {
       name: 'Renamed Organization',
       project_creation_policy: 'all_members',
     })
@@ -145,6 +149,14 @@ describe('OrganizationOverviewPage', () => {
   })
 
   it('keeps transfer and deletion in an owner-only advanced section', async () => {
+    managedPost.mockResolvedValue({
+      organization_id: ORG_B,
+      previous_owner_user_id: USER_OWNER,
+      previous_owner_role: 'admin',
+      new_owner_user_id: USER_MEMBER,
+      new_owner_role: 'owner',
+    })
+    managedDelete.mockResolvedValue(undefined)
     const { default: OrganizationOverviewPage } = await import('./page')
     const view = render(<OrganizationOverviewPage />)
 
@@ -153,11 +165,11 @@ describe('OrganizationOverviewPage', () => {
     expect(view.getByText('manage.organization.delete')).toBeTruthy()
 
     await mutationOptions[1]?.mutationFn?.({ userId: USER_MEMBER })
-    expect(managedPost).toHaveBeenCalledWith(`organizations/${ORG_B}/transfer-ownership`, {
+    expect(managedPost).toHaveBeenCalledWith(`/organizations/${ORG_B}/transfer-ownership`, {
       new_owner_user_id: USER_MEMBER,
     })
     await mutationOptions[2]?.mutationFn?.({})
-    expect(managedDelete).toHaveBeenCalledWith(`organizations/${ORG_B}`)
+    expect(managedDelete).toHaveBeenCalledWith(`/organizations/${ORG_B}`)
   })
 
   it('shows ordinary members a read-only overview', async () => {

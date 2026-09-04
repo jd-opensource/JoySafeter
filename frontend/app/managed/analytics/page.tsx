@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { ArrowRight } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n'
+import { useManagedAgentOptions } from '@/hooks/managed/use-managed-agent-options'
 import type { AnalyticsFilters, AlertConfig } from '@/lib/managed/analytics/types'
 import {
   useCallsTimeseries,
@@ -11,7 +12,6 @@ import {
   useLatencyTimeseries,
   useEngineShare,
   useHealthCheck,
-  useAgentsForFilters,
   useAgentRanking,
   useErrorSummary,
   useLatencyStats,
@@ -65,7 +65,7 @@ export default function AnalyticsOverviewPage() {
   const tokensTs = useTokensTimeseries(filters)
   const latencyTs = useLatencyTimeseries(filters)
   const engineShare = useEngineShare(filters)
-  const agentsList = useAgentsForFilters()
+  const agentsList = useManagedAgentOptions()
   const agentRanking = useAgentRanking(filters)
   const errorSummary = useErrorSummary(filters)
   const latencyStats = useLatencyStats(filters)

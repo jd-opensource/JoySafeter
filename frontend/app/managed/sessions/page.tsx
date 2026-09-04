@@ -5,16 +5,11 @@ import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from '@/lib/i18n'
 import { Plus } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
-import { managedPost } from '@/lib/api-client'
-import { apiResourcePath } from '@/lib/managed/api-paths'
-import {
-  managedRequestOptions,
-  managedScopeKey,
-  useManagedRequestScope,
-} from '@/lib/managed/request-scope'
+import { useManagedSessionList } from '@/hooks/managed/use-managed-session-list'
+import { managedScopeKey, useManagedRequestScope } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
-import { isEntityId, parseSessionId } from '@/types/entity-id'
+import { archiveManagedSession, managedSessionsQueryPrefix } from '@/lib/managed/session-client'
+import { isEntityId } from '@/types/entity-id'
 import type { Session } from '@/types/managed'
 import { Button } from '@/components/ui/button'
 import { AgentModelSummary } from '@/components/managed/agent/agent-model-summary'
@@ -28,7 +23,6 @@ import { ResourceErrorState } from '@/components/managed/shared'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
 import { toastOperationError } from '@/lib/managed/errors'
 import { getAgentModelSearchTokens } from '@/lib/managed/agent-model-display'
-import { parseSessionResponse } from '@/lib/managed/session-response-parsers'
 import { getSessionDisplayTitle } from '@/lib/managed/session-display'
 import { CreateSessionDialog } from './components/create-session-dialog'
 import { useProjectStore } from '@/stores/managed/project-store'
@@ -67,13 +61,7 @@ export default function SessionListPage() {
     goPrev,
     goToPage,
     setPageSize,
-  } = usePaginatedList<Session>({
-    queryKey: 'sessions',
-    path: '/sessions',
-    includeArchived: showArchived,
-    parseItem: parseSessionResponse,
-    parseCursor: parseSessionId,
-  })
+  } = useManagedSessionList(showArchived)
 
   const getEngineKindLabel = (engineKind?: string | null) => {
     switch (engineKind) {
@@ -205,21 +193,15 @@ export default function SessionListPage() {
     const requestScope = managedRequestScopeRef.current
     const actionScope = requestScope.key
     if (!currentManagedScopeIsActive(actionScope)) return
-    const sessionStillCurrent = queryClient
-      .getQueriesData<{ data?: Session[] }>({ queryKey: ['sessions', actionScope, '/sessions'] })
-      .some(([, page]) => page?.data?.some((currentSession) => currentSession.id === session.id))
+    const sessionStillCurrent = data.some((currentSession) => currentSession.id === session.id)
     if (!sessionStillCurrent) return
 
     const runId = actionRunRef.current + 1
     actionRunRef.current = runId
     try {
-      await managedPost(
-        apiResourcePath('sessions', session.id, 'archive'),
-        {},
-        managedRequestOptions(requestScope),
-      )
+      await archiveManagedSession(session.id, requestScope)
       if (!isCurrentAction(runId, actionScope)) return
-      queryClient.invalidateQueries({ queryKey: ['sessions', actionScope] })
+      queryClient.invalidateQueries({ queryKey: managedSessionsQueryPrefix(actionScope) })
     } catch (e) {
       if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
@@ -231,7 +213,11 @@ export default function SessionListPage() {
       <ResourceErrorState
         error={error}
         resource="session"
-        onRetry={() => queryClient.invalidateQueries({ queryKey: ['sessions', managedScope.key] })}
+        onRetry={() =>
+          queryClient.invalidateQueries({
+            queryKey: managedSessionsQueryPrefix(managedScope.key),
+          })
+        }
       />
     )
   }
@@ -310,7 +296,7 @@ export default function SessionListPage() {
         onCreated={(id) => {
           const scope = managedScopeRef.current
           if (!currentManagedScopeIsActive(scope)) return
-          queryClient.invalidateQueries({ queryKey: ['sessions', scope] })
+          queryClient.invalidateQueries({ queryKey: managedSessionsQueryPrefix(scope) })
           router.push(`/managed/sessions/${id}`)
         }}
       />
