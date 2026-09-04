@@ -1,8 +1,8 @@
 //! Kubernetes Lease fencing for the stateful ADS/management projection.
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use k8s_openapi::api::coordination::v1::{Lease, LeaseSpec};
@@ -42,6 +42,15 @@ struct Coordinator {
     replica_projector: ReplicaProjector,
     leading: AtomicBool,
     stopped: AtomicBool,
+    /// Local monotonic instant of the last confirmed lease renewal (or promotion).
+    /// Renewal failures only demote the leader once this exceeds `lease_duration`,
+    /// so a transient kube-apiserver hiccup no longer flaps leadership. (Bug 1)
+    last_renew_ok: Mutex<Instant>,
+    /// Client-go style liveness tracking for a *foreign* Lease holder: the last
+    /// `renewTime` we observed and the local instant we first saw it. Expiry is
+    /// measured from the local monotonic instant, never by comparing the holder's
+    /// wall-clock timestamp against ours — immune to cross-node clock skew. (Bug 2)
+    observed_renew: Mutex<Option<(MicroTime, Instant)>>,
 }
 
 pub struct LeaderHandle {
@@ -82,6 +91,8 @@ pub fn spawn(
         replica_projector: replication.projector,
         leading: AtomicBool::new(false),
         stopped: AtomicBool::new(false),
+        last_renew_ok: Mutex::new(Instant::now()),
+        observed_renew: Mutex::new(None),
     });
     let runner = inner.clone();
     let task = tokio::spawn(async move { runner.run().await });
@@ -97,22 +108,60 @@ impl Coordinator {
                 self.try_acquire().await
             };
             match held {
-                Ok(Some(epoch)) if !self.leading.swap(true, Ordering::AcqRel) => {
-                    if let Err(error) = self.promote(epoch).await {
-                        warn!(%error, "failed to promote Agent Gateway leader");
-                        self.leading.store(false, Ordering::Release);
-                        self.demote().await;
-                        self.release().await;
+                Ok(Some(epoch)) => {
+                    if !self.leading.swap(true, Ordering::AcqRel) {
+                        // Transition standby → leader.
+                        if let Err(error) = self.promote(epoch).await {
+                            warn!(%error, "failed to promote Agent Gateway leader");
+                            self.leading.store(false, Ordering::Release);
+                            self.demote().await;
+                            self.release().await;
+                        } else {
+                            self.mark_renewed();
+                        }
+                    } else {
+                        // Renewal succeeded while already leading.
+                        self.mark_renewed();
                     }
                 }
-                Ok(None) | Err(_) if self.leading.swap(false, Ordering::AcqRel) => {
-                    self.demote().await;
+                // No lease held, or a transient Lease API failure.
+                other => {
+                    let err_msg = match &other {
+                        Err(error) => Some(error.to_string()),
+                        _ => None,
+                    };
+                    if self.leading.load(Ordering::Acquire) {
+                        // Bug 1: only demote once we have genuinely failed to renew
+                        // for a full lease_duration. A single kube-apiserver blip or
+                        // 409 conflict must not flap leadership (which would empty the
+                        // leader-only Service endpoint and break orchestrator → gateway).
+                        let elapsed = { *self.last_renew_ok.lock().unwrap() }.elapsed();
+                        if elapsed >= self.config.lease_duration {
+                            warn!(
+                                elapsed_ms = elapsed.as_millis(),
+                                err = ?err_msg,
+                                "Agent Gateway Lease renewal deadline exceeded; demoting leader"
+                            );
+                            self.leading.store(false, Ordering::Release);
+                            self.demote().await;
+                        } else {
+                            warn!(
+                                elapsed_ms = elapsed.as_millis(),
+                                err = ?err_msg,
+                                "transient Agent Gateway Lease renewal failure; retaining leadership"
+                            );
+                        }
+                    } else if let Some(error) = err_msg {
+                        warn!(%error, "Agent Gateway Lease acquire failed");
+                    }
                 }
-                Err(error) => warn!(%error, "Agent Gateway Lease operation failed"),
-                _ => {}
             }
             tokio::time::sleep(self.config.renew_interval).await;
         }
+    }
+
+    fn mark_renewed(&self) {
+        *self.last_renew_ok.lock().unwrap() = Instant::now();
     }
 
     async fn promote(&self, lease_epoch: u64) -> anyhow::Result<()> {
@@ -136,6 +185,16 @@ impl Coordinator {
             .await?;
         recovery.validate()?;
         self.authority.begin_recovery_serving(&recovery)?;
+        // Bug 3: promotion above (snapshot fetch, inventory install, validation) can
+        // take non-trivial time. Before advertising this Pod as the ADS/management
+        // leader, re-confirm the Lease still names us at the same fencing epoch. If a
+        // slow promotion was superseded by another replica, publishing the leader
+        // label here would add a second Service endpoint and split ADS traffic.
+        if !self.still_holding(lease_epoch).await {
+            anyhow::bail!(
+                "Agent Gateway Lease was superseded during promotion (epoch {lease_epoch}); aborting"
+            );
+        }
         if !set_leader_label(
             &self.client,
             &self.config.namespace,
@@ -178,19 +237,84 @@ impl Coordinator {
             Ok(existing) => {
                 let default_spec = LeaseSpec::default();
                 let spec = existing.spec.as_ref().unwrap_or(&default_spec);
-                match acquire_step(
-                    spec,
-                    &self.config.identity,
-                    self.config.lease_duration,
-                    Utc::now(),
-                ) {
-                    AcquireStep::Renew => self.try_renew().await,
+                match self.classify_acquire(spec) {
+                    // `try_acquire` only runs while this coordinator considers
+                    // itself non-leading. If the Lease still names this Pod,
+                    // it belongs to a previous local leadership term (for
+                    // example after a transient API failure prevented release).
+                    // Replacing it as a takeover advances leaseTransitions and
+                    // gives the new authority term a fresh fencing epoch.
+                    AcquireStep::Reacquire => self.takeover(existing).await,
                     AcquireStep::Yield => Ok(None),
                     AcquireStep::Takeover => self.takeover(existing).await,
                 }
             }
             Err(kube::Error::Api(error)) if error.code == 404 => self.create().await,
             Err(error) => Err(error.into()),
+        }
+    }
+
+    /// Decide the acquire step, using monotonic observed-time as the authoritative
+    /// liveness signal for a *foreign* holder (Bug 2). `acquire_step` still encodes
+    /// the identity routing (self → Reacquire, unheld → Takeover) and the wall-clock
+    /// view; observed-time then overrides the foreign-holder verdict in both
+    /// directions:
+    ///   * wall-clock says expired but the holder is still renewing per our local
+    ///     clock (fast local clock) → Yield, preventing a skew-induced split brain;
+    ///   * wall-clock says live but the holder stopped renewing per our local clock
+    ///     (slow local clock) → Takeover, so failover is not indefinitely delayed.
+    fn classify_acquire(&self, spec: &LeaseSpec) -> AcquireStep {
+        let now = Utc::now();
+        let holder = spec.holder_identity.as_deref().unwrap_or("");
+        match acquire_step(spec, &self.config.identity, self.config.lease_duration, now) {
+            AcquireStep::Reacquire => {
+                self.reset_observed();
+                AcquireStep::Reacquire
+            }
+            AcquireStep::Takeover if holder.is_empty() || holder == self.config.identity => {
+                self.reset_observed();
+                AcquireStep::Takeover
+            }
+            // Foreign holder in either verdict → observed-time is authoritative.
+            _ => {
+                if self.observed_time_expired(spec.renew_time.as_ref()) {
+                    AcquireStep::Takeover
+                } else {
+                    AcquireStep::Yield
+                }
+            }
+        }
+    }
+
+    /// Whether a foreign holder has stopped renewing, judged by the local monotonic
+    /// clock. Tracks the last observed `renewTime`: when it advances, the holder is
+    /// alive and the observation window resets; when it is unchanged for at least
+    /// `lease_duration` of local time, the holder is considered dead. A missing
+    /// `renewTime` is immediately expired.
+    fn observed_time_expired(&self, renew_time: Option<&MicroTime>) -> bool {
+        let mut guard = self.observed_renew.lock().unwrap();
+        observed_expiry_step(&mut guard, renew_time, Instant::now(), self.config.lease_duration)
+    }
+
+    fn reset_observed(&self) {
+        *self.observed_renew.lock().unwrap() = None;
+    }
+
+    /// Whether the Lease still names this identity at the given fencing epoch.
+    /// Used as a promotion guard (Bug 3); any read failure is treated as "not held"
+    /// so promotion aborts rather than risk a second advertised leader.
+    async fn still_holding(&self, epoch: u64) -> bool {
+        match self.leases().await.get(&self.config.lease_name).await {
+            Ok(lease) => lease
+                .spec
+                .map(|spec| {
+                    let holds = spec.holder_identity.as_deref() == Some(&self.config.identity);
+                    let same_epoch =
+                        spec.lease_transitions.map(|t| t.max(1) as u64) == Some(epoch);
+                    holds && same_epoch
+                })
+                .unwrap_or(false),
+            Err(_) => false,
         }
     }
 
@@ -290,8 +414,10 @@ impl Coordinator {
 /// yielded to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AcquireStep {
-    /// We already hold it; refresh the renewal timestamp.
-    Renew,
+    /// The Lease still names this identity while the local coordinator is not
+    /// leading. Reacquire it with a fresh transition epoch so guards from the
+    /// revoked local term can never become valid again.
+    Reacquire,
     /// A different identity holds a live Lease; stand by.
     Yield,
     /// The Lease is unheld or expired; contend for it.
@@ -306,7 +432,7 @@ fn acquire_step(
 ) -> AcquireStep {
     let holder = spec.holder_identity.as_deref().unwrap_or("");
     if holder == identity {
-        AcquireStep::Renew
+        AcquireStep::Reacquire
     } else if !holder.is_empty() && !lease_expired(spec.renew_time.as_ref(), lease_duration, now) {
         AcquireStep::Yield
     } else {
@@ -338,6 +464,35 @@ fn lease_expired(
 /// would let a superseded leader's guards validate against a new authority.
 fn next_takeover_epoch(current_transitions: Option<i32>) -> i32 {
     current_transitions.unwrap_or(0).saturating_add(1).max(1)
+}
+
+/// Pure core of the monotonic observed-time liveness check (Bug 2). `state` is the
+/// last `(renewTime, local instant seen)` observation, updated in place. Returns
+/// whether the foreign holder is considered expired:
+///   * no `renewTime` → expired (and observation cleared);
+///   * `renewTime` advanced vs the last observation → alive, window reset;
+///   * `renewTime` unchanged for ≥ `lease_duration` of local time → expired.
+/// Crucially it never compares the holder-written wall clock to the local clock,
+/// so cross-node clock skew cannot make a live Lease look dead or vice versa.
+fn observed_expiry_step(
+    state: &mut Option<(MicroTime, Instant)>,
+    renew_time: Option<&MicroTime>,
+    now: Instant,
+    lease_duration: Duration,
+) -> bool {
+    match renew_time {
+        None => {
+            *state = None;
+            true
+        }
+        Some(rt) => match state {
+            Some((seen_rt, seen_at)) if seen_rt == rt => now.duration_since(*seen_at) >= lease_duration,
+            _ => {
+                *state = Some((rt.clone(), now));
+                false
+            }
+        },
+    }
 }
 
 async fn set_leader_label(client: &Client, namespace: &str, pod_name: &str, leader: bool) -> bool {

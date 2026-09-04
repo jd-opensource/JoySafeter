@@ -1,9 +1,9 @@
-use super::{acquire_step, lease_expired, next_takeover_epoch, AcquireStep};
+use super::{acquire_step, lease_expired, next_takeover_epoch, observed_expiry_step, AcquireStep};
 use crate::xds::authority::AuthorityPhase;
 use chrono::{DateTime, Utc};
 use k8s_openapi::api::coordination::v1::LeaseSpec;
 use k8s_openapi::apimachinery::pkg::apis::meta::v1::MicroTime;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[test]
 fn only_serving_authority_is_an_ads_candidate() {
@@ -74,13 +74,26 @@ fn lease_spec(
 }
 
 #[test]
-fn acquire_renews_a_lease_we_already_hold() {
+fn acquire_reacquires_a_self_held_lease_for_a_fresh_local_term() {
     let now = Utc::now();
     let spec = lease_spec(Some("me"), Some(1), now);
     assert_eq!(
         acquire_step(&spec, "me", Duration::from_secs(15), now),
-        AcquireStep::Renew
+        AcquireStep::Reacquire
     );
+}
+
+#[test]
+fn self_held_lease_reacquisition_advances_the_fencing_epoch() {
+    let now = Utc::now();
+    let mut spec = lease_spec(Some("me"), Some(1), now);
+    spec.lease_transitions = Some(7);
+
+    assert_eq!(
+        acquire_step(&spec, "me", Duration::from_secs(15), now),
+        AcquireStep::Reacquire
+    );
+    assert_eq!(next_takeover_epoch(spec.lease_transitions), 8);
 }
 
 #[test]
@@ -124,4 +137,74 @@ fn acquire_takes_over_when_a_foreign_holder_never_renewed() {
         acquire_step(&spec, "me", Duration::from_secs(15), now),
         AcquireStep::Takeover
     );
+}
+
+// ── Observed-time liveness (Bug 2: clock-skew-immune expiry) ────────────────────
+
+#[test]
+fn observed_expiry_treats_missing_renew_time_as_expired() {
+    let mut state = Some((MicroTime(Utc::now()), Instant::now()));
+    assert!(observed_expiry_step(
+        &mut state,
+        None,
+        Instant::now(),
+        Duration::from_secs(15)
+    ));
+    // Observation is cleared so a later appearance restarts the window.
+    assert!(state.is_none());
+}
+
+#[test]
+fn observed_expiry_resets_window_when_renew_time_advances() {
+    let base = Instant::now();
+    let mut state = None;
+    let first = MicroTime(Utc::now());
+    // First sighting of a foreign holder: never immediately expired.
+    assert!(!observed_expiry_step(
+        &mut state,
+        Some(&first),
+        base,
+        Duration::from_secs(15)
+    ));
+    // Holder renews (renewTime advances) right before the window would elapse;
+    // liveness must reset regardless of how the wall-clock values compare.
+    let second = MicroTime(Utc::now() + chrono::Duration::seconds(1));
+    let later = base + Duration::from_secs(14);
+    assert!(!observed_expiry_step(
+        &mut state,
+        Some(&second),
+        later,
+        Duration::from_secs(15)
+    ));
+    // Only sustained non-renewal past the window (measured locally) expires it.
+    let much_later = later + Duration::from_secs(16);
+    assert!(observed_expiry_step(
+        &mut state,
+        Some(&second),
+        much_later,
+        Duration::from_secs(15)
+    ));
+}
+
+#[test]
+fn observed_expiry_is_measured_from_local_time_not_holder_clock() {
+    // A holder whose renewTime is wildly in the future (skewed clock) is still
+    // judged live only for lease_duration of *local* time after we first saw it.
+    let base = Instant::now();
+    let mut state = None;
+    let skewed = MicroTime(Utc::now() + chrono::Duration::hours(1));
+    assert!(!observed_expiry_step(
+        &mut state,
+        Some(&skewed),
+        base,
+        Duration::from_secs(15)
+    ));
+    // Same (unchanged) renewTime, local window elapsed → expired despite the
+    // holder's future-dated wall clock.
+    assert!(observed_expiry_step(
+        &mut state,
+        Some(&skewed),
+        base + Duration::from_secs(15),
+        Duration::from_secs(15)
+    ));
 }
