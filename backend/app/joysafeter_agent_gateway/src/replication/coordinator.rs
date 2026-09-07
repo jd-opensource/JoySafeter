@@ -62,6 +62,20 @@ struct ReplicaAck {
     revision: u64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReplicationMetricsSnapshot {
+    pub leader: bool,
+    pub hot_standby: bool,
+    pub revision: u64,
+    pub connected_replicas: usize,
+    pub acknowledged_replicas: usize,
+    pub required_acknowledgements: usize,
+    pub acknowledgement_lag: u64,
+    pub log_entries: usize,
+    pub policies: usize,
+    pub placements: usize,
+}
+
 impl ReplicationCoordinator {
     pub fn new(
         instance_id: impl Into<String>,
@@ -397,6 +411,74 @@ impl ReplicationCoordinator {
 
     pub async fn current_snapshot(&self) -> ReplicatedSnapshot {
         self.state.lock().await.snapshot.clone()
+    }
+
+    pub async fn metrics_snapshot(&self) -> ReplicationMetricsSnapshot {
+        let state = self.state.lock().await;
+        let (leader, revision) = state
+            .leader
+            .as_ref()
+            .map(|leader| (true, leader.revision))
+            .unwrap_or_else(|| {
+                (
+                    false,
+                    state
+                        .hot
+                        .as_ref()
+                        .map(|metadata| metadata.revision)
+                        .unwrap_or(0),
+                )
+            });
+        let acknowledged_replicas = state
+            .leader
+            .as_ref()
+            .map(|term| {
+                state
+                    .acknowledgements
+                    .iter()
+                    .filter(|(replica_id, ack)| {
+                        ack.term == term.id
+                            && state
+                                .sessions
+                                .get(*replica_id)
+                                .is_some_and(|session| session == &ack.session_id)
+                    })
+                    .count()
+            })
+            .unwrap_or(0);
+        let acknowledgement_lag = state
+            .leader
+            .as_ref()
+            .filter(|_| self.min_replica_acks > 0)
+            .map(|term| {
+                let minimum_ack = state
+                    .acknowledgements
+                    .iter()
+                    .filter(|(replica_id, ack)| {
+                        ack.term == term.id
+                            && state
+                                .sessions
+                                .get(*replica_id)
+                                .is_some_and(|session| session == &ack.session_id)
+                    })
+                    .map(|(_, ack)| ack.revision)
+                    .min()
+                    .unwrap_or(0);
+                term.revision.saturating_sub(minimum_ack)
+            })
+            .unwrap_or(0);
+        ReplicationMetricsSnapshot {
+            leader,
+            hot_standby: state.hot.is_some(),
+            revision,
+            connected_replicas: state.sessions.len(),
+            acknowledged_replicas,
+            required_acknowledgements: self.min_replica_acks,
+            acknowledgement_lag,
+            log_entries: state.log.len(),
+            policies: state.snapshot.policies.len(),
+            placements: state.snapshot.placements.len(),
+        }
     }
 
     async fn wait_for_acks(&self, term: &str, revision: u64) -> Result<(), ReplicationError> {

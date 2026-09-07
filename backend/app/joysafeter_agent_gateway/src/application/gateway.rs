@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use joysafeter_agent_gateway_contract::{
     AppliedSandboxGeneration, ApplySandboxPolicyRequest, PolicyGeneration, SandboxPlacement,
@@ -9,7 +9,7 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::application::policy::ValidatedPolicy;
-use crate::application::policy_publisher::{PolicyPublisher, RemoveOutcome};
+use crate::application::policy_publisher::{PolicyPublisher, PublishOutcome, RemoveOutcome};
 use crate::domain::placement::SandboxPlacement as ValidatedPlacement;
 use crate::ids::SandboxId;
 use crate::replication::model::{ReplicaMutation, ReplicatedPolicy};
@@ -17,6 +17,7 @@ use crate::replication::ReplicationCoordinator;
 use crate::xds::authority::XdsAuthority;
 use crate::xds::control_plane::{DeliveryWaitError, XdsControlPlane};
 use crate::xds::delivery::DeliveryError;
+use crate::xds::metrics::{DeliveryResult, PolicyOperation, PolicyOperationResult};
 use crate::xds::model::DeliveryGeneration;
 
 use super::mutation_coordinator::MutationCoordinator;
@@ -133,11 +134,18 @@ impl GatewayApplication {
         sandbox_id: SandboxId,
         request: ApplySandboxPolicyRequest,
     ) -> Result<PolicyGeneration, GatewayApplicationError> {
+        let started_at = Instant::now();
         let application = self.clone();
-        finish_started_mutation(tokio::spawn(async move {
+        let result = finish_started_mutation(tokio::spawn(async move {
             application.apply_policy_inner(sandbox_id, request).await
         }))
-        .await
+        .await;
+        self.control_plane.metrics().record_policy_operation(
+            PolicyOperation::Apply,
+            policy_operation_result(&result),
+            started_at.elapsed(),
+        );
+        result
     }
 
     async fn apply_policy_inner(
@@ -201,14 +209,30 @@ impl GatewayApplication {
             };
             (guard, staged, outcome)
         };
+        let delivery_started_at = Instant::now();
+        let delivery_was_published = matches!(outcome, PublishOutcome::Awaiting(_));
         if let Err(error) = self
             .publisher
             .wait_for_delivery(outcome, self.runtime.delivery_timeout)
             .await
         {
+            if delivery_was_published {
+                self.control_plane.metrics().record_delivery(
+                    PolicyOperation::Apply,
+                    delivery_result_from_wait_error(&error),
+                    delivery_started_at.elapsed(),
+                );
+            }
             let _recovery = self.mutations.lock_recovery().await;
             self.projections.rollback(&staged);
             return Err(classify_delivery_error(error));
+        }
+        if delivery_was_published {
+            self.control_plane.metrics().record_delivery(
+                PolicyOperation::Apply,
+                DeliveryResult::Ack,
+                delivery_started_at.elapsed(),
+            );
         }
         {
             let _recovery = self.mutations.lock_recovery().await;
@@ -242,13 +266,20 @@ impl GatewayApplication {
         sandbox_id: SandboxId,
         generation: PolicyGeneration,
     ) -> Result<(), GatewayApplicationError> {
+        let started_at = Instant::now();
         let application = self.clone();
-        finish_started_mutation(tokio::spawn(async move {
+        let result = finish_started_mutation(tokio::spawn(async move {
             application
                 .remove_policy_inner(sandbox_id, generation)
                 .await
         }))
-        .await
+        .await;
+        self.control_plane.metrics().record_policy_operation(
+            PolicyOperation::Remove,
+            policy_operation_result(&result),
+            started_at.elapsed(),
+        );
+        result
     }
 
     async fn remove_policy_inner(
@@ -281,10 +312,27 @@ impl GatewayApplication {
         let RemoveOutcome::Current(outcome) = outcome else {
             return Ok(());
         };
-        self.publisher
+        let delivery_started_at = Instant::now();
+        let delivery_was_published = matches!(outcome, PublishOutcome::Awaiting(_));
+        let delivery_result = self
+            .publisher
             .wait_for_delivery(outcome, self.runtime.delivery_timeout)
-            .await
-            .map_err(classify_delivery_error)?;
+            .await;
+        if delivery_was_published {
+            match &delivery_result {
+                Ok(()) => self.control_plane.metrics().record_delivery(
+                    PolicyOperation::Remove,
+                    DeliveryResult::Ack,
+                    delivery_started_at.elapsed(),
+                ),
+                Err(error) => self.control_plane.metrics().record_delivery(
+                    PolicyOperation::Remove,
+                    delivery_result_from_wait_error(error),
+                    delivery_started_at.elapsed(),
+                ),
+            }
+        }
+        delivery_result.map_err(classify_delivery_error)?;
         {
             let _recovery = self.mutations.lock_recovery().await;
             guard
@@ -316,7 +364,9 @@ impl GatewayApplication {
         // hot standby). (H5)
         let application = self.clone();
         finish_started_mutation(tokio::spawn(async move {
-            application.assign_placement_inner(sandbox_id, node_id).await
+            application
+                .assign_placement_inner(sandbox_id, node_id)
+                .await
         }))
         .await
     }
@@ -632,6 +682,40 @@ fn classify_delivery_error(error: anyhow::Error) -> GatewayApplicationError {
         Some(DeliveryWaitError::Nacked { .. }) => GatewayApplicationError::DeliveryNack(error),
         Some(DeliveryWaitError::Timeout { .. }) => GatewayApplicationError::DeliveryTimeout(error),
         None => GatewayApplicationError::Delivery(error),
+    }
+}
+
+fn delivery_result_from_wait_error(error: &anyhow::Error) -> DeliveryResult {
+    match error.downcast_ref::<DeliveryWaitError>() {
+        Some(DeliveryWaitError::Nacked { .. }) => DeliveryResult::Nack,
+        Some(DeliveryWaitError::Timeout { .. }) | None => DeliveryResult::Timeout,
+    }
+}
+
+fn policy_operation_result<T>(
+    result: &Result<T, GatewayApplicationError>,
+) -> PolicyOperationResult {
+    match result {
+        Ok(_) => PolicyOperationResult::Success,
+        Err(
+            GatewayApplicationError::InvalidPolicy(_)
+            | GatewayApplicationError::InvalidPlacement(_)
+            | GatewayApplicationError::InvalidInventory(_),
+        ) => PolicyOperationResult::InvalidArgument,
+        Err(
+            GatewayApplicationError::InvalidGeneration
+            | GatewayApplicationError::RecoveryMismatch
+            | GatewayApplicationError::DeliveryNack(_),
+        ) => PolicyOperationResult::FailedPrecondition,
+        Err(
+            GatewayApplicationError::NodeNotReady
+            | GatewayApplicationError::AuthorityUnavailable
+            | GatewayApplicationError::AuthorityChanged
+            | GatewayApplicationError::Replication(_)
+            | GatewayApplicationError::Delivery(_),
+        ) => PolicyOperationResult::Unavailable,
+        Err(GatewayApplicationError::DeliveryTimeout(_)) => PolicyOperationResult::DeadlineExceeded,
+        Err(GatewayApplicationError::Infrastructure(_)) => PolicyOperationResult::Internal,
     }
 }
 

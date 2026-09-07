@@ -1,7 +1,11 @@
 use std::fmt::Write;
 use std::time::Duration;
 
-use super::{XdsMetricsSnapshot, AUTHORITY_PHASES};
+use super::{
+    DeliveryResult, DurationHistogramSnapshot, KubernetesOperation, KubernetesResult,
+    PolicyOperation, PolicyOperationResult, XdsMetricsSnapshot, AUTHORITY_PHASES,
+    DURATION_BUCKETS_SECONDS,
+};
 use crate::xds::model::ResourceType;
 
 impl XdsMetricsSnapshot {
@@ -370,8 +374,142 @@ impl XdsMetricsSnapshot {
                 u8::from(node.ready)
             );
         }
+
+        write_metric_header(
+            &mut output,
+            "joysafeter_agent_gateway_policy_operations_total",
+            "Completed policy operations by operation and bounded result class.",
+            "counter",
+        );
+        for operation in PolicyOperation::ALL {
+            for result in PolicyOperationResult::ALL {
+                let value = self.policy_operations[operation.index()][result.index()];
+                let _ = writeln!(
+                    output,
+                    "joysafeter_agent_gateway_policy_operations_total{{operation=\"{}\",result=\"{}\"}} {value}",
+                    operation.label(),
+                    result.label()
+                );
+            }
+        }
+        write_metric_header(
+            &mut output,
+            "joysafeter_agent_gateway_policy_operation_duration_seconds",
+            "End-to-end policy operation duration, including xDS delivery and replication.",
+            "histogram",
+        );
+        for operation in PolicyOperation::ALL {
+            render_duration_histogram(
+                &mut output,
+                "joysafeter_agent_gateway_policy_operation_duration_seconds",
+                &[('o', operation.label())],
+                &self.policy_operation_durations[operation.index()],
+            );
+        }
+
+        write_metric_header(
+            &mut output,
+            "joysafeter_xds_delivery_total",
+            "Terminal exact xDS delivery outcomes by policy operation.",
+            "counter",
+        );
+        for operation in PolicyOperation::ALL {
+            for result in DeliveryResult::ALL {
+                let value = self.delivery_results[operation.index()][result.index()];
+                let _ = writeln!(
+                    output,
+                    "joysafeter_xds_delivery_total{{operation=\"{}\",outcome=\"{}\"}} {value}",
+                    operation.label(),
+                    result.label()
+                );
+            }
+        }
+        write_metric_header(
+            &mut output,
+            "joysafeter_xds_delivery_duration_seconds",
+            "Time from xDS publication until exact ACK, NACK, or timeout.",
+            "histogram",
+        );
+        for operation in PolicyOperation::ALL {
+            for result in DeliveryResult::ALL {
+                render_duration_histogram(
+                    &mut output,
+                    "joysafeter_xds_delivery_duration_seconds",
+                    &[('o', operation.label()), ('r', result.label())],
+                    &self.delivery_durations[operation.index()][result.index()],
+                );
+            }
+        }
+
+        write_metric_header(
+            &mut output,
+            "joysafeter_agent_gateway_leader_transitions_total",
+            "Successful local Agent Gateway leadership transitions.",
+            "counter",
+        );
+        let _ = writeln!(
+            output,
+            "joysafeter_agent_gateway_leader_transitions_total{{transition=\"promote\"}} {}",
+            self.leader_promotions
+        );
+        let _ = writeln!(
+            output,
+            "joysafeter_agent_gateway_leader_transitions_total{{transition=\"demote\"}} {}",
+            self.leader_demotions
+        );
+        write_metric_header(
+            &mut output,
+            "joysafeter_agent_gateway_kubernetes_operations_total",
+            "Kubernetes Lease and leader-label operation outcomes.",
+            "counter",
+        );
+        for operation in KubernetesOperation::ALL {
+            for result in KubernetesResult::ALL {
+                let value = self.kubernetes_operations[operation.index()][result.index()];
+                let _ = writeln!(
+                    output,
+                    "joysafeter_agent_gateway_kubernetes_operations_total{{operation=\"{}\",result=\"{}\"}} {value}",
+                    operation.label(),
+                    result.label()
+                );
+            }
+        }
         output
     }
+}
+
+fn render_duration_histogram(
+    output: &mut String,
+    name: &str,
+    compact_labels: &[(char, &str)],
+    histogram: &DurationHistogramSnapshot,
+) {
+    let labels = compact_labels
+        .iter()
+        .map(|(key, value)| match key {
+            'o' => format!("operation=\"{value}\""),
+            'r' => format!("outcome=\"{value}\""),
+            _ => unreachable!("fixed histogram label key"),
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    for (upper_bound, count) in DURATION_BUCKETS_SECONDS.iter().zip(&histogram.buckets) {
+        let _ = writeln!(
+            output,
+            "{name}_bucket{{{labels},le=\"{upper_bound}\"}} {count}"
+        );
+    }
+    let _ = writeln!(
+        output,
+        "{name}_bucket{{{labels},le=\"+Inf\"}} {}",
+        histogram.count
+    );
+    let _ = writeln!(
+        output,
+        "{name}_sum{{{labels}}} {:.6}",
+        histogram.sum_micros as f64 / 1_000_000.0
+    );
+    let _ = writeln!(output, "{name}_count{{{labels}}} {}", histogram.count);
 }
 
 fn prometheus_label(value: &str) -> String {

@@ -19,6 +19,7 @@ use crate::replication::{ReplicaProjector, ReplicationCoordinator};
 use crate::xds::authority::XdsAuthority;
 use crate::xds::control_plane::XdsControlPlane;
 use crate::xds::inventory::RecoveryInventory;
+use crate::xds::metrics::{KubernetesOperation, KubernetesResult, XdsMetrics};
 
 pub const LEADER_LABEL: &str = "joysafeter-agent-gateway-leader";
 
@@ -51,6 +52,7 @@ struct Coordinator {
     /// measured from the local monotonic instant, never by comparing the holder's
     /// wall-clock timestamp against ours — immune to cross-node clock skew. (Bug 2)
     observed_renew: Mutex<Option<(MicroTime, Instant)>>,
+    metrics: XdsMetrics,
 }
 
 pub struct LeaderHandle {
@@ -67,6 +69,9 @@ pub struct LeaderReplication {
 impl LeaderHandle {
     pub async fn shutdown(&self) {
         self.inner.stopped.store(true, Ordering::Release);
+        if self.inner.leading.swap(false, Ordering::AcqRel) {
+            self.inner.metrics.record_leader_demotion();
+        }
         self.inner.demote().await;
         self.inner.release().await;
         self.task.abort();
@@ -81,6 +86,7 @@ pub fn spawn(
     projections: PolicyProjectionRegistry,
     replication: LeaderReplication,
 ) -> LeaderHandle {
+    let metrics = control_plane.metrics();
     let inner = Arc::new(Coordinator {
         client,
         config,
@@ -93,6 +99,7 @@ pub fn spawn(
         stopped: AtomicBool::new(false),
         last_renew_ok: Mutex::new(Instant::now()),
         observed_renew: Mutex::new(None),
+        metrics,
     });
     let runner = inner.clone();
     let task = tokio::spawn(async move { runner.run().await });
@@ -103,9 +110,19 @@ impl Coordinator {
     async fn run(self: Arc<Self>) {
         while !self.stopped.load(Ordering::Acquire) {
             let held = if self.leading.load(Ordering::Acquire) {
-                self.try_renew().await
+                let result = self.try_renew().await;
+                self.metrics.record_kubernetes_operation(
+                    KubernetesOperation::RenewLease,
+                    kubernetes_result(&result),
+                );
+                result
             } else {
-                self.try_acquire().await
+                let result = self.try_acquire().await;
+                self.metrics.record_kubernetes_operation(
+                    KubernetesOperation::AcquireLease,
+                    kubernetes_result(&result),
+                );
+                result
             };
             match held {
                 Ok(Some(epoch)) => {
@@ -118,6 +135,7 @@ impl Coordinator {
                             self.release().await;
                         } else {
                             self.mark_renewed();
+                            self.metrics.record_leader_promotion();
                         }
                     } else {
                         // Renewal succeeded while already leading.
@@ -143,6 +161,7 @@ impl Coordinator {
                                 "Agent Gateway Lease renewal deadline exceeded; demoting leader"
                             );
                             self.leading.store(false, Ordering::Release);
+                            self.metrics.record_leader_demotion();
                             self.demote().await;
                         } else {
                             warn!(
@@ -195,14 +214,22 @@ impl Coordinator {
                 "Agent Gateway Lease was superseded during promotion (epoch {lease_epoch}); aborting"
             );
         }
-        if !set_leader_label(
+        let label_published = set_leader_label(
             &self.client,
             &self.config.namespace,
             &self.config.pod_name,
             true,
         )
-        .await
-        {
+        .await;
+        self.metrics.record_kubernetes_operation(
+            KubernetesOperation::PublishLeaderLabel,
+            if label_published {
+                KubernetesResult::Success
+            } else {
+                KubernetesResult::Error
+            },
+        );
+        if !label_published {
             anyhow::bail!("failed to publish Agent Gateway leader endpoint");
         }
         let replicated_policies = self.replication.current_snapshot().await.policies.len();
@@ -217,13 +244,21 @@ impl Coordinator {
 
     async fn demote(&self) {
         let _ = self.authority.revoke();
-        set_leader_label(
+        let label_published = set_leader_label(
             &self.client,
             &self.config.namespace,
             &self.config.pod_name,
             false,
         )
         .await;
+        self.metrics.record_kubernetes_operation(
+            KubernetesOperation::PublishLeaderLabel,
+            if label_published {
+                KubernetesResult::Success
+            } else {
+                KubernetesResult::Error
+            },
+        );
         self.replication.demote().await;
     }
 
@@ -293,7 +328,12 @@ impl Coordinator {
     /// `renewTime` is immediately expired.
     fn observed_time_expired(&self, renew_time: Option<&MicroTime>) -> bool {
         let mut guard = self.observed_renew.lock().unwrap();
-        observed_expiry_step(&mut guard, renew_time, Instant::now(), self.config.lease_duration)
+        observed_expiry_step(
+            &mut guard,
+            renew_time,
+            Instant::now(),
+            self.config.lease_duration,
+        )
     }
 
     fn reset_observed(&self) {
@@ -309,8 +349,7 @@ impl Coordinator {
                 .spec
                 .map(|spec| {
                     let holds = spec.holder_identity.as_deref() == Some(&self.config.identity);
-                    let same_epoch =
-                        spec.lease_transitions.map(|t| t.max(1) as u64) == Some(epoch);
+                    let same_epoch = spec.lease_transitions.map(|t| t.max(1) as u64) == Some(epoch);
                     holds && same_epoch
                 })
                 .unwrap_or(false),
@@ -392,19 +431,47 @@ impl Coordinator {
     async fn release(&self) {
         let leases = self.leases().await;
         let Ok(mut lease) = leases.get(&self.config.lease_name).await else {
+            self.metrics.record_kubernetes_operation(
+                KubernetesOperation::ReleaseLease,
+                KubernetesResult::Error,
+            );
             return;
         };
         let Some(spec) = lease.spec.as_mut() else {
+            self.metrics.record_kubernetes_operation(
+                KubernetesOperation::ReleaseLease,
+                KubernetesResult::Error,
+            );
             return;
         };
         if spec.holder_identity.as_deref() != Some(&self.config.identity) {
+            self.metrics.record_kubernetes_operation(
+                KubernetesOperation::ReleaseLease,
+                KubernetesResult::Contended,
+            );
             return;
         }
         spec.holder_identity = None;
         spec.renew_time = Some(MicroTime(Utc::now()));
-        let _ = leases
+        let result = leases
             .replace(&self.config.lease_name, &PostParams::default(), &lease)
             .await;
+        self.metrics.record_kubernetes_operation(
+            KubernetesOperation::ReleaseLease,
+            if result.is_ok() {
+                KubernetesResult::Success
+            } else {
+                KubernetesResult::Error
+            },
+        );
+    }
+}
+
+fn kubernetes_result(result: &anyhow::Result<Option<u64>>) -> KubernetesResult {
+    match result {
+        Ok(Some(_)) => KubernetesResult::Success,
+        Ok(None) => KubernetesResult::Contended,
+        Err(_) => KubernetesResult::Error,
     }
 }
 
@@ -472,6 +539,7 @@ fn next_takeover_epoch(current_transitions: Option<i32>) -> i32 {
 ///   * no `renewTime` → expired (and observation cleared);
 ///   * `renewTime` advanced vs the last observation → alive, window reset;
 ///   * `renewTime` unchanged for ≥ `lease_duration` of local time → expired.
+///
 /// Crucially it never compares the holder-written wall clock to the local clock,
 /// so cross-node clock skew cannot make a live Lease look dead or vice versa.
 fn observed_expiry_step(
@@ -486,7 +554,9 @@ fn observed_expiry_step(
             true
         }
         Some(rt) => match state {
-            Some((seen_rt, seen_at)) if seen_rt == rt => now.duration_since(*seen_at) >= lease_duration,
+            Some((seen_rt, seen_at)) if seen_rt == rt => {
+                now.duration_since(*seen_at) >= lease_duration
+            }
             _ => {
                 *state = Some((rt.clone(), now));
                 false

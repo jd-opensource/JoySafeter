@@ -302,3 +302,44 @@ async fn promotion_without_a_complete_snapshot_falls_back_to_empty_state() {
     assert!(hot.is_none());
     assert!(coordinator.current_snapshot().await.policies.is_empty());
 }
+
+#[tokio::test]
+async fn replication_metrics_describe_leader_and_hot_standby_state() {
+    let leader = ReplicationCoordinator::new("leader", 1, Duration::from_secs(1));
+    leader.begin_leader_term(3).await.expect("leader term");
+    leader
+        .publish(
+            3,
+            ReplicaMutation::UpsertPolicy {
+                policy: policy("sandbox-a", 1),
+            },
+        )
+        .await
+        .expect_err("no follower ACK");
+    let leader_metrics = leader.metrics_snapshot().await;
+    assert!(leader_metrics.leader);
+    assert_eq!(leader_metrics.revision, 1);
+    assert_eq!(leader_metrics.required_acknowledgements, 1);
+    assert_eq!(leader_metrics.acknowledgement_lag, 1);
+    assert_eq!(leader_metrics.policies, 1);
+
+    let follower = ReplicationCoordinator::new("follower", 1, Duration::from_secs(1));
+    let snapshot = ReplicatedSnapshot::default();
+    let digest = snapshot_digest(&snapshot).expect("digest");
+    follower
+        .install_follower_snapshot(
+            snapshot,
+            HotSnapshotMetadata {
+                source_instance: "leader".to_string(),
+                term: "term".to_string(),
+                revision: 9,
+                snapshot_digest: digest,
+            },
+        )
+        .await
+        .expect("hot snapshot");
+    let follower_metrics = follower.metrics_snapshot().await;
+    assert!(!follower_metrics.leader);
+    assert!(follower_metrics.hot_standby);
+    assert_eq!(follower_metrics.revision, 9);
+}

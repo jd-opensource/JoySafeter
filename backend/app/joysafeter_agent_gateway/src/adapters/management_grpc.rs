@@ -52,6 +52,7 @@ impl GatewayManagementServer {
         })
     }
 
+    #[allow(clippy::result_large_err)]
     fn authenticate<T>(&self, request: &Request<T>) -> Result<(), Status> {
         let token = request
             .metadata()
