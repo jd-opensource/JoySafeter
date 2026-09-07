@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "JoySafeter platform Helm values",
   "type": "object",
-  "required": ["productionPriorityClass"],
+  "required": ["productionPriorityClass", "grafanaDashboard"],
   "properties": {
     "productionPriorityClass": {
       "type": "object",
@@ -15,6 +15,23 @@
           "enum": ["PreemptLowerPriority", "Never"]
         },
         "description": { "type": "string", "minLength": 1 }
+      }
+    },
+    "grafanaDashboard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "namespace", "labels", "annotations"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "namespace": { "type": "string", "minLength": 1 },
+        "labels": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "annotations": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
       }
     }
   },

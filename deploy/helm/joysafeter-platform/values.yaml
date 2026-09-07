@@ -2,3 +2,12 @@ productionPriorityClass:
   value: 1000000
   preemptionPolicy: PreemptLowerPriority
   description: JoySafeter production workloads; may preempt lower-priority dev/pre workloads.
+
+# One cluster-wide dashboard covers dev/pre/prod through its namespace variable.
+# kube-prometheus-stack's Grafana sidecar discovers ConfigMaps with this label.
+grafanaDashboard:
+  enabled: true
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+  annotations: {}

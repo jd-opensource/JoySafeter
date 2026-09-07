@@ -39,3 +39,13 @@ agentGateway:
 
 envoy:
   socketHostDir: /data/joysafeter-dev/envoy-sockets
+
+monitoring:
+  serviceMonitor:
+    enabled: true
+    additionalLabels:
+      release: kps
+  xdsAlerts:
+    enabled: false
+  runnerAlerts:
+    enabled: false

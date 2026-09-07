@@ -71,6 +71,31 @@
         "tolerations": { "$ref": "#/definitions/tolerations" }
       }
     },
+    "monitoring": {
+      "type": "object",
+      "properties": {
+        "serviceMonitor": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "interval", "scrapeTimeout", "additionalLabels"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "interval": { "type": "string", "minLength": 1 },
+            "scrapeTimeout": { "type": "string", "minLength": 1 },
+            "additionalLabels": { "$ref": "#/definitions/stringMap" }
+          }
+        },
+        "prometheus": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["namespace", "podSelector"],
+          "properties": {
+            "namespace": { "type": "string", "minLength": 1 },
+            "podSelector": { "$ref": "#/definitions/stringMap" }
+          }
+        }
+      }
+    },
     "agentIdentity": {
       "type": "object",
       "additionalProperties": false,
@@ -134,6 +159,10 @@
     }
   },
   "definitions": {
+    "stringMap": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
     "immutableImage": {
       "type": "string",
       "allOf": [

@@ -111,3 +111,13 @@ envoy:
     limits:
       cpu: "4"
       memory: "2Gi"
+
+monitoring:
+  serviceMonitor:
+    enabled: true
+    additionalLabels:
+      release: kps
+  xdsAlerts:
+    enabled: false
+  runnerAlerts:
+    enabled: false

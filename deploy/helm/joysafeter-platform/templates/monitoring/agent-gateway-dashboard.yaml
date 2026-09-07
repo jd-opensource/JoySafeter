@@ -1,0 +1,290 @@
+{{- if .Values.grafanaDashboard.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: joysafeter-agent-gateway-dashboard
+  namespace: {{ .Values.grafanaDashboard.namespace }}
+  labels:
+    {{- include "joysafeter-platform.labels" . | nindent 4 }}
+    {{- with .Values.grafanaDashboard.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.grafanaDashboard.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+data:
+  joysafeter-agent-gateway.json: |-
+    {
+      "annotations": {"list": []},
+      "editable": true,
+      "graphTooltip": 1,
+      "panels": [
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"},
+          "fieldConfig": {"defaults": {"mappings": [], "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]}}, "overrides": []},
+          "gridPos": {"h": 6, "w": 4, "x": 0, "y": 0},
+          "id": 1,
+          "options": {"colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "max(joysafeter_xds_authority_phase{namespace=\"$namespace\",phase=\"ready\"})", "refId": "A"}],
+          "title": "xDS Authority Ready",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"},
+          "fieldConfig": {"defaults": {}, "overrides": []},
+          "gridPos": {"h": 6, "w": 4, "x": 4, "y": 0},
+          "id": 2,
+          "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "max(joysafeter_xds_active_envoy_nodes{namespace=\"$namespace\"})", "refId": "A"}],
+          "title": "Active Envoy Nodes",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"},
+          "fieldConfig": {"defaults": {}, "overrides": []},
+          "gridPos": {"h": 6, "w": 4, "x": 8, "y": 0},
+          "id": 3,
+          "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "max(joysafeter_xds_ready_envoy_nodes{namespace=\"$namespace\"})", "refId": "A"}],
+          "title": "Ready Envoy Nodes",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []},
+          "gridPos": {"h": 6, "w": 4, "x": 12, "y": 0},
+          "id": 4,
+          "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "max(joysafeter_xds_pending_deliveries{namespace=\"$namespace\"})", "refId": "A"}],
+          "title": "Pending Deliveries",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"},
+          "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+          "gridPos": {"h": 6, "w": 4, "x": 16, "y": 0},
+          "id": 5,
+          "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "max(joysafeter_xds_oldest_pending_delivery_age_seconds{namespace=\"$namespace\"})", "refId": "A"}],
+          "title": "Oldest Pending Delivery",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"},
+          "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []},
+          "gridPos": {"h": 6, "w": 4, "x": 20, "y": 0},
+          "id": 6,
+          "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "max(joysafeter_xds_degraded_inventory{namespace=\"$namespace\"})", "refId": "A"}],
+          "title": "Degraded Inventory",
+          "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"},
+          "fieldConfig": {"defaults": {"min": 0, "max": 1}, "overrides": []},
+          "gridPos": {"h": 8, "w": 12, "x": 0, "y": 6},
+          "id": 7,
+          "options": {"legend": {"calcs": [], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}},
+          "targets": [
+            {"expr": "max by (node) (joysafeter_xds_node_connected{namespace=\"$namespace\"})", "legendFormat": {{ "{{node}} connected" | quote }}, "refId": "A"},
+            {"expr": "max by (node) (joysafeter_xds_node_ready{namespace=\"$namespace\"})", "legendFormat": {{ "{{node}} ready" | quote }}, "refId": "B"}
+          ],
+          "title": "Envoy Node Connectivity",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"},
+          "fieldConfig": {"defaults": {}, "overrides": []},
+          "gridPos": {"h": 8, "w": 6, "x": 12, "y": 6},
+          "id": 8,
+          "options": {"legend": {"calcs": [], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}},
+          "targets": [{"expr": "sum by (resource_type) (rate(joysafeter_xds_ack_total{namespace=\"$namespace\"}[5m]))", "legendFormat": {{ "{{resource_type}}" | quote }}, "refId": "A"}],
+          "title": "xDS ACK Rate",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"},
+          "fieldConfig": {"defaults": {}, "overrides": []},
+          "gridPos": {"h": 8, "w": 6, "x": 18, "y": 6},
+          "id": 9,
+          "options": {"legend": {"calcs": [], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}},
+          "targets": [{"expr": "sum by (resource_type) (increase(joysafeter_xds_nack_total{namespace=\"$namespace\"}[5m]))", "legendFormat": {{ "{{resource_type}}" | quote }}, "refId": "A"}],
+          "title": "xDS NACKs (5m)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 14}, "id": 10,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [{"expr": "sum by (operation,result) (rate(joysafeter_agent_gateway_policy_operations_total{namespace=\"$namespace\"}[5m]))", "legendFormat": {{ "{{operation}} / {{result}}" | quote }}, "refId": "A"}],
+          "title": "Policy Operations Rate", "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 14}, "id": 11,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [{"expr": "histogram_quantile(0.95, sum by (le,operation) (rate(joysafeter_agent_gateway_policy_operation_duration_seconds_bucket{namespace=\"$namespace\"}[5m])))", "legendFormat": {{ "{{operation}} p95" | quote }}, "refId": "A"}],
+          "title": "Policy Operation Latency P95", "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 14}, "id": 12,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [{"expr": "sum by (operation,outcome) (rate(joysafeter_xds_delivery_total{namespace=\"$namespace\"}[5m]))", "legendFormat": {{ "{{operation}} / {{outcome}}" | quote }}, "refId": "A"}],
+          "title": "Exact xDS Delivery Outcomes", "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 22}, "id": 13,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [{"expr": "histogram_quantile(0.95, sum by (le,operation,outcome) (rate(joysafeter_xds_delivery_duration_seconds_bucket{namespace=\"$namespace\"}[5m])))", "legendFormat": {{ "{{operation}} / {{outcome}}" | quote }}, "refId": "A"}],
+          "title": "Exact xDS Delivery Latency P95", "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 22}, "id": 14,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "sum(rate(joysafeter_xds_node_stream_connections_total{namespace=\"$namespace\"}[5m]))", "legendFormat": "connect", "refId": "A"},
+            {"expr": "sum(rate(joysafeter_xds_node_stream_disconnects_total{namespace=\"$namespace\"}[5m]))", "legendFormat": "disconnect", "refId": "B"},
+            {"expr": "sum by (reason) (rate(joysafeter_xds_rejected_streams_total{namespace=\"$namespace\"}[5m]))", "legendFormat": {{ "rejected / {{reason}}" | quote }}, "refId": "C"}
+          ],
+          "title": "ADS Stream Lifecycle", "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {"min": 0, "max": 1}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 22}, "id": 15,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}},
+          "targets": [{"expr": "max by (pod,phase) (joysafeter_xds_authority_phase{namespace=\"$namespace\"})", "legendFormat": {{ "{{pod}} / {{phase}}" | quote }}, "refId": "A"}],
+          "title": "Authority Phase by Pod", "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {"min": 0, "max": 1}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 30}, "id": 16,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "none"}},
+          "targets": [{"expr": "max by (pod,role) (joysafeter_agent_gateway_replication_role{namespace=\"$namespace\"})", "legendFormat": {{ "{{pod}} / {{role}}" | quote }}, "refId": "A"}],
+          "title": "Replication Role by Pod", "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 30}, "id": 17,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "max by (pod) (joysafeter_agent_gateway_replication_connected_replicas{namespace=\"$namespace\"})", "legendFormat": {{ "{{pod}} connected" | quote }}, "refId": "A"},
+            {"expr": "max by (pod) (joysafeter_agent_gateway_replication_acknowledged_replicas{namespace=\"$namespace\"})", "legendFormat": {{ "{{pod}} acknowledged" | quote }}, "refId": "B"},
+            {"expr": "max by (pod) (joysafeter_agent_gateway_replication_required_acknowledgements{namespace=\"$namespace\"})", "legendFormat": {{ "{{pod}} required" | quote }}, "refId": "C"}
+          ],
+          "title": "Replication Quorum", "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 30}, "id": 18,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "max by (pod) (joysafeter_agent_gateway_replication_revision{namespace=\"$namespace\"})", "legendFormat": {{ "{{pod}} revision" | quote }}, "refId": "A"},
+            {"expr": "max by (pod) (joysafeter_agent_gateway_replication_acknowledgement_lag{namespace=\"$namespace\"})", "legendFormat": {{ "{{pod}} ACK lag" | quote }}, "refId": "B"},
+            {"expr": "max by (pod) (joysafeter_agent_gateway_replication_log_entries{namespace=\"$namespace\"})", "legendFormat": {{ "{{pod}} log" | quote }}, "refId": "C"}
+          ],
+          "title": "Replication Revision and Lag", "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 38}, "id": 19,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "max by (pod) (joysafeter_agent_gateway_projected_sandboxes{namespace=\"$namespace\"})", "legendFormat": {{ "{{pod}} projected" | quote }}, "refId": "A"},
+            {"expr": "max by (pod) (joysafeter_agent_gateway_replication_policies{namespace=\"$namespace\"})", "legendFormat": {{ "{{pod}} replicated policies" | quote }}, "refId": "B"},
+            {"expr": "max by (pod) (joysafeter_agent_gateway_replication_placements{namespace=\"$namespace\"})", "legendFormat": {{ "{{pod}} placements" | quote }}, "refId": "C"}
+          ],
+          "title": "Policy Inventory by Pod", "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 38}, "id": 20,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "sum by (result) (rate(joysafeter_xds_ownership_transitions_total{namespace=\"$namespace\"}[5m]))", "legendFormat": {{ "ownership / {{result}}" | quote }}, "refId": "A"},
+            {"expr": "sum(rate(joysafeter_xds_full_reconciliations_total{namespace=\"$namespace\"}[5m]))", "legendFormat": "full reconciliation", "refId": "B"},
+            {"expr": "sum(rate(joysafeter_xds_stale_session_closures_total{namespace=\"$namespace\"}[5m]))", "legendFormat": "stale session closure", "refId": "C"}
+          ],
+          "title": "Ownership and Reconciliation", "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 38}, "id": 21,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "sum by (transition) (increase(joysafeter_agent_gateway_leader_transitions_total{namespace=\"$namespace\"}[1h]))", "legendFormat": {{ "leader / {{transition}}" | quote }}, "refId": "A"},
+            {"expr": "sum by (operation,result) (rate(joysafeter_agent_gateway_kubernetes_operations_total{namespace=\"$namespace\",result!=\"success\"}[5m]))", "legendFormat": {{ "K8s {{operation}} / {{result}}" | quote }}, "refId": "B"}
+          ],
+          "title": "Leader and Kubernetes Coordination", "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 46}, "id": 22,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [{"expr": "max by (pod,result) (joysafeter_xds_authority_recovery_duration_seconds{namespace=\"$namespace\"})", "legendFormat": {{ "{{pod}} / {{result}}" | quote }}, "refId": "A"}],
+          "title": "Authority Recovery Duration", "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 46}, "id": 23,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "sum(rate(joysafeter_xds_reconnect_upserts_total{namespace=\"$namespace\"}[5m]))", "legendFormat": "reconnect upserts", "refId": "A"},
+            {"expr": "sum(rate(joysafeter_xds_reconnect_removals_total{namespace=\"$namespace\"}[5m]))", "legendFormat": "reconnect removals", "refId": "B"}
+          ],
+          "title": "Reconnect Reconciliation", "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {"unit": "cores"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 46}, "id": 24,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [{"expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"$namespace\",container=\"agent-gateway\"}[5m]))", "legendFormat": {{ "{{pod}}" | quote }}, "refId": "A"}],
+          "title": "Gateway CPU", "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 54}, "id": 25,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [{"expr": "max by (pod) (container_memory_working_set_bytes{namespace=\"$namespace\",container=\"agent-gateway\"})", "legendFormat": {{ "{{pod}}" | quote }}, "refId": "A"}],
+          "title": "Gateway Memory", "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 54}, "id": 26,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "max by (pod) (up{namespace=\"$namespace\",pod=~\"joysafeter-agent-gateway-.*\"})", "legendFormat": {{ "{{pod}} scrape" | quote }}, "refId": "A"},
+            {"expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"$namespace\",container=\"agent-gateway\"}[1h]))", "legendFormat": {{ "{{pod}} restarts" | quote }}, "refId": "B"}
+          ],
+          "title": "Scrape Health and Restarts", "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 54}, "id": 27,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "max by (pod) (joysafeter_xds_known_envoy_nodes{namespace=\"$namespace\"})", "legendFormat": {{ "{{pod}} known nodes" | quote }}, "refId": "A"},
+            {"expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"$namespace\",container=\"agent-gateway\"}[1h]))", "legendFormat": {{ "{{pod}} restarts" | quote }}, "refId": "B"}
+          ],
+          "title": "Known Nodes and Restarts", "type": "timeseries"
+        }
+      ],
+      "refresh": "30s",
+      "schemaVersion": 39,
+      "tags": ["joysafeter", "xds", "agent-gateway"],
+      "templating": {
+        "list": [
+          {"current": {}, "hide": 0, "includeAll": false, "label": "Prometheus", "name": "datasource", "query": "prometheus", "refresh": 1, "type": "datasource"},
+          {"current": {}, "datasource": {"type": "prometheus", "uid": "$datasource"}, "definition": "label_values(joysafeter_xds_enabled, namespace)", "hide": 0, "includeAll": false, "label": "Namespace", "name": "namespace", "query": {"query": "label_values(joysafeter_xds_enabled, namespace)", "refId": "StandardVariableQuery"}, "refresh": 1, "sort": 1, "type": "query"}
+        ]
+      },
+      "time": {"from": "now-3h", "to": "now"},
+      "timezone": "browser",
+      "title": "JoySafeter Agent Gateway",
+      "uid": "joysafeter-agent-gateway",
+      "version": 2
+    }
+{{- end }}

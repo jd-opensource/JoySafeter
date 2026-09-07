@@ -74,6 +74,19 @@ spec:
     - ports:
       - port: "{{ .Values.agentGateway.httpPort }}"
         protocol: TCP
+  {{- if .Values.monitoring.serviceMonitor.enabled }}
+  # Prometheus Operator scraper in the configured monitoring namespace.
+  - fromEndpoints:
+    - matchLabels:
+        k8s:io.kubernetes.pod.namespace: {{ .Values.monitoring.prometheus.namespace | quote }}
+        {{- with .Values.monitoring.prometheus.podSelector }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    toPorts:
+    - ports:
+      - port: "{{ .Values.agentGateway.httpPort }}"
+        protocol: TCP
+  {{- end }}
 {{- else }}
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -111,6 +124,20 @@ spec:
     ports:
     - port: {{ .Values.agentGateway.httpPort }}
       protocol: TCP
+  {{- if .Values.monitoring.serviceMonitor.enabled }}
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: {{ .Values.monitoring.prometheus.namespace | quote }}
+      {{- with .Values.monitoring.prometheus.podSelector }}
+      podSelector:
+        matchLabels:
+          {{- toYaml . | nindent 10 }}
+      {{- end }}
+    ports:
+    - port: {{ .Values.agentGateway.httpPort }}
+      protocol: TCP
+  {{- end }}
   # The Gateway only calls replica peers, Kubernetes Lease API, and DNS.
   # Business upstream traffic remains in Envoy.
   egress:

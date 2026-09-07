@@ -35,6 +35,7 @@ grep -Eq '^!scripts/credential_encryption_rotation\.py$' "$DEPLOY_DIR/../backend
 helm_values_source="$(cat "$DEPLOY_DIR/helm/joysafeter-orchestrator/values.yaml")"
 platform_chart="$DEPLOY_DIR/helm/joysafeter-platform"
 platform_priority_class_source="$(cat "$platform_chart/templates/scheduling/production-priorityclass.yaml")"
+platform_dashboard_source="$(cat "$platform_chart/templates/monitoring/agent-gateway-dashboard.yaml")"
 event_stream_values_source="$(sed -n '/^  eventStream:/,/^  database:/p' "$DEPLOY_DIR/helm/joysafeter-orchestrator/values.yaml")"
 helm_schema_source="$(cat "$DEPLOY_DIR/helm/joysafeter-orchestrator/values.schema.json")"
 helm_dev_values_source="$(cat "$DEPLOY_DIR/helm/joysafeter-orchestrator/values-dev.yaml")"
@@ -54,6 +55,9 @@ network_policy_template_source="$(cat \
     "$DEPLOY_DIR/helm/joysafeter-orchestrator/templates/agent-gateway/networkpolicy.yaml")"
 resource_quota_template_source="$(cat "$DEPLOY_DIR/helm/joysafeter-orchestrator/templates/platform/resourcequota.yaml")"
 agent_gateway_template_source="$(cat "$DEPLOY_DIR/helm/joysafeter-orchestrator/templates/agent-gateway/deployment.yaml")"
+agent_gateway_metrics_source="$(cat \
+    "$DEPLOY_DIR/helm/joysafeter-orchestrator/templates/agent-gateway/metrics-service.yaml" \
+    "$DEPLOY_DIR/helm/joysafeter-orchestrator/templates/agent-gateway/servicemonitor.yaml")"
 orchestrator_configmap_source="$(cat "$DEPLOY_DIR/helm/joysafeter-orchestrator/templates/orchestrator/configmap.yaml")"
 prometheus_rule_source="$(cat \
     "$DEPLOY_DIR/helm/joysafeter-orchestrator/templates/agent-gateway/prometheusrule.yaml" \
@@ -102,6 +106,18 @@ assert_contains "$prometheus_rule_source" 'JoySafeterRunnerStaleSetupResults'
 assert_contains "$prometheus_rule_source" 'joysafeter_runner_setup_stale_results_total'
 assert_contains "$helm_pre_values_source" $'agentGateway:\n  replicas: 2'
 assert_contains "$helm_prod_values_source" $'agentGateway:\n  replicas: 3'
+for environment_values_source in \
+    "$helm_dev_values_source" \
+    "$helm_pre_values_source" \
+    "$helm_prod_values_source"; do
+    assert_contains "$environment_values_source" $'serviceMonitor:\n    enabled: true'
+    assert_contains "$environment_values_source" 'release: kps'
+    assert_contains "$environment_values_source" $'xdsAlerts:\n    enabled: false'
+    assert_contains "$environment_values_source" $'runnerAlerts:\n    enabled: false'
+done
+assert_contains "$agent_gateway_metrics_source" 'kind: ServiceMonitor'
+assert_contains "$agent_gateway_metrics_source" 'name: joysafeter-agent-gateway-metrics'
+assert_contains "$platform_dashboard_source" 'JoySafeter Agent Gateway'
 assert_contains "$helm_dev_values_source" $'resourceQuota:\n  enabled: true'
 assert_contains "$helm_pre_values_source" $'resourceQuota:\n  enabled: true'
 assert_not_contains "$helm_dev_values_source" 'joysafeter.io/node-pool'
@@ -166,6 +182,10 @@ if command -v helm >/dev/null 2>&1; then
     assert_contains "$platform_render" 'kind: PriorityClass'
     assert_contains "$platform_render" 'name: joysafeter-production'
     assert_contains "$platform_render" 'value: 1000000'
+    assert_contains "$platform_render" 'name: joysafeter-agent-gateway-dashboard'
+    assert_contains "$platform_render" 'namespace: monitoring'
+    assert_contains "$platform_render" 'grafana_dashboard: "1"'
+    assert_contains "$platform_render" '"legendFormat": "{{node}} connected"'
 
     helm_chart="$DEPLOY_DIR/helm/joysafeter-orchestrator"
     immutable_images=(
@@ -187,8 +207,16 @@ if command -v helm >/dev/null 2>&1; then
         -f "$helm_chart/values-prod.yaml" \
         "${immutable_images[@]}" \
         --show-only templates/agent-gateway/deployment.yaml)"
+    dev_monitoring_render="$(helm template dev "$helm_chart" \
+        --namespace joysafeter-dev \
+        -f "$helm_chart/values-dev.yaml" \
+        --show-only templates/agent-gateway/metrics-service.yaml \
+        --show-only templates/agent-gateway/servicemonitor.yaml)"
     assert_contains "$pre_gateway_render" $'name: joysafeter-agent-gateway\n  namespace: joysafeter-pre\nspec:\n  replicas: 2'
     assert_contains "$prod_gateway_render" $'name: joysafeter-agent-gateway\n  namespace: joysafeter-prod\nspec:\n  replicas: 3'
+    assert_contains "$dev_monitoring_render" 'kind: ServiceMonitor'
+    assert_contains "$dev_monitoring_render" 'release: kps'
+    assert_contains "$dev_monitoring_render" 'name: joysafeter-agent-gateway-metrics'
 
     if helm template mutable-pre "$helm_chart" \
         --namespace joysafeter-pre \

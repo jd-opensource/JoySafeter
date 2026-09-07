@@ -331,10 +331,23 @@ networkPolicy:
   type: cilium   # cilium (CiliumNetworkPolicy) / standard (K8s NetworkPolicy)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# 生产告警（依赖 Prometheus Operator；xDS 节点数量告警还依赖 kube-state-metrics）
+# Prometheus 采集与可选告警（依赖 Prometheus Operator）
 # ═══════════════════════════════════════════════════════════════════════════════
 
 monitoring:
+  # Prometheus Operator integration. Enabling this creates a headless Service
+  # that selects every Gateway replica plus a namespace-scoped ServiceMonitor.
+  serviceMonitor:
+    enabled: false
+    interval: 15s
+    scrapeTimeout: 5s
+    additionalLabels: {}
+  # Prometheus identity allowed to scrape Agent Gateway HTTP port 9093 when
+  # NetworkPolicy is enabled. An empty podSelector allows the whole namespace.
+  prometheus:
+    namespace: monitoring
+    podSelector:
+      app.kubernetes.io/name: prometheus
   xdsAlerts:
     enabled: false
     additionalLabels: {}

@@ -122,3 +122,13 @@ agentGateway:
 # ── Envoy ──
 envoy:
   socketHostDir: /data/joysafeter-pre/envoy-sockets
+
+monitoring:
+  serviceMonitor:
+    enabled: true
+    additionalLabels:
+      release: kps
+  xdsAlerts:
+    enabled: false
+  runnerAlerts:
+    enabled: false

@@ -178,6 +178,47 @@ helm upgrade --install joysafeter-prod . \
   -f values-prod.yaml -f images-prod.lock.yaml -n joysafeter-prod
 ```
 
+### Agent Gateway 监控
+
+三个环境的 values 已启用 `monitoring.serviceMonitor`，并为现有
+kube-prometheus-stack 配置 `release: kps` 标签。每个环境会创建一个
+`joysafeter-agent-gateway-metrics` Headless Service 和 ServiceMonitor；Service
+会覆盖该环境的全部 Agent Gateway 副本，Prometheus 每 15 秒抓取一次 9093
+端口的 `/metrics`。NetworkPolicy 仅允许 `monitoring` namespace 中标签为
+`app.kubernetes.io/name=prometheus` 的 Pod 访问该端口。
+
+本次只启用指标采集，`monitoring.xdsAlerts.enabled` 和
+`monitoring.runnerAlerts.enabled` 均保持关闭。部署后可这样验证：
+
+```bash
+kubectl get servicemonitor -A | grep joysafeter-agent-gateway
+kubectl -n joysafeter-dev get endpointslice \
+  -l kubernetes.io/service-name=joysafeter-agent-gateway-metrics
+
+# 在 Prometheus 中查询
+joysafeter_xds_active_envoy_nodes
+```
+
+Agent Gateway 还会导出以下核心指标族，标签均为固定枚举，不包含 sandbox ID、
+错误文本或其他高基数字段：
+
+- `joysafeter_agent_gateway_policy_operations_total` 与
+  `joysafeter_agent_gateway_policy_operation_duration_seconds`：apply/remove 的结果和端到端耗时。
+- `joysafeter_xds_delivery_total` 与 `joysafeter_xds_delivery_duration_seconds`：
+  从发布到精确 ACK、NACK 或超时的结果和耗时。
+- `joysafeter_agent_gateway_replication_*`：Leader、热备、revision、ACK quorum、
+  replication log 和本地策略快照。
+- `joysafeter_agent_gateway_kubernetes_operations_total` 与
+  `joysafeter_agent_gateway_leader_transitions_total`：Lease/Leader 协调状态。
+
+共享的 `joysafeter-platform` Chart 提供完整 Grafana Dashboard，包含策略吞吐和
+P95 延迟、xDS 投递、Envoy 节点、HA replication、Kubernetes 协调以及 Pod CPU、
+内存和重启情况。
+
+如果 kube-prometheus-stack 的 Helm release 名不是 `kps`，将对应环境 values
+中的 `monitoring.serviceMonitor.additionalLabels.release` 改成实际 release
+标签；它必须匹配 Prometheus 的 `serviceMonitorSelector`。
+
 ### 2. 升级
 
 `20260815_000001_normalize_credential_envelopes` 和

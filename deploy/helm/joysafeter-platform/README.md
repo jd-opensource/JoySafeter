@@ -4,6 +4,7 @@
 
 - `joysafeter-production` PriorityClass
 - `AgentIdentityService` CRD
+- Agent Gateway Grafana Dashboard ConfigMap
 
 平台资源只安装一次，不要分别安装到 dev、pre、prod release。建议将 Helm release
 metadata 放在独立的 `joysafeter-system` namespace：
@@ -13,6 +14,12 @@ helm upgrade --install joysafeter-platform . \
   --namespace joysafeter-system \
   --create-namespace
 ```
+
+Dashboard ConfigMap 会创建在 `monitoring` namespace，并带有
+`grafana_dashboard: "1"` 标签，现有 kube-prometheus-stack Grafana sidecar 会
+自动加载为 `JoySafeter Agent Gateway`。Dashboard 只部署一份，通过 Namespace
+变量切换 dev、pre、prod；如 Grafana sidecar 使用了不同的发现标签或 namespace，
+请调整 `grafanaDashboard.labels` 或 `grafanaDashboard.namespace`。
 
 Helm 不会在已有 release 的 `upgrade` 中安装或升级 `crds/` 下的定义。若
 `joysafeter-platform` 已经存在，首次引入或后续升级该 CRD 时先执行：
