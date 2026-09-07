@@ -175,14 +175,16 @@ build_image() {
         log_info "后端构建溯源 GIT_COMMIT_SHA: ${GIT_COMMIT_SHA}"
     fi
 
-    if [ "$service" = "Rust Orchestrator" ]; then
+    if [ "$service" = "Rust Orchestrator" ] || [ "$service" = "Agent Gateway" ]; then
         build_args+=("--build-arg" "RUST_IMAGE=${RUST_IMAGE}")
         build_args+=("--build-arg" "RUNTIME_IMAGE=${RUNTIME_IMAGE}")
-        # 透传目标 target triple，让 orchestrator-rs-binary.Dockerfile COPY 对应
-        # 架构的预编译二进制（而非写死 x86_64）；$PLATFORMS 此处已是单一平台。
-        build_args+=("--build-arg" "TARGET=$(rust_target_for_platform "$PLATFORMS")")
         log_info "Rust builder 镜像: ${RUST_IMAGE}"
         log_info "Rust runtime 镜像: ${RUNTIME_IMAGE}"
+        if [ "$service" = "Rust Orchestrator" ]; then
+            # 透传目标 target triple，让 orchestrator-rs-binary.Dockerfile COPY 对应
+            # 架构的预编译二进制（而非写死 x86_64）；$PLATFORMS 此处已是单一平台。
+            build_args+=("--build-arg" "TARGET=$(rust_target_for_platform "$PLATFORMS")")
+        fi
     fi
 
     # 推送前再次检查 BuildKit 容器 DNS 连通性

@@ -2,25 +2,46 @@
 
 ARG RUST_IMAGE=public.ecr.aws/docker/library/rust:1-bookworm
 ARG RUNTIME_IMAGE=public.ecr.aws/docker/library/debian:bookworm-slim
+ARG APT_MIRROR_BASE="http://mirrors.ustc.edu.cn"
 
 FROM ${RUST_IMAGE} AS builder
 
+ARG APT_MIRROR_BASE
 WORKDIR /src
 ENV CARGO_HTTP_TIMEOUT=600 \
     CARGO_HTTP_MULTIPLEXING=false \
     CARGO_NET_RETRY=10 \
-    CARGO_BUILD_JOBS=2
+    CARGO_BUILD_JOBS=2 \
+    PROTOC_INCLUDE=/usr/include
+
+RUN for sources in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
+        [ -f "$sources" ] || continue; \
+        sed -i \
+            -e "s|https*://deb.debian.org/debian-security|${APT_MIRROR_BASE}/debian-security|g" \
+            -e "s|https*://deb.debian.org/debian|${APT_MIRROR_BASE}/debian|g" \
+            "$sources"; \
+    done \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends libprotobuf-dev protobuf-compiler \
+    && rm -rf /var/lib/apt/lists/*
 
 COPY shared/rust/joysafeter-entity-id ./shared/rust/joysafeter-entity-id
 COPY shared/rust/joysafeter-agent-gateway-contract ./shared/rust/joysafeter-agent-gateway-contract
+COPY proto ./proto
 COPY backend/app/joysafeter_agent_gateway ./backend/app/joysafeter_agent_gateway
 
 WORKDIR /src/backend/app/joysafeter_agent_gateway
-RUN cargo build --locked --release
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/usr/local/cargo/git \
+    --mount=type=cache,target=/var/cache/joysafeter-agent-gateway-target \
+    CARGO_TARGET_DIR=/var/cache/joysafeter-agent-gateway-target \
+    cargo build --locked --release \
+    && cp /var/cache/joysafeter-agent-gateway-target/release/joysafeter-agent-gateway \
+        /usr/local/bin/joysafeter-agent-gateway
 
 FROM ${RUNTIME_IMAGE} AS runner
 
-ARG APT_MIRROR_BASE="http://mirrors.ustc.edu.cn"
+ARG APT_MIRROR_BASE
 
 RUN for sources in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources; do \
         [ -f "$sources" ] || continue; \
@@ -34,7 +55,7 @@ RUN for sources in /etc/apt/sources.list /etc/apt/sources.list.d/debian.sources;
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --no-create-home --shell /usr/sbin/nologin joysafeter
 
-COPY --from=builder /src/backend/app/joysafeter_agent_gateway/target/release/joysafeter-agent-gateway /usr/local/bin/joysafeter-agent-gateway
+COPY --from=builder /usr/local/bin/joysafeter-agent-gateway /usr/local/bin/joysafeter-agent-gateway
 
 USER 10001:10001
 ENV RUST_LOG=info
