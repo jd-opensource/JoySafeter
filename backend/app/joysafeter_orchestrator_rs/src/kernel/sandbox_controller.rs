@@ -26,6 +26,10 @@ use crate::sandbox::provider::{SandboxProvider, StopSemantics};
 
 const ORPHAN_PROVIDER_DB_INSERT_GRACE_SECS: i64 = 120;
 
+fn provider_runtime_id(external_id: Option<&str>) -> Option<&str> {
+    external_id.filter(|value| !value.trim().is_empty())
+}
+
 /// Background sandbox lifecycle maintenance.
 ///
 /// Runs multiple async loops:
@@ -855,7 +859,7 @@ impl IdleSandboxMaintenance {
             // Remove the stale bridge before touching the provider runtime.
             let stop_semantics = self.provider.capabilities().stop_semantics;
             let mut stop_succeeded = false;
-            if let Some(ref ext_id) = external_id {
+            if let Some(ext_id) = provider_runtime_id(external_id.as_deref()) {
                 self.bridge_store.remove(ext_id);
                 let stop_result = if stop_semantics == StopSemantics::Resumable {
                     self.provider.stop(ext_id).await
@@ -1734,6 +1738,17 @@ mod tests {
 
         labels.clear();
         assert!(!is_recent_uncommitted_provider_sandbox(&labels, now));
+    }
+
+    #[test]
+    fn blank_external_id_is_not_a_provider_runtime() {
+        assert_eq!(provider_runtime_id(None), None);
+        assert_eq!(provider_runtime_id(Some("")), None);
+        assert_eq!(provider_runtime_id(Some("  \t")), None);
+        assert_eq!(
+            provider_runtime_id(Some("sandbox-runtime")),
+            Some("sandbox-runtime")
+        );
     }
 
     struct StopMarksErrorProvider {
