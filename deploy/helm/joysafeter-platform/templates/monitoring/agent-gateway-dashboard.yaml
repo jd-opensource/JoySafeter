@@ -270,6 +270,71 @@ data:
             {"expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"$namespace\",container=\"agent-gateway\"}[1h]))", "legendFormat": {{ "{{pod}} restarts" | quote }}, "refId": "B"}
           ],
           "title": "Known Nodes and Restarts", "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {"min": 0, "max": 1}, "overrides": []},
+          "gridPos": {"h": 6, "w": 4, "x": 0, "y": 62}, "id": 28,
+          "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "max by (pod) (joysafeter_agent_gateway_policy_stream_active_connections{namespace=\"$namespace\"})", "legendFormat": {{ "{{pod}}" | quote }}, "refId": "A"}],
+          "title": "Policy Stream Connections", "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]}}, "overrides": []},
+          "gridPos": {"h": 6, "w": 4, "x": 4, "y": 62}, "id": 29,
+          "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "sum(joysafeter_agent_gateway_policy_stream_commands_in_flight{namespace=\"$namespace\"})", "refId": "A"}],
+          "title": "Policy Commands In Flight", "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+          "gridPos": {"h": 6, "w": 4, "x": 8, "y": 62}, "id": 30,
+          "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "sum(increase(joysafeter_agent_gateway_policy_stream_connections_total{namespace=\"$namespace\"}[5m]))", "refId": "A"}],
+          "title": "Policy Stream Connections (5m)", "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+          "gridPos": {"h": 6, "w": 4, "x": 12, "y": 62}, "id": 31,
+          "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "sum(increase(joysafeter_agent_gateway_policy_stream_queue_saturation_total{namespace=\"$namespace\"}[5m]))", "refId": "A"}],
+          "title": "Policy Queue Saturation (5m)", "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {}, "overrides": []},
+          "gridPos": {"h": 6, "w": 4, "x": 16, "y": 62}, "id": 32,
+          "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "sum(rate(joysafeter_agent_gateway_policy_operations_total{namespace=\"$namespace\"}[5m]))", "refId": "A"}],
+          "title": "Policy Command Rate", "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {}, "overrides": []},
+          "gridPos": {"h": 6, "w": 4, "x": 20, "y": 62}, "id": 33,
+          "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "textMode": "auto"},
+          "targets": [{"expr": "histogram_quantile(0.95, sum by (le) (rate(joysafeter_agent_gateway_policy_operation_duration_seconds_bucket{namespace=\"$namespace\"}[5m])))", "refId": "A"}],
+          "title": "Policy Command P95", "type": "stat"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {"unit": "ops"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 0, "y": 68}, "id": 34,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [{"expr": "sum by (operation,result) (rate(joysafeter_agent_gateway_policy_operations_total{namespace=\"$namespace\"}[5m]))", "legendFormat": {{ "{{operation}} / {{result}}" | quote }}, "refId": "A"}],
+          "title": "Policy Command Outcomes", "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 8, "y": 68}, "id": 35,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [{"expr": "histogram_quantile(0.95, sum by (le,operation) (rate(joysafeter_agent_gateway_policy_operation_duration_seconds_bucket{namespace=\"$namespace\"}[5m])))", "legendFormat": {{ "{{operation}} p95" | quote }}, "refId": "A"}],
+          "title": "Policy Command Latency P95", "type": "timeseries"
+        },
+        {
+          "datasource": {"type": "prometheus", "uid": "$datasource"}, "fieldConfig": {"defaults": {}, "overrides": []},
+          "gridPos": {"h": 8, "w": 8, "x": 16, "y": 68}, "id": 36,
+          "options": {"legend": {"calcs": ["lastNotNull"], "displayMode": "table", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "multi", "sort": "desc"}},
+          "targets": [
+            {"expr": "sum by (operation,outcome) (rate(joysafeter_xds_delivery_total{namespace=\"$namespace\"}[5m]))", "legendFormat": {{ "{{operation}} / {{outcome}}" | quote }}, "refId": "A"}
+          ],
+          "title": "xDS Delivery Outcomes", "type": "timeseries"
         }
       ],
       "refresh": "30s",
@@ -285,6 +350,6 @@ data:
       "timezone": "browser",
       "title": "JoySafeter Agent Gateway",
       "uid": "joysafeter-agent-gateway",
-      "version": 2
+      "version": 3
     }
 {{- end }}

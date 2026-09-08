@@ -61,4 +61,52 @@ spec:
       annotations:
         summary: JoySafeter xDS active node count differs from available Envoy pods
         description: The control plane and the Envoy DaemonSet disagree on the number of active nodes.
+    - alert: JoySafeterAgentGatewayReplicationQuorumUnavailable
+      expr: (max by (namespace,pod) (joysafeter_agent_gateway_replication_required_acknowledgements) - max by (namespace,pod) (joysafeter_agent_gateway_replication_acknowledged_replicas)) > 0
+      for: {{ .Values.monitoring.xdsAlerts.replicationQuorumFor }}
+      labels:
+        severity: critical
+      annotations:
+        summary: Agent Gateway replication quorum is unavailable
+        description: A leader cannot obtain the configured in-memory standby acknowledgement quorum.
+    - alert: JoySafeterAgentGatewayReplicationAckLag
+      expr: max by (namespace,pod) (joysafeter_agent_gateway_replication_acknowledgement_lag) > 0
+      for: {{ .Values.monitoring.xdsAlerts.replicationAckLagFor }}
+      labels:
+        severity: warning
+      annotations:
+        summary: Agent Gateway standby is behind the leader
+        description: At least one Agent Gateway follower has not acknowledged the current revision.
+    - alert: JoySafeterAgentGatewayReplicationLogNearCapacity
+      expr: max by (namespace,pod) (joysafeter_agent_gateway_replication_log_entries) > {{ .Values.monitoring.xdsAlerts.replicationLogWarningEntries }}
+      for: 1m
+      labels:
+        severity: warning
+      annotations:
+        summary: Agent Gateway in-memory replication log is near capacity
+        description: A slow follower may soon require a full snapshot instead of delta replay.
+    - alert: JoySafeterAgentGatewayPolicyStreamSaturated
+      expr: sum by (namespace,pod) (increase(joysafeter_agent_gateway_policy_stream_queue_saturation_total[{{ .Values.monitoring.xdsAlerts.policyStreamSaturationWindow }}])) > 0
+      for: {{ .Values.monitoring.xdsAlerts.policyStreamSaturationFor }}
+      labels:
+        severity: warning
+      annotations:
+        summary: Agent Gateway policy stream is saturated
+        description: Policy commands are being rejected by the configured bounded admission queue.
+    - alert: JoySafeterAgentGatewayClientCircuitOpen
+      expr: max by (namespace,pod) (joysafeter_orchestrator_agent_gateway_circuit_open) > 0
+      for: {{ .Values.monitoring.xdsAlerts.clientCircuitOpenFor }}
+      labels:
+        severity: critical
+      annotations:
+        summary: Orchestrator Agent Gateway circuit breaker is open
+        description: An Orchestrator has repeatedly failed to reach the Agent Gateway policy stream.
+    - alert: JoySafeterAgentGatewayPolicyStreamDisconnected
+      expr: max(joysafeter_orchestrator_agent_gateway_policy_stream_connected) < 1
+      for: {{ .Values.monitoring.xdsAlerts.policyStreamDisconnectedFor }}
+      labels:
+        severity: critical
+      annotations:
+        summary: All Orchestrator policy streams are disconnected
+        description: No Orchestrator currently has a connected Agent Gateway policy stream.
 {{- end }}
