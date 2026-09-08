@@ -210,6 +210,8 @@ Agent Gateway 还会导出以下核心指标族，标签均为固定枚举，不
   replication log 和本地策略快照。
 - `joysafeter_agent_gateway_kubernetes_operations_total` 与
   `joysafeter_agent_gateway_leader_transitions_total`：Lease/Leader 协调状态。
+- `joysafeter_agent_gateway_policy_stream_*`：双向策略流连接数、处理中命令和有界
+  worker 队列饱和；命令结果与耗时沿用 policy/xDS delivery 指标。
 
 共享的 `joysafeter-platform` Chart 提供完整 Grafana Dashboard，包含策略吞吐和
 P95 延迟、xDS 投递、Envoy 节点、HA replication、Kubernetes 协调以及 Pod CPU、
@@ -218,6 +220,30 @@ P95 延迟、xDS 投递、Envoy 节点、HA replication、Kubernetes 协调以�
 如果 kube-prometheus-stack 的 Helm release 名不是 `kps`，将对应环境 values
 中的 `monitoring.serviceMonitor.additionalLabels.release` 改成实际 release
 标签；它必须匹配 Prometheus 的 `serviceMonitorSelector`。
+
+### Envoy 资源保护
+
+Chart 默认开启 Envoy `overload_manager`，并限制动态 DNS host 数量和上游连接、
+pending request、request 数量。这些是每个 Envoy 进程内部的安全上限，不等同于
+Kubernetes ResourceQuota，因此 production 即使不设置 namespace 资源配额也应保留。
+可通过 `envoy.overloadManager`、`envoy.dynamicForwardProxy` 和
+`envoy.circuitBreakers` 按环境调整。
+
+### Agent Gateway HA 黑盒检查
+
+`deploy/tests/e2e_agent_gateway.sh` 面向已经部署的测试环境，默认只执行无破坏性的
+拓扑、Leader、Service endpoint、Envoy ADS readiness 和 pending delivery 检查。
+`failover`、`envoy-recovery`、`soak` 和 `all` 会删除测试环境 Pod，不要直接在生产执行：
+
+```bash
+NS=joysafeter-dev deploy/tests/e2e_agent_gateway.sh invariants
+NS=joysafeter-dev deploy/tests/e2e_agent_gateway.sh failover
+NS=joysafeter-dev deploy/tests/e2e_agent_gateway.sh envoy-recovery
+```
+
+默认要求至少两个 Gateway 副本和两个 Envoy 节点；可以通过 `MIN_GATEWAYS`、
+`MIN_ENVOY_NODES` 调整。Chaos Mesh 场景见
+`deploy/tests/e2e_agent_gateway_chaos.yaml`，每次只能选取一个文档执行。
 
 ### 2. 升级
 
@@ -553,12 +579,13 @@ Orchestrator Deployment (N replicas)
   ├── K8s Service (ClusterIP) ← Runner 连接入口
   ├── Redis 协调 (bridge/inbox + network-policy generation 唤醒)
   ├── PostgreSQL 权威策略状态
-  └── 管理 API → Agent Gateway（固定 multi，无 K8s leader）
+  └── 单一双向 gRPC PolicyStream → Agent Gateway（任务启动交付屏障与断线重放）
 
-Agent Gateway Deployment (N replicas, RollingUpdate)
-  ├── leader-only Service: management HTTP + authenticated Delta ADS
+Agent Gateway Deployment (N replicas, Recreate for protocol-safe upgrades)
+  ├── leader-only Service: authenticated Delta ADS + management/replication gRPC
   ├── K8s Lease + epoch: 单写者与旧主 fencing
-  └── 内存 xDS 投影 + 完整策略热快照；无 DB/vault/Redis 权限
+  ├── 接收强类型 PolicyStream；每 sandbox 独立有序 lane + 全局并发上限
+  └── 双向 gRPC 热备 + 内存 xDS 投影；无 DB/vault/Redis 权限
 
 Envoy DaemonSet (每节点一个)
   ├── ADS → Agent Gateway

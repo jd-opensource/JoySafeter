@@ -266,7 +266,9 @@ Runtime communication uses several purpose-built channels. This table is the def
 | **Live event fan-out** | Redis **Pub/Sub** `joysafeter:session_events:{id}` | Cross-instance SSE delivery via `SessionBroadcaster` | `joysafeter_orchestrator_rs/src/kernel/session_broadcaster.rs`, `joysafeter_shared/orchestrator_bridge/session_broadcaster.py` |
 | Control/cancel relay | Redis **Pub/Sub** `joysafeter:cmd:{instance}` | Route cancel/input/shutdown to the instance owning the sandbox | `joysafeter_shared/orchestrator_bridge/runtime_commands.py`, `joysafeter_orchestrator_rs/src/kernel/command_listener.rs` |
 | Network-policy wakeup | Redis **Stream** `joysafeter:network-policy:requests` | Compatibility path for the embedded elected xDS authority | `joysafeter_orchestrator_rs/src/kernel/ha/redis_impl.rs`, `joysafeter_orchestrator_rs/src/xds/authority.rs` |
-| Orchestrator → Agent Gateway | Authenticated HTTP `/internal/v1/*` | Apply/remove exact policy generations, placement reconciliation, restart detection | `joysafeter_orchestrator_rs/src/agent_gateway`, `joysafeter_agent_gateway/src/adapters/inbound/management_http.rs` |
+| Orchestrator → Agent Gateway | Authenticated bidirectional gRPC `GatewayManagementService.PolicyStream` | Single apply/remove path with command correlation, bounded backpressure, reconnect replay, and task-start delivery fencing | `proto/gateway_management.proto`, `joysafeter_orchestrator_rs/src/agent_gateway/grpc_client.rs`, `joysafeter_agent_gateway/src/adapters/management_grpc.rs` |
+| Orchestrator → Agent Gateway administration | Authenticated unary gRPC `:9094` | Status, recovery completion, pruning, and placement operations | `joysafeter_orchestrator_rs/src/agent_gateway`, `joysafeter_agent_gateway/src/adapters/management_grpc.rs` |
+| Gateway follower ↔ Gateway leader | Authenticated bidirectional gRPC `GatewayReplicationService.Replicate` on `:9094` | Digest-fenced snapshot/delta delivery and correlated ACKs | `joysafeter_agent_gateway/src/adapters/replication_grpc.rs`, `joysafeter_agent_gateway/src/replication/follower.rs` |
 | Envoy → Agent Gateway | Authenticated Delta ADS gRPC `:9092` | Receive per-node listener/cluster snapshots and return ACK/NACK | `joysafeter_agent_gateway/src/xds` |
 | Orchestrator ↔ runner | **gRPC** `AgentBridge` (bidi stream, :9090) | The agent execution protocol | `proto/joysafeter.proto`, `joysafeter_orchestrator_rs/src/grpc/server.rs` |
 | Runner egress | Envoy proxy (unix socket) | Per-sandbox domain allowlist, deny-all default | `joysafeter_orchestrator_rs/src/sandbox/envoy.rs` |
@@ -281,8 +283,18 @@ authority; the Lease transition count is the fencing epoch and a leader-only
 Service selects its Pod label. Gateway replicas have no database: xDS resources,
 placement, delivery attempts, and applied generations are process-local projections.
 
+Policy ingestion is caller-neutral: Orchestrator is one client of the Gateway-
+owned, strongly typed `PolicyStream` contract, and Gateway never connects back
+to a caller. Each active sandbox receives its own ordered lane while a global
+admission and execution limit bounds memory and concurrency without hash
+collisions. The caller keeps durable intent
+in PostgreSQL, retains in-flight commands in memory, and replays the same command
+ID after a stream reconnect. After a caller restart or complete Gateway memory
+loss, the normal PostgreSQL generation recovery loop rebuilds the projection.
+
 The leader replicates a complete semantic snapshot followed by strictly ordered
-deltas to hot followers. The protocol fences ACKs with leader term, replica
+deltas to hot followers over one long-lived authenticated bidirectional gRPC
+stream per follower. The protocol fences ACKs with leader term, replica
 session, source instance, revision, and canonical snapshot digest. The replicated
 policy contains resolved header material sent by Orchestrator, matching the
 embedded 0814 behavior so promotion needs no resolver round trip. Rendered
@@ -872,7 +884,7 @@ Orchestrator authenticated management request
         ↓
 Kubernetes Lease-elected Agent Gateway leader
         ↓
-leader snapshot/increment replication to hot followers
+leader snapshot/increment replication to hot followers over bidirectional gRPC
         ↓
 Envoy ACK/NACK
         ↓
