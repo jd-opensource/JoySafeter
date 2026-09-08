@@ -4535,6 +4535,71 @@ async fn sandbox_resolver_isolates_stale_creating_before_provider_destroy() {
 }
 
 #[tokio::test]
+async fn staged_sandbox_without_external_id_skips_provider_destroy() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+
+    let sandbox_id = SandboxId::from_uuid(Uuid::now_v7());
+    let image = format!("staged-without-runtime-{sandbox_id}:latest");
+    let provider = Arc::new(RecordingProvider {
+        destroy_error: Mutex::new(Some(
+            "provider destroy must not receive an empty identifier".to_string(),
+        )),
+        ..Default::default()
+    });
+    let networking = SandboxNetworkingService::test_fixture(pool.clone());
+
+    let result = async {
+        queries::create_sandbox(
+            &pool,
+            sandbox_id,
+            "",
+            "recording",
+            &image,
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect("create staged sandbox without external runtime");
+
+        let destroyed = crate::kernel::sandbox_lifecycle::destroy_observed_sandbox(
+            &pool,
+            &(provider.clone() as Arc<dyn SandboxProvider>),
+            &networking,
+            sandbox_id,
+            "creating",
+            Some(""),
+            "stale creating",
+        )
+        .await
+        .expect("clean staged sandbox without calling provider destroy");
+
+        assert!(destroyed);
+        assert!(provider.destroyed.lock().await.is_empty());
+
+        let state: (String, bool) = sqlx::query_as(
+            "SELECT status, destroyed_at IS NOT NULL FROM joysafeter_sandboxes WHERE id = $1",
+        )
+        .bind(sandbox_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load cleaned staged sandbox");
+        assert_eq!(state, ("destroyed".to_string(), true));
+    }
+    .await;
+
+    let _ = sqlx::query("DELETE FROM joysafeter_sandboxes WHERE id = $1")
+        .bind(sandbox_id)
+        .execute(&pool)
+        .await;
+
+    result
+}
+
+#[tokio::test]
 async fn sandbox_resolver_uses_session_snapshot_for_image_network_and_env() {
     let Some(pool) = test_pool().await else {
         return;

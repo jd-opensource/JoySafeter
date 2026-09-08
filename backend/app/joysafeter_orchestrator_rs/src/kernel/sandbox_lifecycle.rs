@@ -40,6 +40,10 @@ fn provider_runtime_is_absent(message: &str) -> bool {
     message.contains("No such container") || message.contains("404")
 }
 
+fn provider_external_id(external_id: Option<&str>) -> Option<&str> {
+    external_id.filter(|value| !value.trim().is_empty())
+}
+
 pub(crate) async fn destroy_unpersisted_sandbox(
     provider: &Arc<dyn SandboxProvider>,
     network_cleanup: &dyn SandboxNetworkCleanup,
@@ -77,7 +81,9 @@ pub(crate) async fn destroy_unpersisted_sandbox(
 /// into `stopping`.
 ///
 /// Steps:
-/// 1. Destroy the provider runtime (no-op when `external_id` is `None`).
+/// 1. Destroy the provider runtime (no-op when `external_id` is absent or blank).
+///    A blank identifier is the persisted sentinel for a staged `creating`
+///    sandbox whose provider runtime has not been attached yet.
 ///    "No such container" / 404 is treated as success (already gone).
 /// 2. On any other provider error: restore the DB row to `restore_status` (undo
 ///    the claim) and return the error so the caller/sweeper can retry.
@@ -99,7 +105,7 @@ pub(crate) async fn finalize_claimed_sandbox_destroy(
     restore_status: &str,
     reason: &str,
 ) -> anyhow::Result<bool> {
-    if let Some(ext_id) = external_id {
+    if let Some(ext_id) = provider_external_id(external_id) {
         if let Err(err) = provider.destroy(ext_id).await {
             let message = err.to_string();
             if !provider_runtime_is_absent(&message) {
@@ -133,6 +139,22 @@ pub(crate) async fn finalize_claimed_sandbox_destroy(
     }
 
     Ok(destroyed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::provider_external_id;
+
+    #[test]
+    fn provider_external_id_ignores_staged_empty_values() {
+        assert_eq!(provider_external_id(None), None);
+        assert_eq!(provider_external_id(Some("")), None);
+        assert_eq!(provider_external_id(Some("   ")), None);
+        assert_eq!(
+            provider_external_id(Some("sandbox-runtime")),
+            Some("sandbox-runtime")
+        );
+    }
 }
 
 /// Claim a sandbox with the standard passive-destroy CAS (status + external_id
