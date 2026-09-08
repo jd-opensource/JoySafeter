@@ -20,10 +20,15 @@ async def test_catalog_api_returns_public_metadata_and_cache_headers() -> None:
 
     catalog = await get_catalog(response=response, auth_ctx=object())
 
-    assert catalog.version == "2026-08-07.1"
+    assert catalog.version == "2026-09-02.1"
     assert catalog.engine("codex").supported_protocol_ids == ["openai_responses"]
+    assert catalog.model_consumer("skill_ai_authoring").supported_protocol_ids == [
+        "anthropic_messages",
+        "openai_responses",
+        "chat_completions",
+    ]
     assert catalog.provider("openai").protocol_bindings[0].credential_profile_id == "openai_bearer"
-    assert response.headers["etag"] == '"2026-08-07.1"'
+    assert response.headers["etag"] == '"2026-09-02.1"'
     assert response.headers["cache-control"] == "private, max-age=300"
     payload = catalog.model_dump()
     assert "data" not in payload

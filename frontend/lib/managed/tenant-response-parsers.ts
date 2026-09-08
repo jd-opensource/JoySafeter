@@ -122,13 +122,8 @@ export interface ProjectSummary {
   archived_at?: string | null
   capability?: string
   triggers_paused?: boolean
-}
-
-export interface ProjectSummaryPage {
-  data: ProjectSummary[]
-  has_more: boolean
-  first_id?: ProjectId
-  last_id?: ProjectId
+  created_at?: string | null
+  project_role?: string | null
 }
 
 export interface OrganizationDetail {
@@ -141,6 +136,32 @@ export interface OrganizationDetail {
   owner_email?: string | null
   project_creation_policy: 'admins_only' | 'all_members'
   created_at?: string | null
+}
+
+export interface OrganizationCreateResult {
+  id: OrganizationId
+  name: string
+  slug: string
+  logo?: string | null
+  project_id?: ProjectId
+  project_creation_policy: 'admins_only' | 'all_members'
+  created_at?: string | null
+}
+
+export interface OrganizationUpdateResult {
+  id: OrganizationId
+  name: string
+  slug: string
+  logo?: string | null
+  project_creation_policy: 'admins_only' | 'all_members'
+}
+
+export interface OrganizationOwnershipTransferResult {
+  organization_id: OrganizationId
+  previous_owner_user_id: UserId
+  previous_owner_role: string
+  new_owner_user_id: UserId
+  new_owner_role: string
 }
 
 export interface OrganizationMemberRecord {
@@ -172,13 +193,6 @@ export interface MemberCandidate {
   already_member: boolean
 }
 
-export interface OrganizationMemberPage {
-  data: OrganizationMemberRecord[]
-  has_more: boolean
-  first_id?: OrganizationMemberId
-  last_id?: OrganizationMemberId
-}
-
 export interface PlatformOrganization {
   id: OrganizationId
   name: string
@@ -188,10 +202,6 @@ export interface PlatformOrganization {
   project_count: number
   member_emails: string[]
   created_at: string
-}
-
-export interface PlatformOrganizationPage {
-  data: PlatformOrganization[]
 }
 
 export interface PlatformUser {
@@ -208,6 +218,35 @@ export interface PlatformUser {
 
 export function parseOrganizationInfo(raw: OrganizationInfoPayload): OrgInfo {
   return { ...raw, id: parseOrganizationId(raw.id) }
+}
+
+export function parseOrganizationListItemResponse(response: unknown): OrgInfo {
+  const raw = responseRecord(response, 'organization list item')
+  const projectCreationPolicy = optionalNullableString(
+    raw,
+    'project_creation_policy',
+    'organization list item',
+  )
+  if (
+    projectCreationPolicy !== undefined &&
+    projectCreationPolicy !== null &&
+    projectCreationPolicy !== 'admins_only' &&
+    projectCreationPolicy !== 'all_members'
+  ) {
+    throw new TypeError(
+      'Expected organization list item.project_creation_policy to be admins_only or all_members',
+    )
+  }
+  return {
+    id: parseOrganizationId(requiredString(raw, 'id', 'organization list item')),
+    name: requiredString(raw, 'name', 'organization list item'),
+    slug: requiredString(raw, 'slug', 'organization list item'),
+    role: requiredString(raw, 'role', 'organization list item'),
+    owner_name: optionalNullableString(raw, 'owner_name', 'organization list item'),
+    owner_email: optionalNullableString(raw, 'owner_email', 'organization list item'),
+    project_creation_policy: projectCreationPolicy ?? undefined,
+    created_at: optionalNullableString(raw, 'created_at', 'organization list item'),
+  }
 }
 
 export function parseProjectInfo(raw: ProjectInfoPayload): ProjectInfo {
@@ -255,34 +294,13 @@ export function parseProjectSummaryResponse(response: unknown): ProjectSummary {
     archived_at: optionalNullableString(raw, 'archived_at', 'project summary'),
     capability: optionalNullableString(raw, 'capability', 'project summary') ?? undefined,
     triggers_paused: triggersPaused,
-  }
-}
-
-export function parseProjectSummaryPageResponse(response: unknown): ProjectSummaryPage {
-  const raw = responseRecord(response, 'project summary page')
-  if (!Array.isArray(raw.data)) {
-    throw new TypeError('Expected project summary page.data to be an array')
-  }
-  const firstId = optionalNullableString(raw, 'first_id', 'project summary page')
-  const lastId = optionalNullableString(raw, 'last_id', 'project summary page')
-  return {
-    data: raw.data.map(parseProjectSummaryResponse),
-    has_more: requiredBoolean(raw, 'has_more', 'project summary page'),
-    first_id: parseOptionalId(firstId, parseProjectId) ?? undefined,
-    last_id: parseOptionalId(lastId, parseProjectId) ?? undefined,
+    created_at: optionalNullableString(raw, 'created_at', 'project summary'),
+    project_role: optionalNullableString(raw, 'project_role', 'project summary'),
   }
 }
 
 export function parseOrganizationDetailResponse(response: unknown): OrganizationDetail {
   const raw = responseRecord(response, 'organization detail')
-  const projectCreationPolicy = requiredString(
-    raw,
-    'project_creation_policy',
-    'organization detail',
-  )
-  if (projectCreationPolicy !== 'admins_only' && projectCreationPolicy !== 'all_members') {
-    throw new TypeError('Expected organization detail.project_creation_policy to be valid')
-  }
   return {
     id: parseOrganizationId(requiredString(raw, 'id', 'organization detail')),
     name: requiredString(raw, 'name', 'organization detail'),
@@ -291,8 +309,71 @@ export function parseOrganizationDetailResponse(response: unknown): Organization
     role: requiredString(raw, 'role', 'organization detail'),
     owner_name: optionalNullableString(raw, 'owner_name', 'organization detail'),
     owner_email: optionalNullableString(raw, 'owner_email', 'organization detail'),
-    project_creation_policy: projectCreationPolicy,
+    project_creation_policy: parseProjectCreationPolicy(raw, 'organization detail'),
     created_at: optionalNullableString(raw, 'created_at', 'organization detail'),
+  }
+}
+
+function parseProjectCreationPolicy(
+  raw: Record<string, unknown>,
+  label: string,
+): 'admins_only' | 'all_members' {
+  const value = requiredString(raw, 'project_creation_policy', label)
+  if (value !== 'admins_only' && value !== 'all_members') {
+    throw new TypeError(`Expected ${label}.project_creation_policy to be valid`)
+  }
+  return value
+}
+
+export function parseOrganizationCreateResponse(response: unknown): OrganizationCreateResult {
+  const raw = responseRecord(response, 'organization create response')
+  const rawProjectId = optionalNullableString(raw, 'project_id', 'organization create response')
+  return {
+    id: parseOrganizationId(requiredString(raw, 'id', 'organization create response')),
+    name: requiredString(raw, 'name', 'organization create response'),
+    slug: requiredString(raw, 'slug', 'organization create response'),
+    logo: optionalNullableString(raw, 'logo', 'organization create response'),
+    project_id: parseOptionalId(rawProjectId, parseProjectId) ?? undefined,
+    project_creation_policy: parseProjectCreationPolicy(raw, 'organization create response'),
+    created_at: optionalNullableString(raw, 'created_at', 'organization create response'),
+  }
+}
+
+export function parseOrganizationUpdateResponse(response: unknown): OrganizationUpdateResult {
+  const raw = responseRecord(response, 'organization update response')
+  return {
+    id: parseOrganizationId(requiredString(raw, 'id', 'organization update response')),
+    name: requiredString(raw, 'name', 'organization update response'),
+    slug: requiredString(raw, 'slug', 'organization update response'),
+    logo: optionalNullableString(raw, 'logo', 'organization update response'),
+    project_creation_policy: parseProjectCreationPolicy(raw, 'organization update response'),
+  }
+}
+
+export function parseOrganizationOwnershipTransferResponse(
+  response: unknown,
+): OrganizationOwnershipTransferResult {
+  const raw = responseRecord(response, 'organization ownership transfer response')
+  return {
+    organization_id: parseOrganizationId(
+      requiredString(raw, 'organization_id', 'organization ownership transfer response'),
+    ),
+    previous_owner_user_id: parseUserId(
+      requiredString(raw, 'previous_owner_user_id', 'organization ownership transfer response'),
+    ),
+    previous_owner_role: requiredString(
+      raw,
+      'previous_owner_role',
+      'organization ownership transfer response',
+    ),
+    new_owner_user_id: parseUserId(
+      requiredString(raw, 'new_owner_user_id', 'organization ownership transfer response'),
+    ),
+    new_owner_role: requiredString(
+      raw,
+      'new_owner_role',
+      'organization ownership transfer response',
+    ),
   }
 }
 
@@ -337,21 +418,6 @@ export function parseMemberCandidateResponse(response: unknown): MemberCandidate
   }
 }
 
-export function parseOrganizationMemberPageResponse(response: unknown): OrganizationMemberPage {
-  const raw = responseRecord(response, 'organization member page')
-  if (!Array.isArray(raw.data)) {
-    throw new TypeError('Expected organization member page.data to be an array')
-  }
-  const firstId = optionalNullableString(raw, 'first_id', 'organization member page')
-  const lastId = optionalNullableString(raw, 'last_id', 'organization member page')
-  return {
-    data: raw.data.map(parseOrganizationMemberResponse),
-    has_more: requiredBoolean(raw, 'has_more', 'organization member page'),
-    first_id: parseOptionalId(firstId, parseOrganizationMemberId) ?? undefined,
-    last_id: parseOptionalId(lastId, parseOrganizationMemberId) ?? undefined,
-  }
-}
-
 export function parseMemberCandidateListResponse(response: unknown): MemberCandidate[] {
   if (!Array.isArray(response)) {
     throw new TypeError('Expected member candidates to be an array')
@@ -386,12 +452,4 @@ export function parsePlatformUserResponse(response: unknown): PlatformUser {
     created_at: requiredString(raw, 'created_at', 'platform user'),
     updated_at: requiredString(raw, 'updated_at', 'platform user'),
   }
-}
-
-export function parsePlatformOrganizationPageResponse(response: unknown): PlatformOrganizationPage {
-  const raw = responseRecord(response, 'platform organization page')
-  if (!Array.isArray(raw.data)) {
-    throw new TypeError('Expected platform organization page.data to be an array')
-  }
-  return { data: raw.data.map(parsePlatformOrganizationResponse) }
 }

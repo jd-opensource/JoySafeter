@@ -79,6 +79,16 @@ class EngineCapability(BaseModel):
     preferred_protocol_ids: list[str] = Field(default_factory=list)
 
 
+class ModelConsumerCapability(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    display_name: str
+    enabled: bool = True
+    supported_protocol_ids: list[str]
+    preferred_protocol_ids: list[str] = Field(default_factory=list)
+
+
 class ProtocolDefinition(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -101,6 +111,7 @@ class LlmCatalog(BaseModel):
 
     version: str
     engines: list[EngineCapability]
+    model_consumers: list[ModelConsumerCapability] = Field(default_factory=list)
     protocols: list[ProtocolDefinition]
     providers: list[ProviderDefinition]
     credential_profiles: list[CredentialProfile]
@@ -108,6 +119,7 @@ class LlmCatalog(BaseModel):
     @model_validator(mode="after")
     def validate_references(self) -> LlmCatalog:
         _ensure_unique_ids("engine", [engine.id for engine in self.engines])
+        _ensure_unique_ids("model consumer", [consumer.id for consumer in self.model_consumers])
         _ensure_unique_ids("protocol", [protocol.id for protocol in self.protocols])
         _ensure_unique_ids("provider", [provider.id for provider in self.providers])
         _ensure_unique_ids("credential profile", [profile.id for profile in self.credential_profiles])
@@ -116,10 +128,7 @@ class LlmCatalog(BaseModel):
             provider.id for provider in self.providers
         }
         if overlapping_engine_provider_ids:
-            raise ValueError(
-                "engine and provider ids overlap: "
-                f"{sorted(overlapping_engine_provider_ids)[0]}"
-            )
+            raise ValueError(f"engine and provider ids overlap: {sorted(overlapping_engine_provider_ids)[0]}")
 
         protocol_ids = {protocol.id for protocol in self.protocols}
         profile_ids = {profile.id for profile in self.credential_profiles}
@@ -133,18 +142,25 @@ class LlmCatalog(BaseModel):
                     f"engine '{engine.id}' preferred protocol is not supported: {sorted(unsupported_preferred)[0]}"
                 )
 
+        for consumer in self.model_consumers:
+            for protocol_id in consumer.supported_protocol_ids:
+                if protocol_id not in protocol_ids:
+                    raise ValueError(f"model consumer '{consumer.id}' references unknown protocol: {protocol_id}")
+            unsupported_preferred = set(consumer.preferred_protocol_ids) - set(consumer.supported_protocol_ids)
+            if unsupported_preferred:
+                raise ValueError(
+                    "model consumer "
+                    f"'{consumer.id}' preferred protocol is not supported: {sorted(unsupported_preferred)[0]}"
+                )
+
         for provider in self.providers:
             binding_protocol_ids = [binding.protocol_id for binding in provider.protocol_bindings]
             duplicate_bindings = _duplicate_ids(binding_protocol_ids)
             if duplicate_bindings:
-                raise ValueError(
-                    f"provider '{provider.id}' has duplicate protocol binding: {duplicate_bindings[0]}"
-                )
+                raise ValueError(f"provider '{provider.id}' has duplicate protocol binding: {duplicate_bindings[0]}")
             for binding in provider.protocol_bindings:
                 if binding.protocol_id not in protocol_ids:
-                    raise ValueError(
-                        f"provider '{provider.id}' references unknown protocol: {binding.protocol_id}"
-                    )
+                    raise ValueError(f"provider '{provider.id}' references unknown protocol: {binding.protocol_id}")
                 if binding.credential_profile_id not in profile_ids:
                     raise ValueError(
                         "provider "
@@ -154,6 +170,9 @@ class LlmCatalog(BaseModel):
 
     def engine(self, engine_id: str) -> EngineCapability:
         return self._lookup("engine", engine_id, self.engines)
+
+    def model_consumer(self, consumer_id: str) -> ModelConsumerCapability:
+        return self._lookup("model consumer", consumer_id, self.model_consumers)
 
     def protocol(self, protocol_id: str) -> ProtocolDefinition:
         return self._lookup("protocol", protocol_id, self.protocols)

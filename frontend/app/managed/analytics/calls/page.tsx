@@ -18,7 +18,8 @@ import { Badge } from '@/components/ui/badge'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '@/components/ui/tooltip'
 import { useTranslation } from '@/lib/i18n'
 import { formatCompactNumber, formatDuration } from '@/lib/managed/analytics/formatters'
-import { useCallsList, useAgentsForFilters } from '@/lib/managed/analytics/hooks'
+import { useManagedAgentOptions } from '@/hooks/managed/use-managed-agent-options'
+import { useCallsList } from '@/lib/managed/analytics/hooks'
 import type { AnalyticsFilters, CallRecord } from '@/lib/managed/analytics/types'
 import { cn } from '@/lib/utils'
 import { tryParseAgentId } from '@/types/entity-id'
@@ -56,7 +57,7 @@ export default function CallsPage() {
   }
 
   const calls = useCallsList(filters, page, pageSize, sortBy, sortOrder)
-  const agentsList = useAgentsForFilters()
+  const agentsList = useManagedAgentOptions()
 
   const maxDuration = useMemo(() => {
     if (!calls.data?.data?.length) return 1

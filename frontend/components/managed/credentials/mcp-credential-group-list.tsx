@@ -14,17 +14,15 @@ import {
   type FilterDef,
 } from '@/components/managed/shared'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
-import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
+import { useManagedCredentialGroupList } from '@/hooks/managed/use-managed-credential-group-list'
 import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { managedDelete, managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { apiResourcePath } from '@/lib/managed/api-paths'
-import { parseCredentialGroupResponse } from '@/lib/managed/credential-group-response-parsers'
 import { toastOperationError } from '@/lib/managed/errors'
 import { filterByCreatedTime, createCreatedTimeFilter, matchesSearch } from '@/lib/managed/filters'
 import { managedRequestOptions, type ManagedRequestScope } from '@/lib/managed/request-scope'
 import { toastError } from '@/lib/utils/toast'
-import { parseCredentialGroupId } from '@/types/entity-id'
 import type { CredentialGroup } from '@/types/managed'
 
 import { CredentialIdentity } from './credential-identity'
@@ -156,14 +154,10 @@ export function McpCredentialGroupList({
     goPrev,
     goToPage,
     setPageSize,
-  } = usePaginatedList<CredentialGroup>({
-    queryKey: 'credential-groups',
-    path: '/credential-groups',
+  } = useManagedCredentialGroupList({
     includeArchived: showArchived,
     pageSize: listState.pageSize,
     onPageSizeChange: (pageSize) => updateListState({ pageSize }),
-    parseItem: parseCredentialGroupResponse,
-    parseCursor: parseCredentialGroupId,
   })
 
   const archiveMutation = useMutation({

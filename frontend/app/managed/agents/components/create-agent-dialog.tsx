@@ -1,6 +1,6 @@
 'use client'
 
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import { CircleHelp } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
@@ -34,18 +34,20 @@ import {
   SelectItem,
   SelectValue,
 } from '@/components/ui/select'
-import { managedGet, managedPost } from '@/lib/api-client'
+import { managedPost } from '@/lib/api-client'
 import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
+import { useManagedEnvironmentOptions } from '@/hooks/managed/use-managed-environment-options'
+import { useManagedSkillOptions } from '@/hooks/managed/use-managed-skill-options'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
 import { getEnabledEngines } from '@/lib/managed/llm-catalog'
+import { recordCreatedModelConnection } from '@/lib/managed/model-connection-cache'
 import { serializeMcpServerEntries, type McpServerEntry } from '@/lib/managed/mcp-config'
 import { selectInitialModelConnection } from '@/lib/managed/model-connection-selection'
 import { parseAgentCreateResponse } from '@/lib/managed/agent-response-parsers'
-import { parseSkillResponse } from '@/lib/managed/skill-response-parsers'
-import { parseEnvironmentListResponse } from '@/lib/managed/environment-response-parsers'
+import { managedEnvironmentOptionsQueryKey } from '@/lib/managed/environment-client'
+import { managedSkillOptionsQueryKey } from '@/lib/managed/skill-client'
 import {
-  hasManagedRequestScope,
   managedRequestOptions,
   managedScopeKey,
   useManagedRequestScope,
@@ -61,10 +63,8 @@ import {
 } from '@/types/entity-id'
 import type { Credential, CredentialDetail, Environment } from '@/types/managed'
 import { eligibilityReasonView, eligibilityActionView } from '@/lib/managed/skill-eligibility'
-import {
-  compatibleCredentialsQueryPrefix,
-  useCompatibleCredentials,
-} from '@/hooks/managed/use-compatible-credentials'
+import { useCompatibleCredentials } from '@/hooks/managed/use-compatible-credentials'
+import { compatibleCredentialsQueryPrefix } from '@/lib/managed/credential-client'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
 import { useProjectStore } from '@/stores/managed/project-store'
 import { SearchableAgentConfigSelect } from './searchable-agent-config-select'
@@ -75,10 +75,6 @@ const PERMISSION_MODES = [
   { value: 'bypassPermissions', labelKey: 'managed.agents.edit.permBypass' },
   { value: 'default', labelKey: 'managed.agents.edit.permAsk' },
 ]
-
-interface ManagedListResponse<T> {
-  data: T[]
-}
 
 interface SkillListItem {
   id: SkillId
@@ -151,29 +147,9 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
     setModelCredentialSelectionCleared(false)
   }, [catalogQuery.data, enabledEngines, engineKind])
 
-  const { data: skills } = useQuery({
-    queryKey: ['skills', managedScope.key],
-    queryFn: async () => {
-      const res = await managedGet<ManagedListResponse<unknown>>(
-        '/skills',
-        managedRequestOptions(managedScope),
-      )
-      return (res.data || []).map(parseSkillResponse)
-    },
-    enabled: open && hasManagedRequestScope(managedScope),
-  })
+  const { data: skills } = useManagedSkillOptions({ enabled: open })
 
-  const { data: environments } = useQuery({
-    queryKey: ['environments', managedScope.key],
-    queryFn: async () => {
-      const res = await managedGet<ManagedListResponse<unknown>>(
-        '/environments',
-        managedRequestOptions(managedScope),
-      )
-      return parseEnvironmentListResponse(res.data || [])
-    },
-    enabled: open && hasManagedRequestScope(managedScope),
-  })
+  const { data: environments } = useManagedEnvironmentOptions({ enabled: open })
 
   const effectiveEnvironmentId = useMemo(() => {
     if (!environmentId || !environments) return ''
@@ -319,9 +295,11 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
           })
           .at(-1)?.[1] ?? credentials
       const currentEnvironments =
-        queryClient.getQueryData<Environment[]>(['environments', scopeAtStart]) ?? environments
+        queryClient.getQueryData<Environment[]>(managedEnvironmentOptionsQueryKey(scopeAtStart)) ??
+        environments
       const currentSkills =
-        queryClient.getQueryData<SkillListItem[]>(['skills', scopeAtStart]) ?? skills
+        queryClient.getQueryData<SkillListItem[]>(managedSkillOptionsQueryKey(scopeAtStart)) ??
+        skills
 
       const currentModelCredentialId = (() => {
         if (!currentCredentials) return modelCredentialId
@@ -404,14 +382,7 @@ export function CreateAgentDialog({ open, onOpenChange, onCreated }: CreateAgent
             initialEngineId={engineKind}
             onCancel={() => setDialogView('agent_form')}
             onCreated={(created: CredentialDetail) => {
-              const listItem: Credential = created
-              queryClient.setQueriesData<Credential[]>(
-                { queryKey: compatibleCredentialsQueryPrefix(managedScope.key, engineKind) },
-                (current) => [
-                  ...(current ?? []).filter((secret) => secret.id !== listItem.id),
-                  listItem,
-                ],
-              )
+              recordCreatedModelConnection(queryClient, managedScope.key, engineKind, created)
               setModelCredentialId(created.id)
               setModelCredentialSelectionCleared(false)
               setModelCredentialCompatibilityNotice(false)

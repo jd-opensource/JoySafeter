@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  parseMemoryListResponse,
-  parseMemoryResponse,
-  parseMemoryStoreResponse,
-} from './memory-response-parsers'
+import { parseMemoryResponse, parseMemoryStoreResponse } from './memory-response-parsers'
 
 const STORE_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f040'
 const MEMORY_UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f041'
@@ -28,7 +24,6 @@ describe('memory response parsers', () => {
       `memstore_${STORE_UUID}`,
     )
     expect(parseMemoryResponse(rawMemory()).memory_version_id).toBe(`memver_${VERSION_UUID}`)
-    expect(parseMemoryListResponse({ data: [rawMemory()] })[0].id).toBe(`mem_${MEMORY_UUID}`)
   })
 
   it('rejects bare and cross-entity IDs', () => {

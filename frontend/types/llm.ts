@@ -34,6 +34,14 @@ export interface LlmEngineCapability {
   preferred_protocol_ids: string[]
 }
 
+export interface LlmModelConsumerCapability {
+  id: string
+  display_name: string
+  enabled: boolean
+  supported_protocol_ids: string[]
+  preferred_protocol_ids: string[]
+}
+
 export interface LlmProtocolDefinition {
   id: string
   display_name: string
@@ -50,6 +58,7 @@ export interface LlmProviderDefinition {
 export interface LlmCatalog {
   version: string
   engines: LlmEngineCapability[]
+  model_consumers: LlmModelConsumerCapability[]
   protocols: LlmProtocolDefinition[]
   providers: LlmProviderDefinition[]
   credential_profiles: LlmCredentialProfile[]

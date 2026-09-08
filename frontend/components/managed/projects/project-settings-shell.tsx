@@ -9,10 +9,10 @@ import type { ReactNode } from 'react'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useProjectContext } from '@/hooks/managed/use-project-context'
-import { managedGet } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
-import { parseProjectSummaryResponse } from '@/lib/managed/tenant-response-parsers'
+import { fetchManagedProject, managedProjectQueryKey } from '@/lib/managed/project-client'
+import { useManagedRequestScope } from '@/lib/managed/request-scope'
 import type { OrganizationId, ProjectId } from '@/types/entity-id'
 
 const projectTabs = [
@@ -32,10 +32,10 @@ export function ProjectSettingsShell({
   const pathname = usePathname()
   const { t } = useTranslation()
   const { orgId, organizations, isLoading: contextLoading } = useProjectContext()
+  const requestScope = useManagedRequestScope()
   const projectQuery = useQuery({
-    queryKey: ['project', projectId],
-    queryFn: () =>
-      managedGet<unknown>(`auth/projects/${projectId}`).then(parseProjectSummaryResponse),
+    queryKey: managedProjectQueryKey(requestScope.orgId, projectId),
+    queryFn: () => fetchManagedProject(projectId, requestScope),
     enabled: Boolean(projectId),
   })
   const project = projectQuery.data ?? null

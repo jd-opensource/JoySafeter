@@ -142,15 +142,10 @@ function parseEgressServices(value: unknown): EnvironmentEgressService[] {
       throw new TypeError(`HTTP egress auth source[${index}] is unsupported`)
     }
     if (authSource === 'agent_identity') {
-      // Pydantic may serialize optional fields as explicit nulls. Null carries
-      // no static credential material, so accept it for compatibility with
-      // existing environment rows while still rejecting any actual value.
-      if (service[CREDENTIAL_REF] !== undefined && service[CREDENTIAL_REF] !== null) {
-        throw new TypeError(
-          `HTTP egress service[${index}] Agent Identity cannot include static credential fields`,
-        )
-      }
-      if (service.inject !== undefined && service.inject !== null) {
+      const hasCredentialRef =
+        service[CREDENTIAL_REF] !== undefined && service[CREDENTIAL_REF] !== null
+      const hasInject = service.inject !== undefined && service.inject !== null
+      if (hasCredentialRef || hasInject) {
         throw new TypeError(
           `HTTP egress service[${index}] Agent Identity cannot include static credential fields`,
         )
@@ -263,8 +258,4 @@ export function parseEnvironmentResponse(response: unknown): Environment {
         }
       : undefined,
   }
-}
-
-export function parseEnvironmentListResponse(response: unknown[]): Environment[] {
-  return response.map(parseEnvironmentResponse)
 }

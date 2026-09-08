@@ -7,6 +7,7 @@ const en = {
       cancel: 'Cancel',
       confirm: 'Confirm',
       delete: 'Delete',
+      remove: 'Remove',
       archive: 'Archive',
       restore: 'Restore',
       undo: 'Undo',
@@ -972,6 +973,7 @@ const en = {
           credentialFailure: {
             corrupt_record: 'the credential/key data is corrupt or in an old format',
             envelope_invalid: 'the credential could not be decrypted',
+            configuration_invalid: 'the server model catalog configuration is invalid',
             unsupported_scheme: 'the credential auth scheme is no longer supported',
             kind_mismatch: 'the credential kind does not match the binding',
             field_missing: 'the credential is missing a required field',
@@ -1522,13 +1524,26 @@ const en = {
           navigationLabel: 'Quickstart workflow',
           understand: { title: 'Understand' },
           design: { title: 'Design' },
-          protect: { title: 'Protect' },
+          secure: { title: 'Secure' },
           prove: { title: 'Prove' },
           reviewedWithGaps: 'Gaps',
         },
         whatToBuild: 'What do you want\nto safely build?',
         subtitle:
-          'Describe your goal or pick a template. JoySafeter recommends the runtime, secure Model Connection, controlled environment, and least-privilege tools.',
+          'Describe your goal or start from a template. JoySafeter drafts a professional agent, recommends a safe runtime and least-privilege tools, and proves it runs before you ship.',
+        secureByDefault: 'Secure by default',
+        secureByDefaultHint: 'Every agent launches with these controls built in.',
+        mode: {
+          label: 'Mode',
+          fast: 'Fast Track',
+          expert: 'Expert',
+          fastHint: 'Accept JoySafeter’s recommendations and launch quickly.',
+          expertHint: 'Edit the raw configuration, copy cURL, and control every field.',
+        },
+        recommendation: {
+          loading: 'JoySafeter is preparing phase recommendations…',
+          failed: 'Recommendations could not be loaded. Existing choices were left unchanged.',
+        },
         describeAgent: 'Describe the secure agent you want to build...',
         safety: {
           sandbox: {
@@ -1645,7 +1660,7 @@ const en = {
         noEventsYet: 'No events yet. Events will appear here as they occur.',
         sessionLiveHint: 'Session started -- send a message in the right panel to test your Agent.',
         agentRunningHint: 'Agent running -- check progress in the right panel.',
-        readyToStart: 'Agent ready -- review the JoySafeter safety plan before launch.',
+        readyToStart: 'Agent ready -- review the JoySafeter Security Plan before launch.',
         startSession: 'Secure Launch',
         agentProcessing: 'Agent processing...',
         sendMessage: 'Send message...',
@@ -1781,8 +1796,8 @@ const en = {
             },
           },
         },
-        safetyPlan: {
-          title: 'JoySafeter Safety Plan',
+        securityPlan: {
+          title: 'JoySafeter Security Plan',
           description: 'Review and adjust these controls before the first session starts.',
           runtime: 'Runtime engine',
           modelConnection: 'Secure Model Connection',
@@ -1793,6 +1808,7 @@ const en = {
           notConfigured: 'Not configured',
           noEnvironment: 'No custom environment selected',
           notAuthorized: 'No external tools authorized',
+          noAuthorizationRequired: 'No credential required',
           summary: {
             ready: 'Ready for secure launch',
             readyDescription:
@@ -1804,7 +1820,6 @@ const en = {
           status: {
             ready: 'Ready',
             required: 'Required',
-            protected: 'Protected',
             enforced: 'Enforced',
             recommended: 'Recommended',
             authorized: 'Authorized',
@@ -1824,6 +1839,8 @@ const en = {
             externalTools: 'Only this credential group will be attached to the session.',
             noExternalTools:
               'Launch stays isolated from MCP tools until you authorize a credential group.',
+            missingExternalTools:
+              'One or more MCP servers that require credentials are not authorized by the selected group.',
             audit: 'Launch and runtime events stay attached to this project for review.',
           },
           action: {
@@ -1837,7 +1854,8 @@ const en = {
           launchHint: {
             ready: 'Secure launch will attach the reviewed controls above to the first session.',
             hardening:
-              'You can still launch, but JoySafeter recommends adding a security environment for stronger network control.',
+              'You can still launch, but the reviewed environment or MCP authorization is not fully enforced yet.',
+            blocked: 'Authorize every required MCP server before starting the first session.',
           },
         },
         credentialGroupIntro:
@@ -1850,7 +1868,14 @@ const en = {
         credentialGroupNamePlaceholder: 'e.g. production-mcp-credential-group',
         credentialGroupCredentialTitle: 'Add the MCP credential now',
         credentialGroupCredentialHint:
-          'Quickstart will create the credential group and add one MCP credential member so the launch can actually use it.',
+          'Quickstart creates all credential-bearing MCP members atomically. Public servers remain visible but do not request a token.',
+        credentialGroupAddServer: 'Add another MCP server',
+        credentialGroupNoTokenRequired: 'This MCP server does not require a credential.',
+        credentialGroupAuth: {
+          required: 'Credential required',
+          optional: 'Credential optional',
+          none: 'No credential required',
+        },
         credentialGroupMcpServerUrlPlaceholder: 'MCP server URL, e.g. https://api.github.com/mcp',
         credentialGroupCredentialNamePlaceholder: 'Credential name (optional)',
         credentialGroupTokenPlaceholder: 'MCP bearer token',
@@ -1900,6 +1925,7 @@ const en = {
           createSessionFailed: 'Failed to create session',
           createEnvironmentFailed: 'Failed to create environment',
           createCredentialGroupFailed: 'Failed to create MCP credential group',
+          incompleteMcpAuthorization: 'Every required MCP server needs a URL and token.',
           createResourceFailed: 'Failed to create resource',
           agentConfigMissing: 'Agent configuration not found',
           engineMissing: 'Select an engine before creating the agent.',
@@ -2019,8 +2045,19 @@ const en = {
           uploadSuccess: 'Imported {{count}} file(s)',
           uploadEmpty: 'No importable text files',
           moveConflict: 'Target already has a file with that name; skipped',
-          selectModelConnection: 'Select secret',
+          selectModelConnection: 'Select Model Connection',
           noModelConnections: 'No model connections available',
+          modelConnection: {
+            required: 'Configure a Model Connection first',
+            requiredHint:
+              'AI authoring supports Anthropic Messages, OpenAI Responses, and Chat Completions connections. Create one here and it will be selected automatically.',
+            selected: 'AI authoring Model Connection',
+            select: 'Select Model Connection',
+            change: 'Change',
+            dialogTitle: 'Configure AI authoring Model Connection',
+            dialogDescription:
+              'Select an existing connection or create a new connection supported by AI authoring.',
+          },
           default: 'default',
           saveDraft: 'Save draft',
           create: 'Create skill',

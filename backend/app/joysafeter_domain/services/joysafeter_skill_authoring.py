@@ -1,16 +1,16 @@
 """Skill authoring orchestrator.
 
-Bridges the AI workspace (``/managed/skills/new-ai``) to the OpenAI-compatible
-streaming helper. Responsible for:
+Bridges the AI workspace (``/managed/skills/new-ai``) to the shared model
+streaming gateway. Responsible for:
 
   * Loading a small set of high-quality SKILL.md examples on first use and
     baking them into the system prompt as few-shot context.
   * Defining the ``update_draft`` tool the model uses to patch right-side
     fields (name / description / tags / visibility / content / files).
-  * Wiring per-request OpenAI credentials supplied by the caller (resolved
+  * Wiring per-request model credentials supplied by the caller (resolved
     from a JoySafeter secret upstream — see ``skills_ai_authoring`` router)
-    into ``stream_openai_chat``.
-  * Translating ``stream_openai_chat`` events into the SSE shape the frontend
+    into the shared protocol gateway.
+  * Translating gateway events into the SSE shape the frontend
     consumes: ``text_delta`` (verbatim) and ``draft_patch`` (parsed from the
     completed ``update_draft`` tool call).
 
@@ -28,7 +28,7 @@ from typing import Any, AsyncGenerator, Optional
 
 from app.joysafeter_shared.common.boundary_errors import log_boundary_failure
 from app.joysafeter_shared.common.stream_errors import async_error_payload
-from app.joysafeter_shared.llm.openai_stream import stream_openai_chat
+from app.joysafeter_shared.llm.model_stream import stream_model
 
 logger = logging.getLogger(__name__)
 
@@ -278,7 +278,9 @@ def _build_messages(
 
 async def stream_authoring_chat(
     *,
+    protocol: str,
     api_key: str,
+    bearer_token: bool,
     base_url: str,
     model: str,
     history: list[dict[str, Any]],
@@ -297,14 +299,20 @@ async def stream_authoring_chat(
     tool call's JSON arguments. Invalid JSON from the model is logged and
     skipped (the model occasionally emits trailing commas etc.).
     """
-    messages = _build_messages(history=history, draft=draft)
+    wire_messages = _build_messages(history=history, draft=draft)
+    system = "\n\n".join(str(message["content"]) for message in wire_messages if message["role"] == "system")
+    messages = [message for message in wire_messages if message["role"] != "system"]
 
-    async for event in stream_openai_chat(
+    async for event in stream_model(
+        protocol=protocol,
         base_url=base_url,
         api_key=api_key,
+        bearer_token=bearer_token,
         model=model,
+        system=system,
         messages=messages,
         tools=[UPDATE_DRAFT_TOOL],
+        force_tool_name="update_draft",
         # Multi-file skills routinely emit 8-12k of tool_call JSON
         # (SKILL.md + 2-4 references/scripts files). Reasoning models like
         # GPT-5.5 also burn output budget on hidden reasoning tokens. The

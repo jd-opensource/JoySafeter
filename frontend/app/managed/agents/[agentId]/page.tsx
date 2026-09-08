@@ -17,7 +17,13 @@ import {
 } from 'lucide-react'
 import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
 import { toast } from '@/hooks/use-toast'
-import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
+import { apiResourcePath } from '@/lib/managed/api-paths'
+import {
+  fetchManagedAgent,
+  fetchManagedAgentVersionHistory,
+  managedAgentQueryKey,
+  managedAgentVersionsQueryKey,
+} from '@/lib/managed/agent-client'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import { mcpServerEndpointLabel } from '@/lib/managed/mcp-config'
 import { advanceAgentVersionSelection } from '@/lib/managed/agent-version-selection'
@@ -31,15 +37,15 @@ import type { ManagedRequestScope } from '@/lib/managed/request-scope'
 import { VersionDiffView } from '@/components/managed/agent/version-diff-view'
 import { AgentModelSummary } from '@/components/managed/agent/agent-model-summary'
 import type { Agent, AgentTool, AgentVersion, McpServer, Session } from '@/types/managed'
-import { parseAgentId } from '@/types/entity-id'
+import { parseAgentId, type SessionId } from '@/types/entity-id'
 import {
-  parseAgentResponse,
-  parseAgentVersionListResponse,
-} from '@/lib/managed/agent-response-parsers'
-import {
-  parseSessionCreateResponse,
-  parseSessionListResponse,
-} from '@/lib/managed/session-response-parsers'
+  archiveManagedSession,
+  createManagedSession,
+  fetchManagedAgentSessions,
+  managedAgentSessionsQueryKey,
+  managedAgentSessionsQueryPrefix,
+  type ManagedSessionPage,
+} from '@/lib/managed/session-client'
 import { getSessionDisplayTitle } from '@/lib/managed/session-display'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -111,6 +117,8 @@ function AgentDetailPageInner({ params }: { params: Promise<{ agentId: string }>
   const operationScopeRef = useRef(operationScope)
   const managedRequestScopeRef = useRef<ManagedRequestScope>(managedScope)
   const [showArchived, setShowArchived] = useState(false)
+  const [sessionCursor, setSessionCursor] = useState<SessionId | undefined>()
+  const [sessionCursorStack, setSessionCursorStack] = useState<Array<SessionId | undefined>>([])
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null)
   const [confirmDialog, setConfirmDialog] = useState<{
     open: boolean
@@ -134,6 +142,8 @@ function AgentDetailPageInner({ params }: { params: Promise<{ agentId: string }>
     setPendingAction(null)
     operationScopeRef.current = operationScope
     managedRequestScopeRef.current = managedScope
+    setSessionCursor(undefined)
+    setSessionCursorStack([])
     setConfirmDialog({
       open: false,
       title: '',
@@ -165,14 +175,18 @@ function AgentDetailPageInner({ params }: { params: Promise<{ agentId: string }>
   const currentAgentIsActive = () => {
     if (!currentOperationScopeIsActive()) return false
     if (!currentProjectAllowsWrite()) return false
-    const currentAgent = queryClient.getQueryData<Agent>(['agent', managedScope.key, agentId])
+    const currentAgent = queryClient.getQueryData<Agent>(
+      managedAgentQueryKey(managedScope.key, agentId),
+    )
     return !!currentAgent && currentAgent.id === agent?.id && !currentAgent.archived_at
   }
 
   const currentAgentIsWritable = () => {
     if (!currentOperationScopeIsActive()) return false
     if (!currentProjectAllowsWrite()) return false
-    const currentAgent = queryClient.getQueryData<Agent>(['agent', managedScope.key, agentId])
+    const currentAgent = queryClient.getQueryData<Agent>(
+      managedAgentQueryKey(managedScope.key, agentId),
+    )
     return !!currentAgent && currentAgent.id === agent?.id
   }
 
@@ -212,39 +226,44 @@ function AgentDetailPageInner({ params }: { params: Promise<{ agentId: string }>
     isError,
     error,
   } = useQuery({
-    queryKey: ['agent', managedScope.key, agentId],
-    queryFn: () =>
-      managedGet<unknown>(
-        apiResourcePath('agents', agentId),
-        managedRequestOptions(managedScope),
-      ).then(parseAgentResponse),
+    queryKey: managedAgentQueryKey(managedScope.key, agentId),
+    queryFn: () => fetchManagedAgent(agentId, managedScope),
     enabled: !!agentId && hasManagedRequestScope(managedScope),
     retry: shouldRetryManagedResourceError,
   })
 
-  const { data: sessions } = useQuery({
-    queryKey: ['agent-sessions', managedScope.key, agentId, showArchived],
-    queryFn: async () => {
-      const res = await managedGet<{ data: unknown[] }>(
-        apiResourceSubpath('agents', agentId, ['sessions'], {
-          include_archived: showArchived || undefined,
-        }),
-        managedRequestOptions(managedScope),
-      )
-      return parseSessionListResponse(res.data || [])
-    },
+  const agentSessionsRequest = {
+    limit: 20,
+    afterId: sessionCursor,
+    includeArchived: showArchived,
+  }
+  const { data: sessionPage, isFetching: sessionsFetching } = useQuery({
+    queryKey: managedAgentSessionsQueryKey(managedScope.key, agentId, agentSessionsRequest),
+    queryFn: () => fetchManagedAgentSessions(agentId, agentSessionsRequest, managedScope),
     enabled: !!agentId && hasManagedRequestScope(managedScope),
   })
+  const sessions = sessionPage?.sessions ?? []
+
+  const resetSessionPagination = () => {
+    setSessionCursor(undefined)
+    setSessionCursorStack([])
+  }
+
+  const goToNextSessionPage = () => {
+    if (!sessionPage?.hasMore || !sessionPage.lastId) return
+    setSessionCursorStack((stack) => [...stack, sessionCursor])
+    setSessionCursor(sessionPage.lastId)
+  }
+
+  const goToPreviousSessionPage = () => {
+    if (sessionCursorStack.length === 0) return
+    setSessionCursor(sessionCursorStack.at(-1))
+    setSessionCursorStack((stack) => stack.slice(0, -1))
+  }
 
   const { data: versions } = useQuery({
-    queryKey: ['agent-versions', managedScope.key, agentId],
-    queryFn: async () => {
-      const res = await managedGet<{ data: unknown[] }>(
-        apiResourcePath('agents', agentId, 'versions'),
-        managedRequestOptions(managedScope),
-      )
-      return parseAgentVersionListResponse(res.data || [])
-    },
+    queryKey: managedAgentVersionsQueryKey(managedScope.key, agentId),
+    queryFn: () => fetchManagedAgentVersionHistory(agentId, managedScope),
     enabled: !!agentId && hasManagedRequestScope(managedScope),
   })
 
@@ -257,15 +276,9 @@ function AgentDetailPageInner({ params }: { params: Promise<{ agentId: string }>
     const requestScope = managedRequestScopeRef.current
     if (!currentOperationScopeIsActive(actionScope)) return
     try {
-      const res = parseSessionCreateResponse(
-        await managedPost<unknown>(
-          '/sessions',
-          { agent: apiResourceId(agentId) },
-          managedRequestOptions(requestScope),
-        ),
-      )
+      const sessionId = await createManagedSession({ agentId }, requestScope)
       if (!isCurrentAction(runId, actionScope)) return
-      router.push(`/managed/sessions/${res.id}`)
+      router.push(`/managed/sessions/${sessionId}`)
     } catch (e) {
       if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
@@ -300,10 +313,12 @@ function AgentDetailPageInner({ params }: { params: Promise<{ agentId: string }>
             managedRequestOptions(requestScope),
           )
           if (!isCurrentAction(runId, scope)) return
-          queryClient.invalidateQueries({ queryKey: ['agent', requestScope.key, agentId] })
+          queryClient.invalidateQueries({
+            queryKey: managedAgentQueryKey(requestScope.key, agentId),
+          })
           queryClient.invalidateQueries({ queryKey: ['agents', requestScope.key] })
           queryClient.invalidateQueries({
-            queryKey: ['agent-sessions', requestScope.key, agentId],
+            queryKey: managedAgentSessionsQueryPrefix(requestScope.key, agentId),
             exact: false,
           })
           toast({ title: t('managed.agents.archiveSuccess', { name: agent?.name }) })
@@ -319,7 +334,9 @@ function AgentDetailPageInner({ params }: { params: Promise<{ agentId: string }>
 
   const handleRestore = () => {
     if (!currentAgentIsWritable()) return
-    const currentAgent = queryClient.getQueryData<Agent>(['agent', managedScope.key, agentId])
+    const currentAgent = queryClient.getQueryData<Agent>(
+      managedAgentQueryKey(managedScope.key, agentId),
+    )
     if (!currentAgent?.archived_at) return
     actionRunRef.current += 1
     setConfirmDialog({
@@ -341,7 +358,9 @@ function AgentDetailPageInner({ params }: { params: Promise<{ agentId: string }>
             managedRequestOptions(requestScope),
           )
           if (!isCurrentAction(runId, scope)) return
-          queryClient.invalidateQueries({ queryKey: ['agent', requestScope.key, agentId] })
+          queryClient.invalidateQueries({
+            queryKey: managedAgentQueryKey(requestScope.key, agentId),
+          })
           queryClient.invalidateQueries({ queryKey: ['agents', requestScope.key] })
           toast({ title: t('managed.agents.restoreSuccess', { name: agent?.name }) })
         } catch (e) {
@@ -417,12 +436,9 @@ function AgentDetailPageInner({ params }: { params: Promise<{ agentId: string }>
   const handleArchiveSession = async (session: Session) => {
     if (!currentAgentIsActive()) return
 
-    const currentSessions = queryClient.getQueryData<Session[]>([
-      'agent-sessions',
-      managedScope.key,
-      agentId,
-      showArchived,
-    ])
+    const currentSessions = queryClient.getQueryData<ManagedSessionPage>(
+      managedAgentSessionsQueryKey(managedScope.key, agentId, agentSessionsRequest),
+    )?.sessions
     if (!currentSessions?.some((currentSession) => currentSession.id === session.id)) return
 
     const action = beginPendingAction('archive-session')
@@ -430,14 +446,10 @@ function AgentDetailPageInner({ params }: { params: Promise<{ agentId: string }>
     const { runId, scope } = action
     const requestScope = managedRequestScopeRef.current
     try {
-      await managedPost(
-        apiResourcePath('sessions', session.id, 'archive'),
-        {},
-        managedRequestOptions(requestScope),
-      )
+      await archiveManagedSession(session.id, requestScope)
       if (!isCurrentAction(runId, scope)) return
       queryClient.invalidateQueries({
-        queryKey: ['agent-sessions', requestScope.key, agentId],
+        queryKey: managedAgentSessionsQueryPrefix(requestScope.key, agentId),
         exact: false,
       })
     } catch (e) {
@@ -605,12 +617,21 @@ function AgentDetailPageInner({ params }: { params: Promise<{ agentId: string }>
 
         <TabsContent value="sessions">
           <AgentSessions
-            sessions={sessions || []}
+            sessions={sessions}
             showArchived={showArchived}
-            onArchivedChange={setShowArchived}
+            onArchivedChange={(value) => {
+              setShowArchived(value)
+              resetSessionPagination()
+            }}
             onSelect={(s) => router.push(`/managed/sessions/${s.id}`)}
             onArchive={handleArchiveSession}
             canArchive={!projectReadOnly && !isArchived && !actionPending}
+            fetching={sessionsFetching}
+            hasNext={sessionPage?.hasMore ?? false}
+            hasPrev={sessionCursorStack.length > 0}
+            onNext={goToNextSessionPage}
+            onPrev={goToPreviousSessionPage}
+            onResetPagination={resetSessionPagination}
           />
         </TabsContent>
       </Tabs>
@@ -1026,6 +1047,12 @@ function AgentSessions({
   onSelect,
   onArchive,
   canArchive,
+  fetching,
+  hasNext,
+  hasPrev,
+  onNext,
+  onPrev,
+  onResetPagination,
 }: {
   sessions: Session[]
   showArchived: boolean
@@ -1033,12 +1060,16 @@ function AgentSessions({
   onSelect: (s: Session) => void
   onArchive: (s: Session) => void
   canArchive: boolean
+  fetching: boolean
+  hasNext: boolean
+  hasPrev: boolean
+  onNext: () => void
+  onPrev: () => void
+  onResetPagination: () => void
 }) {
   const { t } = useTranslation()
   const [createdFilter, setCreatedFilter] = useState('all')
   const [versionFilter, setVersionFilter] = useState('all')
-  const [page, setPage] = useState(0)
-  const pageSize = 20
 
   const getCreatedCutoff = (filter: string): number => {
     const now = Date.now()
@@ -1065,10 +1096,6 @@ function AgentSessions({
       if (versionFilter === 'all') return true
       return String(s.agent?.version) === versionFilter
     })
-
-  const paged = filtered.slice(page * pageSize, (page + 1) * pageSize)
-  const hasNext = filtered.length > (page + 1) * pageSize
-  const hasPrev = page > 0
 
   const versionOptions = Array.from(
     new Set(sessions.map((s) => s.agent?.version).filter(Boolean)),
@@ -1118,7 +1145,7 @@ function AgentSessions({
             value: createdFilter,
             onChange: (v) => {
               setCreatedFilter(v)
-              setPage(0)
+              onResetPagination()
             },
             options: [
               { value: 'all', label: t('managed.filters.allTime') },
@@ -1133,7 +1160,7 @@ function AgentSessions({
             value: versionFilter,
             onChange: (v) => {
               setVersionFilter(v)
-              setPage(0)
+              onResetPagination()
             },
             options: [
               { value: 'all', label: t('managed.filters.all') },
@@ -1144,7 +1171,8 @@ function AgentSessions({
       />
       <DataTable
         columns={columns}
-        data={paged}
+        data={filtered}
+        fetching={fetching}
         onRowClick={onSelect}
         selectable
         actionMenu={(s) => [
@@ -1156,8 +1184,8 @@ function AgentSessions({
         pagination={{
           hasNext,
           hasPrev,
-          onNext: () => setPage((p) => p + 1),
-          onPrev: () => setPage((p) => p - 1),
+          onNext,
+          onPrev,
         }}
         emptyMessage={t('managed.agents.noSessions')}
       />

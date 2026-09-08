@@ -139,15 +139,15 @@ contracts instead of recreating older in-process shortcuts.
 
 ### Failure ownership
 
-| Symptom | Primary owner | First checks |
-|---|---|---|
-| User cannot log in or CRUD resources | API | `api` logs, auth config, database connectivity |
-| Session created but task never starts | Orchestrator | pending task row, `global_queue` wakeup, orchestrator logs, DB lease/fencing settings |
-| Sandbox never becomes ready | Orchestrator + Docker host | Docker socket mount, sandbox image, workspace volume, runner `RunnerReady` timeout |
-| Agent runs but browser misses live events | API SSE bridge + Redis Pub/Sub | API `SessionBroadcaster`, Redis Pub/Sub, browser `?after_seq` replay |
+| Symptom                                        | Primary owner                                  | First checks                                                                                                              |
+| ---------------------------------------------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| User cannot log in or CRUD resources           | API                                            | `api` logs, auth config, database connectivity                                                                            |
+| Session created but task never starts          | Orchestrator                                   | pending task row, `global_queue` wakeup, orchestrator logs, DB lease/fencing settings                                     |
+| Sandbox never becomes ready                    | Orchestrator + Docker host                     | Docker socket mount, sandbox image, workspace volume, runner `RunnerReady` timeout                                        |
+| Agent runs but browser misses live events      | API SSE bridge + Redis Pub/Sub                 | API `SessionBroadcaster`, Redis Pub/Sub, browser `?after_seq` replay                                                      |
 | Events appear live but disappear after refresh | Orchestrator event persister + Worker fallback | Orchestrator DB persist logs, Redis Stream pending entries, worker logs, Postgres insert errors, advisory-lock contention |
-| Skill cannot be used at runtime | Skill domain | referenced version exists and has immutable version files |
-| Sandbox cannot reach model/MCP/target | Envoy + orchestrator sandbox config | allowlist, Envoy config files, `JOYSAFETER_GRPC_PUBLIC_URL`, target DNS/network policy |
+| Skill cannot be used at runtime                | Skill domain                                   | referenced version exists and has immutable version files                                                                 |
+| Sandbox cannot reach model/MCP/target          | Envoy + orchestrator sandbox config            | allowlist, Envoy config files, `JOYSAFETER_GRPC_PUBLIC_URL`, target DNS/network policy                                    |
 
 ---
 
@@ -202,7 +202,7 @@ sequenceDiagram
 Core ownership rules:
 
 1. **The DB is the source of truth for scheduling.** The Redis list
-   (`joysafeter:global_queue`) is only a *wakeup signal*; the orchestrator claims work by
+   (`joysafeter:global_queue`) is only a _wakeup signal_; the orchestrator claims work by
    querying `joysafeter_tasks` with `FOR UPDATE SKIP LOCKED`. If Redis loses a signal, the
    scheduler still finds the pending row.
 
@@ -236,7 +236,7 @@ Core ownership rules:
    sandbox FSM before issuing the fenced update. There is no read-then-write compatibility
    transition API, so stale observers cannot select their own expected state.
 
-6. **Organization membership has one owner.** Organization creation/deletion and
+7. **Organization membership has one owner.** Organization creation/deletion and
    member role lifecycle go through `OrganizationService` and
    `OrganizationMemberService`. Those services own owner membership bootstrap,
    default project bootstrap, owner/admin gates, role normalization, owner
@@ -244,7 +244,7 @@ Core ownership rules:
    contracts. Routes may shape responses and audit events, but should not write
    `Member` rows or duplicate role policy inline.
 
-7. **Persistence and live delivery are decoupled.** The orchestrator writes events
+8. **Persistence and live delivery are decoupled.** The orchestrator writes events
    directly to Postgres as the primary durable path and also publishes to Redis Stream
    for worker fallback/backfill and to Redis Pub/Sub for live SSE fan-out. The browser
    gets events fast; durable rows let a reconnecting client replay from `?after_seq`.
@@ -276,7 +276,7 @@ Runtime communication uses several purpose-built channels. This table is the def
 
 **API ↔ orchestrator is Redis, not direct gRPC.** Python API/worker processes use
 `joysafeter_shared.orchestrator_bridge` only for lightweight API-side helpers and optional test seams; runtime control flows through
-Redis command relay and ACKs. gRPC is used *only* for the Rust orchestrator ↔ in-sandbox-runner hop.
+Redis command relay and ACKs. gRPC is used _only_ for the Rust orchestrator ↔ in-sandbox-runner hop.
 
 The standalone Agent Gateway uses Kubernetes Lease to elect one ADS/management
 authority; the Lease transition count is the fencing epoch and a leader-only
@@ -347,26 +347,26 @@ The engine room. Hosts the gRPC `AgentBridge` server and a set of DB-driven cont
 Agent code does **not** run in this process — it runs inside the sandbox runner, reached
 over gRPC.
 
-| Subsystem | Module | Responsibility |
-|---|---|---|
-| Runner server | `src/grpc/server.rs` | Binds the Runner TCP/UDS listeners, configures tonic limits/keepalive, and owns only server-task lifecycle |
-| Runner transport | `src/grpc/transport.rs` | Adapts the closed protobuf `AgentBridge.Session` stream into the application-owned `RunnerInbound` port, enforces connection limits, and contains all tonic stream/error types |
-| Runner inbound port | `src/kernel/runner/inbound.rs` | Defines the transport-neutral message source consumed by setup, execution, recovery, and session orchestration; it owns no connection or task state |
-| Runner session | `src/kernel/runner/session.rs` | Authenticates runners, performs the handshake, registers/displaces bridges, and delegates work through `RunnerFlowSet` |
-| Runner child flows | `src/kernel/runner/{admission,setup,task_lifecycle,execution,recovery,memory_sync,failure,cleanup,metrics}.rs` | Own identity/protocol admission, setup, durable task transitions, execution/event handling, reconnect recovery, memory synchronization, terminal failure ejection, disconnect cleanup, and bounded observations independently |
-| xDS control plane | `src/xds/control_plane.rs`, `src/xds/resource_store.rs`, `src/xds/node_ownership.rs`, `src/xds/delta.rs` | One process-level composition root, atomic explicitly-owned resource world, complete sandbox-to-node lifecycle, and Delta reconciliation |
-| xDS transport | `src/xds/auth.rs`, `src/xds/transport.rs` | Dedicated `:9092` ADS listener, keyring authentication, and transport isolation from runner gRPC |
-| xDS authority | `src/xds/authority.rs`, `src/xds/leader.rs` | Single `Standby → Staging → RecoveryServing → Ready → Revoked` lifecycle, epoch-fenced recovery/mutation guards, ADS admission, and leader endpoint publication |
-| Task scheduler | `src/kernel/scheduler.rs` | Claims pending tasks (`FOR UPDATE SKIP LOCKED`), resolves a sandbox, pushes to the sandbox queue |
-| Task controller | `src/kernel/task_controller.rs` | Lifecycle, startup recovery, failover/retry |
-| Sandbox controller | `src/kernel/sandbox_controller.rs` | Timer/notification orchestration over isolated idle, provisioning, pool, orphan, and task-recovery capabilities |
-| Sandbox resolution | `src/kernel/sandbox_resolver.rs`, `src/kernel/sandbox_resolver/*` | Reuse/restart → pool claim → create orchestration over explicit context, lifecycle, networking, provisioning, pool, and identity-policy capabilities |
-| Sandbox bridge | `src/kernel/sandbox_bridge.rs` | Per-connection in-memory state: runner stream, connection ID, setup generation, runtime activity, subscribers, and control queue |
-| HA bridge store | `src/kernel/ha/{traits,local,redis_impl}.rs` | Sole Runner-connection ownership authority: local lookup or Redis owner + connection-generation fencing, heartbeat, compare-and-delete, and cross-instance dispatch |
-| Redis coordinator | `src/kernel/redis_coordinator.rs` | Cross-instance coordination other than Runner ownership: instance heartbeat, task mapping, distributed locks, queues, and event publication |
-| Command listener | `src/kernel/command_listener.rs` | Redis command relay for cancel/input/shutdown/memory updates with ACKs |
-| Event bus | `src/events/bus.rs` | In-process event bus feeding stream persistence and realtime fan-out |
-| Session broadcaster | `src/kernel/session_broadcaster.rs` | Live SSE fan-out via Redis Pub/Sub |
+| Subsystem           | Module                                                                                                         | Responsibility                                                                                                                                                                                                                |
+| ------------------- | -------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Runner server       | `src/grpc/server.rs`                                                                                           | Binds the Runner TCP/UDS listeners, configures tonic limits/keepalive, and owns only server-task lifecycle                                                                                                                    |
+| Runner transport    | `src/grpc/transport.rs`                                                                                        | Adapts the closed protobuf `AgentBridge.Session` stream into the application-owned `RunnerInbound` port, enforces connection limits, and contains all tonic stream/error types                                                |
+| Runner inbound port | `src/kernel/runner/inbound.rs`                                                                                 | Defines the transport-neutral message source consumed by setup, execution, recovery, and session orchestration; it owns no connection or task state                                                                           |
+| Runner session      | `src/kernel/runner/session.rs`                                                                                 | Authenticates runners, performs the handshake, registers/displaces bridges, and delegates work through `RunnerFlowSet`                                                                                                        |
+| Runner child flows  | `src/kernel/runner/{admission,setup,task_lifecycle,execution,recovery,memory_sync,failure,cleanup,metrics}.rs` | Own identity/protocol admission, setup, durable task transitions, execution/event handling, reconnect recovery, memory synchronization, terminal failure ejection, disconnect cleanup, and bounded observations independently |
+| xDS control plane   | `src/xds/control_plane.rs`, `src/xds/resource_store.rs`, `src/xds/node_ownership.rs`, `src/xds/delta.rs`       | One process-level composition root, atomic explicitly-owned resource world, complete sandbox-to-node lifecycle, and Delta reconciliation                                                                                      |
+| xDS transport       | `src/xds/auth.rs`, `src/xds/transport.rs`                                                                      | Dedicated `:9092` ADS listener, keyring authentication, and transport isolation from runner gRPC                                                                                                                              |
+| xDS authority       | `src/xds/authority.rs`, `src/xds/leader.rs`                                                                    | Single `Standby → Staging → RecoveryServing → Ready → Revoked` lifecycle, epoch-fenced recovery/mutation guards, ADS admission, and leader endpoint publication                                                               |
+| Task scheduler      | `src/kernel/scheduler.rs`                                                                                      | Claims pending tasks (`FOR UPDATE SKIP LOCKED`), resolves a sandbox, pushes to the sandbox queue                                                                                                                              |
+| Task controller     | `src/kernel/task_controller.rs`                                                                                | Lifecycle, startup recovery, failover/retry                                                                                                                                                                                   |
+| Sandbox controller  | `src/kernel/sandbox_controller.rs`                                                                             | Timer/notification orchestration over isolated idle, provisioning, pool, orphan, and task-recovery capabilities                                                                                                               |
+| Sandbox resolution  | `src/kernel/sandbox_resolver.rs`, `src/kernel/sandbox_resolver/*`                                              | Reuse/restart → pool claim → create orchestration over explicit context, lifecycle, networking, provisioning, pool, and identity-policy capabilities                                                                          |
+| Sandbox bridge      | `src/kernel/sandbox_bridge.rs`                                                                                 | Per-connection in-memory state: runner stream, connection ID, setup generation, runtime activity, subscribers, and control queue                                                                                              |
+| HA bridge store     | `src/kernel/ha/{traits,local,redis_impl}.rs`                                                                   | Sole Runner-connection ownership authority: local lookup or Redis owner + connection-generation fencing, heartbeat, compare-and-delete, and cross-instance dispatch                                                           |
+| Redis coordinator   | `src/kernel/redis_coordinator.rs`                                                                              | Cross-instance coordination other than Runner ownership: instance heartbeat, task mapping, distributed locks, queues, and event publication                                                                                   |
+| Command listener    | `src/kernel/command_listener.rs`                                                                               | Redis command relay for cancel/input/shutdown/memory updates with ACKs                                                                                                                                                        |
+| Event bus           | `src/events/bus.rs`                                                                                            | In-process event bus feeding stream persistence and realtime fan-out                                                                                                                                                          |
+| Session broadcaster | `src/kernel/session_broadcaster.rs`                                                                            | Live SSE fan-out via Redis Pub/Sub                                                                                                                                                                                            |
 
 Startup order (`src/bootstrap/application.rs`; `src/main.rs` only delegates): config + database + Redis
 coordinator → sandbox provider and Agent Gateway client → runner `AgentBridge` on `:9090` → task and
@@ -400,14 +400,14 @@ flow may select implementations, connect ports, start them in dependency order, 
 it must not reproduce provider, network-policy, xDS, or transport decisions. Concrete provider selection
 is therefore registry-driven rather than hard-coded through branches in `main.rs` or business services.
 
-| Area | Module | Owns | Inputs → outputs | May depend on | Failure owner |
-|---|---|---|---|---|---|
-| Process entry | `src/main.rs` | Logging/config entry and delegation only | environment → `JoySafeterConfig` → `OrchestratorApplication` | `bootstrap` | Invalid process configuration |
-| Composition root | `src/bootstrap/application.rs` | Process-wide object graph, startup order, background-loop startup, coordinated shutdown | validated config → initialized ports, services, and handles | config, DB/Redis constructors, registries, application services, transports | Missing required infrastructure or an invalid cross-component topology |
-| Provider registry | `src/bootstrap/registry.rs` | Normalized provider-name lookup and factory dispatch | provider name + factory context → `RuntimeComponents` | factory interfaces only | Unknown/disabled provider and factory construction errors |
-| Runtime factories | `src/bootstrap/runtime_factories.rs` | Concrete adapter construction, `RunnerFlowSet`, the single production `SandboxRuntimeServices` capability graph, and composition-only event handlers | config + shared infrastructure → provider/runtime adapters and application ports | concrete adapters and fixed core-flow constructors, never business callers | Construction errors and invalid capability combinations |
-| Supervision | `src/bootstrap/supervisor.rs` | OS shutdown signal and health/metrics HTTP exposure | readiness + xDS snapshots → process lifecycle/HTTP responses | stable health interfaces | Listener failure is reported here; domain failures remain with their owner |
-| Material adapter | `src/bootstrap/network_policy_material.rs` | PostgreSQL/credential implementation of the domain material port | `SandboxId` → validated `DesiredNetworkPolicy` inputs | DB queries and credential projection | Missing sandbox, credential reconstruction, or material-loading failure |
+| Area              | Module                                     | Owns                                                                                                                                                 | Inputs → outputs                                                                 | May depend on                                                               | Failure owner                                                              |
+| ----------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Process entry     | `src/main.rs`                              | Logging/config entry and delegation only                                                                                                             | environment → `JoySafeterConfig` → `OrchestratorApplication`                     | `bootstrap`                                                                 | Invalid process configuration                                              |
+| Composition root  | `src/bootstrap/application.rs`             | Process-wide object graph, startup order, background-loop startup, coordinated shutdown                                                              | validated config → initialized ports, services, and handles                      | config, DB/Redis constructors, registries, application services, transports | Missing required infrastructure or an invalid cross-component topology     |
+| Provider registry | `src/bootstrap/registry.rs`                | Normalized provider-name lookup and factory dispatch                                                                                                 | provider name + factory context → `RuntimeComponents`                            | factory interfaces only                                                     | Unknown/disabled provider and factory construction errors                  |
+| Runtime factories | `src/bootstrap/runtime_factories.rs`       | Concrete adapter construction, `RunnerFlowSet`, the single production `SandboxRuntimeServices` capability graph, and composition-only event handlers | config + shared infrastructure → provider/runtime adapters and application ports | concrete adapters and fixed core-flow constructors, never business callers  | Construction errors and invalid capability combinations                    |
+| Supervision       | `src/bootstrap/supervisor.rs`              | OS shutdown signal and health/metrics HTTP exposure                                                                                                  | readiness + xDS snapshots → process lifecycle/HTTP responses                     | stable health interfaces                                                    | Listener failure is reported here; domain failures remain with their owner |
+| Material adapter  | `src/bootstrap/network_policy_material.rs` | PostgreSQL/credential implementation of the domain material port                                                                                     | `SandboxId` → validated `DesiredNetworkPolicy` inputs                            | DB queries and credential projection                                        | Missing sandbox, credential reconstruction, or material-loading failure    |
 
 `ProviderFactoryRegistry` is the extension point for a new sandbox backend. A new provider registers a
 `ProviderFactory` that returns a `SandboxProvider` plus the optional policy-runtime, socket-provisioning,
@@ -427,15 +427,15 @@ does not instantiate child-flow implementations itself.
 `SandboxRuntimeServices` is the only production composition point for sandbox application capabilities.
 It creates one shared set of immutable handles and hands each consumer only the capability it needs:
 
-| Capability | Owner | Input → output | Direct dependencies | Failure owner |
-|---|---|---|---|---|
-| `ResolveContextBuilder` | `sandbox_resolver/context.rs` | task/session/agent/project IDs → immutable `ResolveContext` snapshot | PostgreSQL reads, identity material, MCP/runtime projections | Missing or inconsistent material; no provider side effect has started |
-| `SandboxNetworkingService` | `sandbox_resolver/networking.rs` | validated desired policy/generation → ready or failed network state | `NetworkPolicyService`, PostgreSQL generation state, bounded ready cache | Network-policy validation/application/delivery failure |
-| `SandboxLifecycleService` | `sandbox_resolver/lifecycle.rs` | observed sandbox state + external ID → CAS-fenced restart/destroy/compensation result | PostgreSQL, `SandboxProvider`, networking teardown | Lifecycle transition or compensation failure |
-| `SandboxProvisioningService` | `sandbox_resolver/provisioning.rs` | task ID + immutable context → newly created `ResolvedSandbox` | provider port, lifecycle compensation, networking capability | Create/start/file-injection/generation/CAS failure; compensates partial runtime creation |
-| `SandboxPoolService` / `PoolSandboxProvisioner` | `sandbox_resolver/pool.rs` | claim context or image → claimed/provisioned pool sandbox | PostgreSQL, provider port, networking capability | Claim race, stale pool runtime, or pool provisioning failure |
-| `SandboxResolver` / `SandboxResolution` | `sandbox_resolver.rs`, `sandbox_resolver/ports.rs` | typed IDs → `ResolvedSandbox` | context, lifecycle, pool, provisioning capabilities only | Stage-selection failure; it owns no provider construction or identity-policy side channel |
-| `SandboxIdentityPolicyService` / `SandboxIdentityPolicy` | `sandbox_resolver/identity_policy.rs` | sandbox/task identity lifecycle → refresh delay, refreshed policy, or cleared lease | context snapshot, networking, lifecycle | Identity lease/material/policy refresh failure |
+| Capability                                               | Owner                                              | Input → output                                                                        | Direct dependencies                                                      | Failure owner                                                                             |
+| -------------------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `ResolveContextBuilder`                                  | `sandbox_resolver/context.rs`                      | task/session/agent/project IDs → immutable `ResolveContext` snapshot                  | PostgreSQL reads, identity material, MCP/runtime projections             | Missing or inconsistent material; no provider side effect has started                     |
+| `SandboxNetworkingService`                               | `sandbox_resolver/networking.rs`                   | validated desired policy/generation → ready or failed network state                   | `NetworkPolicyService`, PostgreSQL generation state, bounded ready cache | Network-policy validation/application/delivery failure                                    |
+| `SandboxLifecycleService`                                | `sandbox_resolver/lifecycle.rs`                    | observed sandbox state + external ID → CAS-fenced restart/destroy/compensation result | PostgreSQL, `SandboxProvider`, networking teardown                       | Lifecycle transition or compensation failure                                              |
+| `SandboxProvisioningService`                             | `sandbox_resolver/provisioning.rs`                 | task ID + immutable context → newly created `ResolvedSandbox`                         | provider port, lifecycle compensation, networking capability             | Create/start/file-injection/generation/CAS failure; compensates partial runtime creation  |
+| `SandboxPoolService` / `PoolSandboxProvisioner`          | `sandbox_resolver/pool.rs`                         | claim context or image → claimed/provisioned pool sandbox                             | PostgreSQL, provider port, networking capability                         | Claim race, stale pool runtime, or pool provisioning failure                              |
+| `SandboxResolver` / `SandboxResolution`                  | `sandbox_resolver.rs`, `sandbox_resolver/ports.rs` | typed IDs → `ResolvedSandbox`                                                         | context, lifecycle, pool, provisioning capabilities only                 | Stage-selection failure; it owns no provider construction or identity-policy side channel |
+| `SandboxIdentityPolicyService` / `SandboxIdentityPolicy` | `sandbox_resolver/identity_policy.rs`              | sandbox/task identity lifecycle → refresh delay, refreshed policy, or cleared lease   | context snapshot, networking, lifecycle                                  | Identity lease/material/policy refresh failure                                            |
 
 `SandboxResolution` is consumed by the scheduler. `SandboxIdentityPolicy` is consumed by runner execution
 and recovery. Runner code never depends on `SandboxResolver`, and the resolver does not re-export pool
@@ -446,13 +446,13 @@ state.
 `SandboxController` is a loop coordinator, not a bag of infrastructure dependencies. Its internal fixed
 flows are composed once and have disjoint dependency sets:
 
-| Child flow | Owns | Must not own | Failure behavior |
-|---|---|---|---|
-| `IdleSandboxMaintenance` | bridge health, idle/disconnect/hard-timeout reap, stuck-stop recovery, stopped/error TTL cleanup | pool provisioning or provisioning progress | Each phase reports independently; one sandbox or phase failure does not suppress later cycles |
-| `ProvisioningSandboxMaintenance` | provisioning progress, timeout CAS, provider stop/destroy after claim | idle policy, pool sizing, orphan inventory | A failed CAS means another actor owns the new state; external cleanup follows only a successful claim |
-| `SandboxPoolMaintenance` | HA-locked pool sizing, bounded parallel top-up, stale-pool cleanup | session resolution or task identity | Per-create failures are isolated; the HA lock is released on every result path |
-| `SandboxOrphanMaintenance` | provider↔PostgreSQL inventory comparison and missing-runtime cleanup | pool sizing or xDS inventory | Recent uncommitted runtimes are protected; DB task recovery precedes durable sandbox destruction |
-| `SandboxTaskRecovery` | queue drain/requeue, retry exhaustion, task/session durable transitions and events | provider/network/xDS operations | PostgreSQL is authoritative; queue publication is best effort after durable transition |
+| Child flow                       | Owns                                                                                             | Must not own                               | Failure behavior                                                                                      |
+| -------------------------------- | ------------------------------------------------------------------------------------------------ | ------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `IdleSandboxMaintenance`         | bridge health, idle/disconnect/hard-timeout reap, stuck-stop recovery, stopped/error TTL cleanup | pool provisioning or provisioning progress | Each phase reports independently; one sandbox or phase failure does not suppress later cycles         |
+| `ProvisioningSandboxMaintenance` | provisioning progress, timeout CAS, provider stop/destroy after claim                            | idle policy, pool sizing, orphan inventory | A failed CAS means another actor owns the new state; external cleanup follows only a successful claim |
+| `SandboxPoolMaintenance`         | HA-locked pool sizing, bounded parallel top-up, stale-pool cleanup                               | session resolution or task identity        | Per-create failures are isolated; the HA lock is released on every result path                        |
+| `SandboxOrphanMaintenance`       | provider↔PostgreSQL inventory comparison and missing-runtime cleanup                             | pool sizing or xDS inventory               | Recent uncommitted runtimes are protected; DB task recovery precedes durable sandbox destruction      |
+| `SandboxTaskRecovery`            | queue drain/requeue, retry exhaustion, task/session durable transitions and events               | provider/network/xDS operations            | PostgreSQL is authoritative; queue publication is best effort after durable transition                |
 
 Bootstrap supervises `sandbox-idle-sweep` and `sandbox-provisioning-monitor` as critical tasks,
 `sandbox-pool-orphan-maintenance` as degradable, and registers the network-policy reconciler separately
@@ -465,19 +465,19 @@ These concerns cooperate during sandbox resolution and task dispatch, but they d
 "execution context" or a generic secret map. Each domain owns one authoritative decision and publishes a
 narrow typed result to the next boundary.
 
-| Capability | Owner | Authoritative input → output | Explicit dependencies | Failure owner / non-responsibilities |
-|---|---|---|---|---|
-| Human authentication and product authorization | Python API auth/RBAC | JWT/session + current org/project membership → authorized API command | PostgreSQL identity and membership state | Rejects the product request; never creates runtime credentials or xDS resources |
-| Task identity capture | Python API `agent_identity_capture.py` | authenticated request credential + task scope → encrypted PostgreSQL context | provider selection, credential encryption, capture TTL | Rejects invalid capture/encryption configuration; does not validate provider exchange endpoints or injection hosts |
-| Task-scoped agent identity | `kernel/task_identity/{service,store,material,error}.rs` | task/project/session/agent scope + approved egress targets → validated `AgentIdentityInjection` | `TaskIdentityStore`, `TaskIdentityMaterial`, `AgentIdentityProvider` ports | Owns claim, decode, trusted-host/header validation, provider invocation, consume/release; no SQL, sandbox provider, network-policy mutation, or xDS access |
-| Task identity persistence | `db/task_identity_store.rs` | typed claim/complete/release commands → CAS-fenced PostgreSQL transitions | PostgreSQL only | Owns row locking, expiry and claim conflicts; does not decrypt or call identity providers |
-| Identity provider selection | `bootstrap/registry.rs` | validated configuration snapshot → `Arc<dyn AgentIdentityProvider>` | registered `none` / feature-gated provider factory | Unknown/unavailable provider or empty JD injection allowlist fails bootstrap; the registry never rereads process configuration and is not available to business code |
-| Managed credential access | `kernel/credentials/access.rs` | project-scoped credential ID + purpose-bearing `CredentialAccessContext` → typed model/service/MCP material | credential store, material adapter, append-only audit writer | Owns scope/kind/purpose validation, minimal-field reveal, and access audit; does not decide sandbox lifecycle or publish policy |
-| Runtime credential projection | `kernel/credentials/runtime_projection/{environment,external_egress,git_egress,llm_egress,recovery}.rs` | validated typed material → sandbox env, narrow repository token, or Envoy credential routes | credential access and repository-material ports | Capability-focused projection plus recovery reconstruction; no provider construction, ADS session, or generation state |
-| Tool authorization policy | `kernel/tool_policy.rs` | immutable Agent `tools` snapshot → provider-neutral `Allow` / `Ask` / `Deny` rules | JSON value types only | Invalid or ambiguous policy fails closed; no protobuf or harness-specific command generation |
-| Tool-policy transport | `grpc/tool_policy.rs`, `proto/joysafeter.proto`, `sandbox-runner/.../tool_policy.rs` | kernel policy ↔ closed protobuf contract ↔ runner policy | transport types at the adapter edges only | Unknown enum values, missing policy, or blank selectors reject setup/task input |
-| Harness input projection | `kernel/harness_input_builder.rs` and focused child modules | task/session/agent snapshots → immutable `HarnessInput` | PostgreSQL reads, credential access, repository material, skill/session-resource handlers | Owns snapshot consistency and generation fencing; does not launch a harness, mutate sandbox lifecycle, or resolve task identity |
-| Harness-specific enforcement | `sandbox-runner/crates/joysafeter-runtime/` | validated runner `ToolPolicy` + `HarnessInput` → CLI config/runtime decisions | the selected `HarnessAdapter` only | Unsupported policy representation fails before execution; adapters may not weaken a decision silently |
+| Capability                                     | Owner                                                                                                   | Authoritative input → output                                                                                | Explicit dependencies                                                                     | Failure owner / non-responsibilities                                                                                                                                 |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Human authentication and product authorization | Python API auth/RBAC                                                                                    | JWT/session + current org/project membership → authorized API command                                       | PostgreSQL identity and membership state                                                  | Rejects the product request; never creates runtime credentials or xDS resources                                                                                      |
+| Task identity capture                          | Python API `agent_identity_capture.py`                                                                  | authenticated request credential + task scope → encrypted PostgreSQL context                                | provider selection, credential encryption, capture TTL                                    | Rejects invalid capture/encryption configuration; does not validate provider exchange endpoints or injection hosts                                                   |
+| Task-scoped agent identity                     | `kernel/task_identity/{service,store,material,error}.rs`                                                | task/project/session/agent scope + approved egress targets → validated `AgentIdentityInjection`             | `TaskIdentityStore`, `TaskIdentityMaterial`, `AgentIdentityProvider` ports                | Owns claim, decode, trusted-host/header validation, provider invocation, consume/release; no SQL, sandbox provider, network-policy mutation, or xDS access           |
+| Task identity persistence                      | `db/task_identity_store.rs`                                                                             | typed claim/complete/release commands → CAS-fenced PostgreSQL transitions                                   | PostgreSQL only                                                                           | Owns row locking, expiry and claim conflicts; does not decrypt or call identity providers                                                                            |
+| Identity provider selection                    | `bootstrap/registry.rs`                                                                                 | validated configuration snapshot → `Arc<dyn AgentIdentityProvider>`                                         | registered `none` / feature-gated provider factory                                        | Unknown/unavailable provider or empty JD injection allowlist fails bootstrap; the registry never rereads process configuration and is not available to business code |
+| Managed credential access                      | `kernel/credentials/access.rs`                                                                          | project-scoped credential ID + purpose-bearing `CredentialAccessContext` → typed model/service/MCP material | credential store, material adapter, append-only audit writer                              | Owns scope/kind/purpose validation, minimal-field reveal, and access audit; does not decide sandbox lifecycle or publish policy                                      |
+| Runtime credential projection                  | `kernel/credentials/runtime_projection/{environment,external_egress,git_egress,llm_egress,recovery}.rs` | validated typed material → sandbox env, narrow repository token, or Envoy credential routes                 | credential access and repository-material ports                                           | Capability-focused projection plus recovery reconstruction; no provider construction, ADS session, or generation state                                               |
+| Tool authorization policy                      | `kernel/tool_policy.rs`                                                                                 | immutable Agent `tools` snapshot → provider-neutral `Allow` / `Ask` / `Deny` rules                          | JSON value types only                                                                     | Invalid or ambiguous policy fails closed; no protobuf or harness-specific command generation                                                                         |
+| Tool-policy transport                          | `grpc/tool_policy.rs`, `proto/joysafeter.proto`, `sandbox-runner/.../tool_policy.rs`                    | kernel policy ↔ closed protobuf contract ↔ runner policy                                                    | transport types at the adapter edges only                                                 | Unknown enum values, missing policy, or blank selectors reject setup/task input                                                                                      |
+| Harness input projection                       | `kernel/harness_input_builder.rs` and focused child modules                                             | task/session/agent snapshots → immutable `HarnessInput`                                                     | PostgreSQL reads, credential access, repository material, skill/session-resource handlers | Owns snapshot consistency and generation fencing; does not launch a harness, mutate sandbox lifecycle, or resolve task identity                                      |
+| Harness-specific enforcement                   | `sandbox-runner/crates/joysafeter-runtime/`                                                             | validated runner `ToolPolicy` + `HarnessInput` → CLI config/runtime decisions                               | the selected `HarnessAdapter` only                                                        | Unsupported policy representation fails before execution; adapters may not weaken a decision silently                                                                |
 
 Task identity is deliberately separate from durable reusable credentials. Its lifecycle is:
 
@@ -540,16 +540,16 @@ unknown decisions, and malformed selectors remain fail-closed at `kernel/tool_po
 Duplicate built-in toolsets, duplicate MCP toolsets for one server, duplicate per-tool selectors, and duplicate
 custom-tool names are rejected rather than relying on ordering or adapter-specific conflict resolution.
 
-| Stage | Owner | Input → output | Failure ownership |
-|---|---|---|---|
-| Agent command validation | Python `AgentConfigurationPolicy` | typed request + declared MCP servers → persistable, unambiguous tool configuration | Rejects duplicate toolsets/selectors/custom names and undeclared MCP references before PostgreSQL changes |
-| Execution snapshot | PostgreSQL + `run_spec.rs` | versioned Agent/Environment state → immutable task view | Rejects malformed typed IDs and snapshot overrides; never consults live mutable state for an existing snapshot field |
-| Authorization compilation | `kernel/tool_policy.rs` | snapshot `tools` JSON → provider-neutral `ToolPolicy` | Owns inheritance, enabled/disabled semantics, selector uniqueness, and fail-closed parsing |
-| MCP planning | `kernel/mcp_runtime_plan.rs` | declarations + authorized credential metadata + network mode → runner-safe servers + Envoy routes | Owns transport/auth matching and secret placement; does not decide tool authorization |
-| Engine compatibility | `kernel/engine_adapter.rs` | engine + compiled policy + projected capabilities → executable/not executable | Rejects combinations the selected runtime cannot enforce; Skills, MCP, and custom tools remain separate capabilities |
-| Harness assembly | `kernel/harness_input_builder.rs` | immutable projections → request-local `HarnessInput` | Orders the child flows, validates capability compatibility before model-secret reveal, and enforces the final generation fence |
-| Wire projection and execution | `grpc/harness_projection.rs` → Runner decoder → runtime adapter | `HarnessInput` → protobuf → native runtime config | gRPC only serializes; Runner rejects missing/unknown wire values; adapter keeps a final local capability guard |
-| Event classification | `events/mapping.rs` | runtime tool name + immutable declared-name sets → session event type | Recognizes canonical `mcp__<server>__<tool>` names without widening unknown servers into MCP events |
+| Stage                         | Owner                                                           | Input → output                                                                                    | Failure ownership                                                                                                              |
+| ----------------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| Agent command validation      | Python `AgentConfigurationPolicy`                               | typed request + declared MCP servers → persistable, unambiguous tool configuration                | Rejects duplicate toolsets/selectors/custom names and undeclared MCP references before PostgreSQL changes                      |
+| Execution snapshot            | PostgreSQL + `run_spec.rs`                                      | versioned Agent/Environment state → immutable task view                                           | Rejects malformed typed IDs and snapshot overrides; never consults live mutable state for an existing snapshot field           |
+| Authorization compilation     | `kernel/tool_policy.rs`                                         | snapshot `tools` JSON → provider-neutral `ToolPolicy`                                             | Owns inheritance, enabled/disabled semantics, selector uniqueness, and fail-closed parsing                                     |
+| MCP planning                  | `kernel/mcp_runtime_plan.rs`                                    | declarations + authorized credential metadata + network mode → runner-safe servers + Envoy routes | Owns transport/auth matching and secret placement; does not decide tool authorization                                          |
+| Engine compatibility          | `kernel/engine_adapter.rs`                                      | engine + compiled policy + projected capabilities → executable/not executable                     | Rejects combinations the selected runtime cannot enforce; Skills, MCP, and custom tools remain separate capabilities           |
+| Harness assembly              | `kernel/harness_input_builder.rs`                               | immutable projections → request-local `HarnessInput`                                              | Orders the child flows, validates capability compatibility before model-secret reveal, and enforces the final generation fence |
+| Wire projection and execution | `grpc/harness_projection.rs` → Runner decoder → runtime adapter | `HarnessInput` → protobuf → native runtime config                                                 | gRPC only serializes; Runner rejects missing/unknown wire values; adapter keeps a final local capability guard                 |
+| Event classification          | `events/mapping.rs`                                             | runtime tool name + immutable declared-name sets → session event type                             | Recognizes canonical `mcp__<server>__<tool>` names without widening unknown servers into MCP events                            |
 
 `HarnessInputBuilder` provides the final consistency barrier. It reads immutable execution snapshots,
 materializes skills, session files, memory mounts, repositories, MCP declarations, model/environment data,
@@ -591,17 +591,17 @@ stored in sandbox JSON configuration.
 orchestration, and the rules for converting runtime outcomes into PostgreSQL state transitions. It does
 not own containers, Pods, ADS sessions, or protobuf/JSON encoding.
 
-| Module | Responsibility and public capability | Dependencies and boundary |
-|---|---|---|
-| `mod.rs` | `DesiredNetworkPolicy`, canonical redacted revision, and `NetworkPolicyGeneration` value types | Pure domain inputs; no provider or transport access |
-| `envoy_model.rs` | Validated, transport-neutral listener/cluster/credential policy model | Pure model/validation; renderers consume it but it does not consume renderers |
-| `material.rs` | `NetworkPolicyMaterialResolver` input port | Implemented in bootstrap; domain callers see only `SandboxId → DesiredNetworkPolicy` |
-| `ports.rs` | `NetworkPolicyRuntime` execution port and `NetworkPolicyRequestQueue` wakeup port | Infrastructure implements the ports; PostgreSQL remains authoritative |
-| `request.rs` | Neutral reconcile/remove command carrying an exact generation where required | Safe to transport through Redis without embedding runtime state |
-| `application.rs` | Prepare generation, validate material, apply/remove, wait for delivery, and persist exact CAS outcomes | Uses DB queries, domain ports, and authority guards; never constructs providers or xDS servers |
-| `service.rs` | Crate-private application facade that owns policy capability composition and exposes ensure/reconcile/recover/teardown operations | Delegates domain decisions to `application.rs`/`recovery.rs`, adapters through ports, and durable transitions through DB queries; defines no second generation model |
-| `authority.rs` | `NetworkPolicyAuthorityHandler`, adapting domain work to the generic elected-authority worker | Delegates only to `NetworkPolicyService`; owns no inventory, rendering, or persistence logic |
-| `recovery.rs` | Rebuild and validate live limited-network inventory; classify ready, deferred, and quarantined entries | Reads PostgreSQL, invokes the runtime recovery port, persists exact recovery outcomes |
+| Module           | Responsibility and public capability                                                                                              | Dependencies and boundary                                                                                                                                            |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mod.rs`         | `DesiredNetworkPolicy`, canonical redacted revision, and `NetworkPolicyGeneration` value types                                    | Pure domain inputs; no provider or transport access                                                                                                                  |
+| `envoy_model.rs` | Validated, transport-neutral listener/cluster/credential policy model                                                             | Pure model/validation; renderers consume it but it does not consume renderers                                                                                        |
+| `material.rs`    | `NetworkPolicyMaterialResolver` input port                                                                                        | Implemented in bootstrap; domain callers see only `SandboxId → DesiredNetworkPolicy`                                                                                 |
+| `ports.rs`       | `NetworkPolicyRuntime` execution port and `NetworkPolicyRequestQueue` wakeup port                                                 | Infrastructure implements the ports; PostgreSQL remains authoritative                                                                                                |
+| `request.rs`     | Neutral reconcile/remove command carrying an exact generation where required                                                      | Safe to transport through Redis without embedding runtime state                                                                                                      |
+| `application.rs` | Prepare generation, validate material, apply/remove, wait for delivery, and persist exact CAS outcomes                            | Uses DB queries, domain ports, and authority guards; never constructs providers or xDS servers                                                                       |
+| `service.rs`     | Crate-private application facade that owns policy capability composition and exposes ensure/reconcile/recover/teardown operations | Delegates domain decisions to `application.rs`/`recovery.rs`, adapters through ports, and durable transitions through DB queries; defines no second generation model |
+| `authority.rs`   | `NetworkPolicyAuthorityHandler`, adapting domain work to the generic elected-authority worker                                     | Delegates only to `NetworkPolicyService`; owns no inventory, rendering, or persistence logic                                                                         |
+| `recovery.rs`    | Rebuild and validate live limited-network inventory; classify ready, deferred, and quarantined entries                            | Reads PostgreSQL, invokes the runtime recovery port, persists exact recovery outcomes                                                                                |
 
 Normal reconcile follows one data path:
 
@@ -628,21 +628,21 @@ rules, but installs one atomic resource world before persisting ready entries.
 explicit ownership; it does not load business credentials, decide desired policy, manage containers/Pods,
 or persist sandbox lifecycle state.
 
-| Module | Owns | Input → output / failure behavior |
-|---|---|---|
-| `authority.rs` | Authority FSM, epochs, recovery/mutation guards, application serialization, revocation | Lease/lifecycle events → fenced capability guards; stale epochs fail closed |
-| `leader.rs` | Kubernetes Lease observation and leader-only Pod label publication | Lease + authority phase → xDS Service endpoint eligibility; API failures retry without granting authority |
-| `authority_worker.rs` | Generic recover/reconcile/apply loop independent of Redis and network-policy details | request source + `AuthorityWork` handler → serialized guarded work |
-| `control_plane.rs` | Stable process-local facade combining resource, ownership, delivery, and ADS services | explicit sandbox resources/placement → delivery attempts and snapshots |
-| `model.rs` | Resource type, explicit owner, managed resource, sandbox bundle | Typed values only; no naming-based ownership inference |
-| `resource_store.rs` | Atomic resource world and bounded revision log | owned resource batches → monotonic world revisions |
-| `node_ownership.rs` | Sandbox-to-node truth and ownership transitions | neutral placement facts → scoped visibility revisions |
-| `inventory.rs` | Atomic recovery inventory validation/install result | complete recovered world → installed/deferred inventory |
-| `delivery.rs` | Exact generation delivery attempts and CDS/LDS quorum completion | world revision + node session ACK/NACK → terminal attempt result |
-| `delta.rs` | Delta ADS subscriptions, reconnect reconciliation, per-node sessions, stream closure | authenticated protocol messages ↔ resource deltas/ACK/NACK updates |
-| `auth.rs` | Shared-token keyring parsing and client principal authentication | request metadata → principal or `Unauthenticated` |
-| `transport.rs` | Dedicated tonic ADS listener only | `XdsControlPlane` + authenticator → `:9092` server handle |
-| `metrics.rs` | Bounded-cardinality health and Prometheus projection | internal counters/state → health/metrics snapshots |
+| Module                | Owns                                                                                   | Input → output / failure behavior                                                                            |
+| --------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `authority.rs`        | Authority FSM, epochs, recovery/mutation guards, application serialization, revocation | Lease/lifecycle events → fenced capability guards; stale epochs fail closed                                  |
+| `leader.rs`           | Kubernetes Lease observation and leader-only Pod label publication                     | Lease + authority phase → xDS Service endpoint eligibility; API failures retry without granting authority    |
+| `authority_worker.rs` | Generic recover/reconcile/apply loop independent of Redis and network-policy details   | request source + `AuthorityWork` handler → serialized guarded work                                           |
+| `control_plane.rs`    | Stable process-local facade combining resource, ownership, delivery, and ADS services  | explicit sandbox resources/placement → delivery attempts and snapshots                                       |
+| `model.rs`            | Resource type, explicit owner, managed resource, sandbox bundle                        | Typed values only; no naming-based ownership inference                                                       |
+| `resource_store.rs`   | Atomic resource world and bounded revision log                                         | owned resource batches → monotonic world revisions                                                           |
+| `node_ownership.rs`   | Sandbox-to-node truth and ownership transitions                                        | neutral placement facts → scoped visibility revisions                                                        |
+| `inventory.rs`        | Atomic recovery inventory validation/install result                                    | complete recovered world → installed/deferred inventory                                                      |
+| `delivery.rs`         | Exact generation delivery attempts and CDS/LDS quorum completion                       | world revision + node session ACK/NACK → terminal attempt result                                             |
+| `delta.rs`            | Delta ADS subscriptions, reconnect reconciliation, per-node sessions, stream closure   | authenticated protocol messages ↔ resource deltas/ACK/NACK updates                                           |
+| `auth.rs`             | Shared-token keyring parsing and client principal authentication                       | request metadata → principal or `Unauthenticated`                                                            |
+| `transport.rs`        | Dedicated tonic ADS listener and authority-epoch-bound TCP lifetime                    | `XdsControlPlane` + authenticator → `:9092` server handle; revoke/epoch change closes old HTTP/2 connections |
+| `metrics.rs`          | Bounded-cardinality health and Prometheus projection                                   | internal counters/state → health/metrics snapshots                                                           |
 
 The authority lifecycle is the sole permission model for xDS mutation. `RecoveryAuthorityGuard` permits
 atomic startup reconstruction; `MutationAuthorityGuard` exists only in `Ready`. Lease loss revokes the
@@ -652,25 +652,25 @@ another through shared ad-hoc context.
 
 #### Sandbox and transport adapters
 
-| Module | Owns | Explicit non-responsibilities |
-|---|---|---|
-| `src/sandbox/provider.rs` | Replaceable lifecycle/capability port for create/start/stop/destroy/status/exec/files | No PostgreSQL generation transitions and no xDS authority access |
-| `src/sandbox/docker.rs` | Docker container, mount, socket, and runtime facts | Does not publish/remove xDS resources directly |
-| `src/sandbox/k8s.rs` | Pod/PVC/spec lifecycle, node-local socket-directory cleanup, and watcher setup | Does not decide ownership or mutate xDS state |
-| `src/sandbox/pod_watcher.rs` | Kubernetes Pod observation and neutral `PlacementEvent` emission | No dependency on `XdsControlPlane` or policy application |
-| `src/sandbox/runtime.rs` | Small infrastructure ports for socket preparation and placement events | Contains no provider or xDS implementation |
-| `src/sandbox/envoy.rs` | Composition facade that wires disjoint Envoy capabilities | Owns no process, socket, policy-delivery, desired-policy, or ADS mutable state |
-| `src/sandbox/envoy/process.rs` | Bootstrap file lifecycle, managed Envoy process health, restart, and authority revocation on process failure | Does not render sandbox resources or own per-sandbox policy state |
-| `src/sandbox/envoy/socket.rs` | Per-sandbox socket-directory preparation and readiness checks | Does not publish resources, mutate generations, or manage the Envoy process |
-| `src/sandbox/envoy/policy_runtime.rs` | `NetworkPolicyRuntime` adapter, per-sandbox serialization, delivery wait/recovery/prune/removal | Does not own desired policy, durable generation, process lifecycle, or ADS protocol state |
-| `src/sandbox/envoy_render/{json,proto}.rs` | Pure conversion from validated listener/cluster specs to Envoy JSON/protobuf | No I/O, DB, authority, delivery, or provider lifecycle |
-| `src/sandbox/envoy_delivery.rs` | Provider-facing `EnvoyDelivery` port and `XdsControlPlane` adapter | No desired-policy decisions or implicit owner inference |
-| `src/sandbox/envoy_filesystem.rs` | Limited local filesystem delivery adapter | Cannot claim atomic non-empty recovery or full CDS/LDS semantics |
-| `src/grpc/server.rs` | Runner TCP/UDS binding and tonic server lifecycle | No authentication, SQL, Redis, task FSM, artifact, or recovery behavior |
-| `src/grpc/transport.rs` | Protobuf stream adaptation and connection admission | No SQL/Redis access or task/session state transitions |
-| `src/kernel/runner/session.rs` | Runner authentication, bridge registration, displacement, and disconnect lifecycle | Delegates task execution and reconnect policy; never binds sockets |
-| `src/kernel/runner/execution.rs` | Task dispatch/event/result/artifact flow and execution concurrency | Does not authenticate transports or own reconnect policy |
-| `src/kernel/runner/recovery.rs` | Reconnect classification, active-task resume, and orphan recovery | Does not bind transport or select sandbox providers |
+| Module                                     | Owns                                                                                                         | Explicit non-responsibilities                                                             |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------- |
+| `src/sandbox/provider.rs`                  | Replaceable lifecycle/capability port for create/start/stop/destroy/status/exec/files                        | No PostgreSQL generation transitions and no xDS authority access                          |
+| `src/sandbox/docker.rs`                    | Docker container, mount, socket, and runtime facts                                                           | Does not publish/remove xDS resources directly                                            |
+| `src/sandbox/k8s.rs`                       | Pod/PVC/spec lifecycle, node-local socket-directory cleanup, and watcher setup                               | Does not decide ownership or mutate xDS state                                             |
+| `src/sandbox/pod_watcher.rs`               | Kubernetes Pod observation and neutral `PlacementEvent` emission                                             | No dependency on `XdsControlPlane` or policy application                                  |
+| `src/sandbox/runtime.rs`                   | Small infrastructure ports for socket preparation and placement events                                       | Contains no provider or xDS implementation                                                |
+| `src/sandbox/envoy.rs`                     | Composition facade that wires disjoint Envoy capabilities                                                    | Owns no process, socket, policy-delivery, desired-policy, or ADS mutable state            |
+| `src/sandbox/envoy/process.rs`             | Bootstrap file lifecycle, managed Envoy process health, restart, and authority revocation on process failure | Does not render sandbox resources or own per-sandbox policy state                         |
+| `src/sandbox/envoy/socket.rs`              | Per-sandbox socket-directory preparation and readiness checks                                                | Does not publish resources, mutate generations, or manage the Envoy process               |
+| `src/sandbox/envoy/policy_runtime.rs`      | `NetworkPolicyRuntime` adapter, per-sandbox serialization, delivery wait/recovery/prune/removal              | Does not own desired policy, durable generation, process lifecycle, or ADS protocol state |
+| `src/sandbox/envoy_render/{json,proto}.rs` | Pure conversion from validated listener/cluster specs to Envoy JSON/protobuf                                 | No I/O, DB, authority, delivery, or provider lifecycle                                    |
+| `src/sandbox/envoy_delivery.rs`            | Provider-facing `EnvoyDelivery` port and `XdsControlPlane` adapter                                           | No desired-policy decisions or implicit owner inference                                   |
+| `src/sandbox/envoy_filesystem.rs`          | Limited local filesystem delivery adapter                                                                    | Cannot claim atomic non-empty recovery or full CDS/LDS semantics                          |
+| `src/grpc/server.rs`                       | Runner TCP/UDS binding and tonic server lifecycle                                                            | No authentication, SQL, Redis, task FSM, artifact, or recovery behavior                   |
+| `src/grpc/transport.rs`                    | Protobuf stream adaptation and connection admission                                                          | No SQL/Redis access or task/session state transitions                                     |
+| `src/kernel/runner/session.rs`             | Runner authentication, bridge registration, displacement, and disconnect lifecycle                           | Delegates task execution and reconnect policy; never binds sockets                        |
+| `src/kernel/runner/execution.rs`           | Task dispatch/event/result/artifact flow and execution concurrency                                           | Does not authenticate transports or own reconnect policy                                  |
+| `src/kernel/runner/recovery.rs`            | Reconnect classification, active-task resume, and orphan recovery                                            | Does not bind transport or select sandbox providers                                       |
 
 The xDS domain owns `DeliveryGeneration`; the network-policy domain owns
 `NetworkPolicyGeneration`. `sandbox/envoy_delivery.rs` is the only mapping boundary between them,
@@ -685,9 +685,27 @@ handling cannot leak between execution and control-plane transports.
 
 Kubernetes socket storage follows the same ownership rule. The sandbox initContainer creates its
 UUID-scoped directory in the node-local hostPath before the runner starts. When a non-resumable Pod is
-stopped or destroyed, the Kubernetes provider removes that UUID directory through every Envoy DaemonSet
-Pod. The operation accepts only a parsed sandbox UUID and fixed command arguments, remains idempotent when
-the sandbox Pod is already absent, and never publishes or removes xDS resources itself.
+stopped or destroyed, the Kubernetes provider captures the Pod node, waits for Pod disappearance, and
+removes that UUID directory through the Envoy DaemonSet Pod on the same node. The operation accepts only a
+parsed sandbox UUID and fixed command arguments, remains idempotent when the sandbox Pod is already absent,
+and never publishes or removes xDS resources itself. Provider destruction reports runtime deletion
+separately from residual cleanup, so a socket cleanup failure cannot restore PostgreSQL to a false running
+state after the Pod is gone.
+
+#### Multi-orchestrator coordination
+
+`src/kernel/instance_registry.rs` owns Redis instance registration. Every heartbeat atomically rewrites
+the complete instance record and TTL, so deleted keys and Redis restarts self-heal without restarting the
+orchestrator. In multi mode the heartbeat task is supervised as a critical service.
+
+Runner bridge ownership is generation-fenced. Before bridge-health maintenance performs durable recovery
+or provider destruction, `BridgeStore::owns_connection` must prove that the exact local `connection_id`
+still matches the Redis generation token. Missing keys, replacement generations, and Redis errors fail
+closed.
+
+The xDS authority worker owns foreground request concurrency. It keeps a fixed upper bound on in-flight
+apply tasks, coalesces queued requests by sandbox, and aborts its structured task set when authority is
+revoked. Generation and epoch fencing remain the correctness boundary for work already admitted.
 
 For node-scoped delivery, xDS publication waits inside `NodeOwnershipRegistry` for the authoritative
 placement revision before exposing resources. The Kubernetes watcher still only emits facts; schedulers and
@@ -728,15 +746,15 @@ gRPC stream carries execution, not scheduling.
 
 ### Runner → Orchestrator (`RunnerMessage`)
 
-| Message | Meaning |
-|---|---|
-| `RunnerReady` | First message; carries the physical sandbox UUID, purpose-specific `runner_token` (constant-time SHA-256 digest verification), available providers, reconnect state |
-| `RunnerHarnessEvent` | The live event stream (see below) |
-| `RunnerHarnessResult` | Terminal result: `status`, `output`, `error`, `TokenUsage` (with per-model breakdown), `duration_ms` |
-| `RunnerHeartbeat` | Liveness (also, any message resets the heartbeat deadline; 120s timeout) |
-| `RunnerIdle` | Harness went idle; persists `harness_session_id` / `work_dir` back to the session |
-| `MemoryFileSync` | Agent wrote a memory file inside the sandbox → sync back |
-| `SandboxSetupResult` | Correlated result for one `setup_id` and runtime-config generation; on success it atomically carries the immutable Skill materialization receipts for that generation |
+| Message               | Meaning                                                                                                                                                               |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RunnerReady`         | First message; carries the physical sandbox UUID, purpose-specific `runner_token` (constant-time SHA-256 digest verification), available providers, reconnect state   |
+| `RunnerHarnessEvent`  | The live event stream (see below)                                                                                                                                     |
+| `RunnerHarnessResult` | Terminal result: `status`, `output`, `error`, `TokenUsage` (with per-model breakdown), `duration_ms`                                                                  |
+| `RunnerHeartbeat`     | Liveness (also, any message resets the heartbeat deadline; 120s timeout)                                                                                              |
+| `RunnerIdle`          | Harness went idle; persists `harness_session_id` / `work_dir` back to the session                                                                                     |
+| `MemoryFileSync`      | Agent wrote a memory file inside the sandbox → sync back                                                                                                              |
+| `SandboxSetupResult`  | Correlated result for one `setup_id` and runtime-config generation; on success it atomically carries the immutable Skill materialization receipts for that generation |
 
 **`RunnerHarnessEvent`** carries `seq` + `timestamp_ms` + a `oneof`:
 `TextEvent` · `ThinkingEvent` · `ToolUseEvent` (`tool`, `call_id`, `input_json`,
@@ -747,14 +765,14 @@ result, token/tool metrics).
 
 ### Orchestrator → Runner (`OrchestratorMessage`)
 
-| Message | Payload |
-|---|---|
-| `SetupSandbox` | Generation-scoped preparation: stable sandbox `skills[]`, `mcp_servers[]`, `custom_tools[]`, `setup_commands[]`, `memory_mounts[]`, `repos[]`, tool policy, `provider`, `model`, env, `setup_id`, and `runtime_config_generation` |
-| `StartTask` | Authoritative task snapshot referencing an already-applied `runtime_config_generation`: `task_id`, prompt/system prompt, provider/model, limits, env, per-task `mcp_servers`/`repos`/`custom_tools`, tool policy, and `files[]`/`file_refs[]`; it never transports or materializes Skills |
-| `CancelTask` | `reason` |
-| `SendInput` | `content` (control-request reply / interrupt injection) |
-| `Shutdown` | `reason` |
-| `MemoryFileUpdate` | Push a memory-store file change into the sandbox |
+| Message            | Payload                                                                                                                                                                                                                                                                                   |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SetupSandbox`     | Generation-scoped preparation: stable sandbox `skills[]`, `mcp_servers[]`, `custom_tools[]`, `setup_commands[]`, `memory_mounts[]`, `repos[]`, tool policy, `provider`, `model`, env, `setup_id`, and `runtime_config_generation`                                                         |
+| `StartTask`        | Authoritative task snapshot referencing an already-applied `runtime_config_generation`: `task_id`, prompt/system prompt, provider/model, limits, env, per-task `mcp_servers`/`repos`/`custom_tools`, tool policy, and `files[]`/`file_refs[]`; it never transports or materializes Skills |
+| `CancelTask`       | `reason`                                                                                                                                                                                                                                                                                  |
+| `SendInput`        | `content` (control-request reply / interrupt injection)                                                                                                                                                                                                                                   |
+| `Shutdown`         | `reason`                                                                                                                                                                                                                                                                                  |
+| `MemoryFileUpdate` | Push a memory-store file change into the sandbox                                                                                                                                                                                                                                          |
 
 > The protocol has no generic `secrets` map. Managed MCP credentials and limited-networking
 > model credentials remain at the Envoy boundary. Unrestricted-network model credentials are
@@ -793,12 +811,12 @@ not know how those images are built.
 
 A Cargo workspace (edition 2024, tonic/prost gRPC). Four crates:
 
-| Crate | Role |
-|---|---|
-| `joysafeter-types` | Shared types + the `HarnessAdapter` trait SPI (`start`/`cancel`/`send_input`/`provider`/`is_available`), `HarnessInput`, `HarnessEvent` (mirrors the proto oneof) |
-| `joysafeter-runtime` | `AdapterRegistry` + the concrete engine adapters (claude / codex / native / pi / mock) |
-| `joysafeter-runner` | The in-sandbox binary that speaks gRPC `AgentBridge` back to the orchestrator |
-| `joysafeter-ctl` | `joysafeterctl` operator/dev CLI (declarative REST client) |
+| Crate                | Role                                                                                                                                                              |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `joysafeter-types`   | Shared types + the `HarnessAdapter` trait SPI (`start`/`cancel`/`send_input`/`provider`/`is_available`), `HarnessInput`, `HarnessEvent` (mirrors the proto oneof) |
+| `joysafeter-runtime` | `AdapterRegistry` + the concrete engine adapters (claude / codex / native / pi / mock)                                                                            |
+| `joysafeter-runner`  | The in-sandbox binary that speaks gRPC `AgentBridge` back to the orchestrator                                                                                     |
+| `joysafeter-ctl`     | `joysafeterctl` operator/dev CLI (declarative REST client)                                                                                                        |
 
 The runner boots from env (`JOYSAFETER_ORCHESTRATOR_URL`, `JOYSAFETER_SANDBOX_ID`,
 `JOYSAFETER_RUNNER_TOKEN`), dials the orchestrator (TCP or unix socket via Envoy), sends
@@ -807,24 +825,24 @@ picks the adapter by `provider`, unpacks skills, runs setup commands, clones rep
 `.claude/settings.json` (MCP + tools + tool rules), builds `HarnessInput`, and launches the
 harness as a persistent subprocess:
 
-| `provider` | Adapter | Launches | Protocol |
-|---|---|---|---|
-| `claude` | `ClaudeAdapter` | `claude` CLI | stream-json over stdin/stdout, `--permission-prompt-tool stdio` |
-| `codex` | `CodexAdapter` | `codex app-server --listen stdio://` | JSON-RPC |
-| `native` | `NativeAdapter` | **`ccb`** binary | claude-style stream-json — the self-developed "Harness-Core" engine |
-| `pi` | `PiAdapter` | `pi` CLI | provider-configured OpenAI Responses / Chat Completions / Anthropic messages |
-| `mock` | `MockAdapter` | test double | env-gated |
+| `provider` | Adapter         | Launches                             | Protocol                                                                     |
+| ---------- | --------------- | ------------------------------------ | ---------------------------------------------------------------------------- |
+| `claude`   | `ClaudeAdapter` | `claude` CLI                         | stream-json over stdin/stdout, `--permission-prompt-tool stdio`              |
+| `codex`    | `CodexAdapter`  | `codex app-server --listen stdio://` | JSON-RPC                                                                     |
+| `native`   | `NativeAdapter` | **`ccb`** binary                     | claude-style stream-json — the self-developed "Harness-Core" engine          |
+| `pi`       | `PiAdapter`     | `pi` CLI                             | provider-configured OpenAI Responses / Chat Completions / Anthropic messages |
+| `mock`     | `MockAdapter`   | test double                          | env-gated                                                                    |
 
 ### 6.3 Sandbox providers (`app/joysafeter_orchestrator_rs/src/sandbox/`)
 
 Selected by `JOYSAFETER_SANDBOX_PROVIDER` (default `docker`). SPI: `SandboxProvider`
 (`create/start/stop/destroy/status/exec/inject_files/setup_networking/...`).
 
-| Provider | Backing | Notes |
-|---|---|---|
-| **Docker** | local `aiodocker` | Default. Mounts `work_dir:/workspace`, memory under `/mnt/memory/<name>`. Hardened: `CapDrop ALL`, no-new-privileges, PidsLimit, non-root user. Restricted networking → `NetworkMode=none` + Envoy unix socket |
-| **E2B** | E2B REST (Firecracker VMs) | Requires `E2B_API_KEY` + `E2B_TEMPLATE_ID` |
-| **Daytona** | Daytona REST | Requires `DAYTONA_API_URL` + `DAYTONA_API_KEY` |
+| Provider    | Backing                    | Notes                                                                                                                                                                                                          |
+| ----------- | -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Docker**  | local `aiodocker`          | Default. Mounts `work_dir:/workspace`, memory under `/mnt/memory/<name>`. Hardened: `CapDrop ALL`, no-new-privileges, PidsLimit, non-root user. Restricted networking → `NetworkMode=none` + Envoy unix socket |
+| **E2B**     | E2B REST (Firecracker VMs) | Requires `E2B_API_KEY` + `E2B_TEMPLATE_ID`                                                                                                                                                                     |
+| **Daytona** | Daytona REST               | Requires `DAYTONA_API_URL` + `DAYTONA_API_KEY`                                                                                                                                                                 |
 
 **Envoy** gives each limited-networking sandbox no direct egress. The runner reaches the
 orchestrator through its control channel, and outbound HTTP goes through a per-sandbox Envoy
@@ -946,19 +964,19 @@ conversation unit is `JoySafeterSession` with an append-only event log.
 
 ### 7.1 Central entities
 
-| Entity | Table | Role |
-|---|---|---|
-| `JoySafeterAgent` | `joysafeter_agents` | Agent definition. Capabilities (`skills`, `tools`, `mcp_servers`, `model`, `agents`, `commands`) stored **denormalized as JSONB** on the row, not join tables. Versioned via `joysafeter_agent_versions` |
-| `JoySafeterSession` | `joysafeter_sessions` | Conversation/thread. Accumulates token usage; snapshots the agent at creation |
-| `JoySafeterSessionEvent` | `joysafeter_session_events` | **Append-only event log**, `unique(session_id, seq)`. The persisted event stream |
-| `JoySafeterTask` | `joysafeter_tasks` | The run/execution unit. Links to a session via `chat_session_id` |
-| `JoySafeterSandbox` | `joysafeter_sandboxes` | Sandbox lifecycle record; ≤1 active sandbox per session |
-| `JoySafeterCredential` | `joysafeter_credentials` | Unified model, service, and MCP credential records; values are **AES-256-GCM encrypted** and resolved for authorized runtime use |
-| `JoySafeterCredentialGroup` | `joysafeter_credential_groups` | Project-scoped groups for organizing MCP credentials; session bindings live in `joysafeter_session_credential_groups` |
-| `JoySafeterSkill` (+ versions, files, scans, collaborators, usage) | `joysafeter_skills*` | Full skill subsystem: 4-tier visibility, lifecycle FSM, security scans, versioned snapshots |
-| `JoySafeterMemoryStore` / `Memory` / `MemoryVersion` | `joysafeter_memory*` | Agent-writable KV stores with append-only version history |
-| `JoySafeterFile` / `SessionFile` / `SessionRepo` | `joysafeter_files*` | Uploaded files & git repos mounted into sessions |
-| Identity | `joysafeter_users`, `_auth_sessions`, `_oauth_account`, `_organizations`, `_organization_members`, `_organization_projects`, `_project_members`, `_api_keys` | Users, sessions, OAuth links, orgs, projects, membership, API keys |
+| Entity                                                             | Table                                                                                                                                                        | Role                                                                                                                                                                                                     |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JoySafeterAgent`                                                  | `joysafeter_agents`                                                                                                                                          | Agent definition. Capabilities (`skills`, `tools`, `mcp_servers`, `model`, `agents`, `commands`) stored **denormalized as JSONB** on the row, not join tables. Versioned via `joysafeter_agent_versions` |
+| `JoySafeterSession`                                                | `joysafeter_sessions`                                                                                                                                        | Conversation/thread. Accumulates token usage; snapshots the agent at creation                                                                                                                            |
+| `JoySafeterSessionEvent`                                           | `joysafeter_session_events`                                                                                                                                  | **Append-only event log**, `unique(session_id, seq)`. The persisted event stream                                                                                                                         |
+| `JoySafeterTask`                                                   | `joysafeter_tasks`                                                                                                                                           | The run/execution unit. Links to a session via `chat_session_id`                                                                                                                                         |
+| `JoySafeterSandbox`                                                | `joysafeter_sandboxes`                                                                                                                                       | Sandbox lifecycle record; ≤1 active sandbox per session                                                                                                                                                  |
+| `JoySafeterCredential`                                             | `joysafeter_credentials`                                                                                                                                     | Unified model, service, and MCP credential records; values are **AES-256-GCM encrypted** and resolved for authorized runtime use                                                                         |
+| `JoySafeterCredentialGroup`                                        | `joysafeter_credential_groups`                                                                                                                               | Project-scoped groups for organizing MCP credentials; session bindings live in `joysafeter_session_credential_groups`                                                                                    |
+| `JoySafeterSkill` (+ versions, files, scans, collaborators, usage) | `joysafeter_skills*`                                                                                                                                         | Full skill subsystem: 4-tier visibility, lifecycle FSM, security scans, versioned snapshots                                                                                                              |
+| `JoySafeterMemoryStore` / `Memory` / `MemoryVersion`               | `joysafeter_memory*`                                                                                                                                         | Agent-writable KV stores with append-only version history                                                                                                                                                |
+| `JoySafeterFile` / `SessionFile` / `SessionRepo`                   | `joysafeter_files*`                                                                                                                                          | Uploaded files & git repos mounted into sessions                                                                                                                                                         |
+| Identity                                                           | `joysafeter_users`, `_auth_sessions`, `_oauth_account`, `_organizations`, `_organization_members`, `_organization_projects`, `_project_members`, `_api_keys` | Users, sessions, OAuth links, orgs, projects, membership, API keys                                                                                                                                       |
 
 Persistence pattern: a thin `BaseRepository[T]` exists for auth/skills, but most services issue
 SQLAlchemy statements directly against a per-request `AsyncSession` and commit inside the
@@ -969,12 +987,17 @@ service method (no unit-of-work).
 Four distinct FSMs govern lifecycle. Transitions are guarded (conditional `UPDATE ... WHERE
 status = ...` or advisory-locked) so concurrent writers can't corrupt state.
 
-| FSM | Entity | States | Terminal |
-|---|---|---|---|
-| **Task** | `JoySafeterTask` | `pending → scheduling → running → {completed, failed, aborted, timeout, cancelled}` (+ retry → `pending`) | the 5 outcomes |
-| **Session** | `JoySafeterSession` | `idle ↔ running ↔ rescheduling`, any → `terminated` | `terminated` (reactivatable) |
-| **Sandbox** | `JoySafeterSandbox` | `creating → provisioning → pooled → idle ↔ running → stopping → stopped / error → destroyed` | `destroyed` |
-| **Skill lifecycle** | `JoySafeterSkill` | `draft → pending_review → {approved, rejected}`, `approved → archived`, reopen/unarchive edges | — |
+Retry is one cross-entity PostgreSQL transition: the expected task generation moves to `pending`, its exact
+sandbox-task association is released, the session moves to `rescheduling`, and the replayable
+`session.status_rescheduling` event receives its canonical sequence in the same transaction. Redis queue
+publication happens only after commit and is a recoverable wakeup, never part of the durable state change.
+
+| FSM                 | Entity              | States                                                                                                    | Terminal                     |
+| ------------------- | ------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------- |
+| **Task**            | `JoySafeterTask`    | `pending → scheduling → running → {completed, failed, aborted, timeout, cancelled}` (+ retry → `pending`) | the 5 outcomes               |
+| **Session**         | `JoySafeterSession` | `idle ↔ running ↔ rescheduling`, any → `terminated`                                                       | `terminated` (reactivatable) |
+| **Sandbox**         | `JoySafeterSandbox` | `creating → provisioning → pooled → idle ↔ running → stopping → stopped / error → destroyed`              | `destroyed`                  |
+| **Skill lifecycle** | `JoySafeterSkill`   | `draft → pending_review → {approved, rejected}`, `approved → archived`, reopen/unarchive edges            | —                            |
 
 Publishing requires the mutable Skill to be `approved`. After a version is published, Agent
 references, runtime packing, and promotion depend on that immutable published version rather
@@ -997,39 +1020,39 @@ rebuild prefixes.
 
 This is the authoritative UUID-backed entity inventory:
 
-| Entity type | Public prefix | Entity type | Public prefix |
-|---|---|---|---|
-| `AgentId` | `agent_` | `AgentVersionId` | `agentver_` |
-| `ApiKeyId` | `apikey_` | `SessionId` | `sess_` |
-| `TaskId` | `task_` | `TriggerId` | `trig_` |
-| `EnvironmentId` | `env_` | `CredentialId` | `cred_` |
-| `CredentialGroupId` | `credgrp_` | `SandboxId` | `sbx_` |
-| `MemoryStoreId` | `memstore_` | `MemoryId` | `mem_` |
-| `MemoryVersionId` | `memver_` | `SkillId` | `skill_` |
-| `SkillFileId` | `sklfile_` | `SkillSecurityScanId` | `sklscan_` |
-| `SkillVersionId` | `sklver_` | `SkillVersionFileId` | `sklvfile_` |
-| `SkillUsageId` | `skluse_` | `EventId` | `evt_` |
-| `FileId` | `file_` | `SessionResourceId` | `sesrsc_` |
-| `StorageVolumeId` | `vol_` | `StorageGrantId` | `stgrant_` |
-| `StorageMountAuditId` | `staudit_` | `UserId` | `user_` |
-| `OrganizationId` | `org_` | `OrganizationMemberId` | `orgmem_` |
-| `ProjectId` | `proj_` | `ProjectMemberId` | `projmem_` |
-| `OAuthAccountId` | `oauthacct_` | `AuthSessionId` | `authsess_` |
-| `CredentialAccessAuditId` | `credaudit_` | `SecurityAuditId` | `secaudit_` |
-| `SandboxNetworkPolicyId` | `sbxnetpol_` |  |  |
+| Entity type               | Public prefix | Entity type            | Public prefix |
+| ------------------------- | ------------- | ---------------------- | ------------- |
+| `AgentId`                 | `agent_`      | `AgentVersionId`       | `agentver_`   |
+| `ApiKeyId`                | `apikey_`     | `SessionId`            | `sess_`       |
+| `TaskId`                  | `task_`       | `TriggerId`            | `trig_`       |
+| `EnvironmentId`           | `env_`        | `CredentialId`         | `cred_`       |
+| `CredentialGroupId`       | `credgrp_`    | `SandboxId`            | `sbx_`        |
+| `MemoryStoreId`           | `memstore_`   | `MemoryId`             | `mem_`        |
+| `MemoryVersionId`         | `memver_`     | `SkillId`              | `skill_`      |
+| `SkillFileId`             | `sklfile_`    | `SkillSecurityScanId`  | `sklscan_`    |
+| `SkillVersionId`          | `sklver_`     | `SkillVersionFileId`   | `sklvfile_`   |
+| `SkillUsageId`            | `skluse_`     | `EventId`              | `evt_`        |
+| `FileId`                  | `file_`       | `SessionResourceId`    | `sesrsc_`     |
+| `StorageVolumeId`         | `vol_`        | `StorageGrantId`       | `stgrant_`    |
+| `StorageMountAuditId`     | `staudit_`    | `UserId`               | `user_`       |
+| `OrganizationId`          | `org_`        | `OrganizationMemberId` | `orgmem_`     |
+| `ProjectId`               | `proj_`       | `ProjectMemberId`      | `projmem_`    |
+| `OAuthAccountId`          | `oauthacct_`  | `AuthSessionId`        | `authsess_`   |
+| `CredentialAccessAuditId` | `credaudit_`  | `SecurityAuditId`      | `secaudit_`   |
+| `SandboxNetworkPolicyId`  | `sbxnetpol_`  |                        |               |
 
 Bare UUIDs are retained only at these reviewed physical boundaries:
 
-| Physical boundary | Bare UUID contract |
-|---|---|
-| SQL UUID bind/result | SQLAlchemy `EntityIdType` and transparent SQLx wrappers bind native UUID columns and hydrate the concrete typed ID immediately on read. |
-| PostgreSQL advisory locks | Lock-key derivation uses UUID bytes solely to produce the database's signed 64-bit lock key. |
-| Redis queues, channels, and payloads | Queue members, channel/key suffixes, ownership values, and event/runtime payload fields use bare UUID strings when both producer and consumer explicitly restore the concrete ID type. |
-| Runner/protobuf fields | Runner commands and protobuf messages whose schemas define UUID strings unwrap at construction and restore typed IDs when re-entering application code. |
-| OpenTelemetry identities | Trace, span, execution, and observation UUIDs are telemetry/storage identities rather than public JoySafeter entity-ID contracts. |
-| Object-storage keys | File object keys use the bare `FileId` UUID; public file metadata and routes retain `file_<uuid>`. |
-| Physical resource naming | Runner environment variables plus sandbox-provider labels, pod/container names, and Envoy resource names may derive bare UUID text from a typed ID solely for stable infrastructure naming. These are deployment/runtime names, not third-party API schemas. |
-| Third-party UUID contracts | An external API may receive or return a bare UUID only when its independently documented schema requires UUID text; the adapter restores the concrete typed ID before application use. |
+| Physical boundary                    | Bare UUID contract                                                                                                                                                                                                                                           |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| SQL UUID bind/result                 | SQLAlchemy `EntityIdType` and transparent SQLx wrappers bind native UUID columns and hydrate the concrete typed ID immediately on read.                                                                                                                      |
+| PostgreSQL advisory locks            | Lock-key derivation uses UUID bytes solely to produce the database's signed 64-bit lock key.                                                                                                                                                                 |
+| Redis queues, channels, and payloads | Queue members, channel/key suffixes, ownership values, and event/runtime payload fields use bare UUID strings when both producer and consumer explicitly restore the concrete ID type.                                                                       |
+| Runner/protobuf fields               | Runner commands and protobuf messages whose schemas define UUID strings unwrap at construction and restore typed IDs when re-entering application code.                                                                                                      |
+| OpenTelemetry identities             | Trace, span, execution, and observation UUIDs are telemetry/storage identities rather than public JoySafeter entity-ID contracts.                                                                                                                            |
+| Object-storage keys                  | File object keys use the bare `FileId` UUID; public file metadata and routes retain `file_<uuid>`.                                                                                                                                                           |
+| Physical resource naming             | Runner environment variables plus sandbox-provider labels, pod/container names, and Envoy resource names may derive bare UUID text from a typed ID solely for stable infrastructure naming. These are deployment/runtime names, not third-party API schemas. |
+| Third-party UUID contracts           | An external API may receive or return a bare UUID only when its independently documented schema requires UUID text; the adapter restores the concrete typed ID before application use.                                                                       |
 
 The architecture scanner also reviews three explicit native-UUID conversion categories that do not
 create a retained bare-string contract: the typed-ID codec implementation itself, strict validation
@@ -1054,29 +1077,29 @@ Session memory-store attachments are public Session resources: their rows and re
 `SessionResourceId` / `sesrsc_` and `type=session_memory_store`; the referenced store remains a
 separate `MemoryStoreId` / `memstore_` identity.
 
-| Group | Prefix | Highlights |
-|---|---|---|
-| **Auth** | `/auth` | sign-up/in, logout, refresh, password reset, email verify, `ws-token`, `switch-context`, projects, api-keys, members |
-| **OAuth / SSO** | `/auth/oauth` | provider list, authorize, callback, account link/unlink |
-| **Agents** | `/agents` | CRUD, archive, versions, `/tasks`, `/sessions` |
-| **Tasks** | `/tasks` | create+enqueue, list, get, cancel, **WS** `/tasks/{id}/stream` |
-| **Sessions** | `/sessions` | CRUD, archive, stop, `POST /events` (send), `GET /events` (history), **SSE** `/events/stream`, resources (files/repos) |
-| **Triggers** | `/triggers` | Cron/webhook trigger CRUD, manual `/run`, run history, inbound `/webhook` (+ signed `/webhook-sample`, `/test`) |
-| **Environments** | `/environments` | Sandbox image/config CRUD |
-| **Credentials** | `/credentials` | Model connections, service credentials, MCP members, lifecycle, testing, references, and default selection |
-| **Credential groups** | `/credential-groups` | MCP credential grouping, lifecycle, membership, and references |
-| **LLM** | `/llm` | Model `/catalog` (OpenAI-compatible provider models) |
-| **Skills** | `/skills` | CRUD, `import-zip`, files, versions, security-scans, lifecycle transitions, admin rescan |
-| **Skills AI authoring** | `/skills/ai-authoring` | **SSE** `/chat` (LLM authoring turn), `/save-draft` |
-| **Sandboxes** | `/sandboxes` | list, get, stop |
-| **Network policies** | `/network-policies` | Egress `/diagnostics`, per-session policy `/sessions/{id}` |
-| **Memory stores** | `/memory_stores` | store + memory CRUD, versions, redact; sandbox memory sync is relayed through the Rust runtime |
-| **Files** | `/files` | upload, list, metadata, download, delete |
-| **Storage volumes** | `/storage-volumes` | Volume `/catalog` + CRUD, project & organization grants, `/audit/logs` |
-| **Organizations** | `/organizations` | org + member CRUD, transfer-ownership |
-| **Analytics** | `/analytics` | Usage analytics: summary, timeseries, engine share, calls, agent comparison/ranking, latency/error stats |
-| **Quickstart** | `/quickstart` | **SSE** `/chat` — guided onboarding LLM proxy |
-| **Health** | `/health` | API readiness for PostgreSQL plus configured Redis, and liveness; it does not infer orchestrator membership or xDS readiness |
+| Group                   | Prefix                 | Highlights                                                                                                                   |
+| ----------------------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| **Auth**                | `/auth`                | sign-up/in, logout, refresh, password reset, email verify, `ws-token`, `switch-context`, projects, api-keys, members         |
+| **OAuth / SSO**         | `/auth/oauth`          | provider list, authorize, callback, account link/unlink                                                                      |
+| **Agents**              | `/agents`              | CRUD, archive, versions, `/tasks`, `/sessions`                                                                               |
+| **Tasks**               | `/tasks`               | create+enqueue, list, get, cancel, **WS** `/tasks/{id}/stream`                                                               |
+| **Sessions**            | `/sessions`            | CRUD, archive, stop, `POST /events` (send), `GET /events` (history), **SSE** `/events/stream`, resources (files/repos)       |
+| **Triggers**            | `/triggers`            | Cron/webhook trigger CRUD, manual `/run`, run history, inbound `/webhook` (+ signed `/webhook-sample`, `/test`)              |
+| **Environments**        | `/environments`        | Sandbox image/config CRUD                                                                                                    |
+| **Credentials**         | `/credentials`         | Model connections, service credentials, MCP members, lifecycle, testing, references, and default selection                   |
+| **Credential groups**   | `/credential-groups`   | MCP credential grouping, lifecycle, membership, and references                                                               |
+| **LLM**                 | `/llm`                 | Model `/catalog` (OpenAI-compatible provider models)                                                                         |
+| **Skills**              | `/skills`              | CRUD, `import-zip`, files, versions, security-scans, lifecycle transitions, admin rescan                                     |
+| **Skills AI authoring** | `/skills/ai-authoring` | **SSE** `/chat` (LLM authoring turn), `/save-draft`                                                                          |
+| **Sandboxes**           | `/sandboxes`           | list, get, stop                                                                                                              |
+| **Network policies**    | `/network-policies`    | Egress `/diagnostics`, per-session policy `/sessions/{id}`                                                                   |
+| **Memory stores**       | `/memory_stores`       | store + memory CRUD, versions, redact; sandbox memory sync is relayed through the Rust runtime                               |
+| **Files**               | `/files`               | upload, list, metadata, download, delete                                                                                     |
+| **Storage volumes**     | `/storage-volumes`     | Volume `/catalog` + CRUD, project & organization grants, `/audit/logs`                                                       |
+| **Organizations**       | `/organizations`       | org + member CRUD, transfer-ownership                                                                                        |
+| **Analytics**           | `/analytics`           | Usage analytics: summary, timeseries, engine share, calls, agent comparison/ranking, latency/error stats                     |
+| **Quickstart**          | `/quickstart`          | JSON `/recommendations` for deterministic planning; **SSE** `/chat` for Agent design only                                    |
+| **Health**              | `/health`              | API readiness for PostgreSQL plus configured Redis, and liveness; it does not infer orchestrator membership or xDS readiness |
 
 ---
 
@@ -1084,21 +1107,155 @@ separate `MemoryStoreId` / `memstore_` identity.
 
 ### 9.1 Multi-model — the "unified protocol"
 
-There is **no coded multi-provider adapter registry** in the backend. The shared LLM layer
-(`joysafeter_shared/llm/openai_stream.py`) is a single OpenAI-compatible SSE streaming helper:
-credentials (`api_key`, `base_url`, `model`) are passed in, never resolved there. Any provider
-— OpenAI, Claude, Gemini, DeepSeek, Qwen, etc. — is reached generically by pointing `base_url`
-at its OpenAI-compatible gateway. This helper backs only first-party features (skill authoring,
-quickstart). **Agent-workload model traffic is delegated to the CLI harness inside the
+The LLM catalog separates runtime Engines from platform model consumers. Engines describe the
+protocols accepted by an Agent runtime; consumers such as `skill_ai_authoring` describe the
+protocols accepted by a first-party feature. Credential bindings carry exactly one target, so a
+platform feature is never represented as a fake runtime engine. `GET /credentials` resolves
+`compatible_engine` or `compatible_consumer` through this catalog before querying persistence.
+The YAML schema is a shared Python/Rust/frontend contract: every top-level capability collection
+must be represented and reference-validated by each parser. The Rust orchestrator validates its
+embedded catalog before application startup completes, so schema drift fails readiness instead of
+being misreported as a corrupt credential during task scheduling.
+
+The shared first-party inference gateway (`joysafeter_shared/llm/model_stream.py`) implements
+Anthropic Messages, OpenAI Responses, and Chat Completions streaming behind one normalized event
+contract. Credentials (`api_key`, `base_url`, `model`) are resolved by the canonical credential
+application service and passed into the gateway; the gateway never reads settings, environment
+variables, or persistence. Quickstart owns wizard-specific tool/result mapping, while AI Skill
+authoring owns draft-patch mapping. **Agent-workload model traffic is delegated to the CLI harness inside the
 sandbox** (Claude Code / Codex / `ccb`), so real-world model routing, retry, and fallback live
 in the runner and the CLIs, not in Python. Model config and credentials are DB-driven
 (`joysafeter_credentials`, encrypted), managed through the unified Credentials UI.
 
-### 9.2 Skills — the capability layer
+### 9.2 Quickstart — one bounded capability
+
+Quickstart uses one canonical phase model across backend contracts and frontend state:
+`understand → design → secure → prove`. Numbered UI sub-steps may organize form fields, but they
+are presentation details and never cross the API boundary.
+
+- `joysafeter_domain.quickstart` owns phase vocabulary and deterministic engine/security policy.
+- `joysafeter_application.quickstart` is the only Quickstart use-case owner. Its recommendation
+  service composes catalog, project-scoped model connections, and deterministic rules; its design
+  service owns the model prompt, tool schema, and translation from provider-neutral model events
+  into canonical Quickstart events.
+- `POST /api/v1/quickstart/recommendations` serves read-only `understand` and `secure` decisions
+  through the sole supported `quickstart_recommendation.v4` contract. Its checked-in contract
+  contains the complete Pydantic JSON Schema and is tested for exact parity.
+- Secure recommendations treat the final validated Agent draft as authoritative; historical intent
+  is used only when no draft exists. Only credential-bearing remote MCP servers (`required` or
+  `optional`) are projected with `name`, `url`, and `auth_requirement`; local and no-auth MCP
+  servers do not create Credential Group recommendations.
+- The Quickstart Agent draft reuses the canonical Agent `McpServerConfig` discriminated union.
+  Quickstart rejects MCP maps and the removed `type=url` alias, while the design tool schema is
+  generated from the same MCP model consumed by Agent create and update requests.
+- `POST /api/v1/quickstart/chat` serves only the creative `design` phase and emits
+  `phase=design`, `artifact=agent_blueprint` SSE events. The API adapter owns request validation,
+  credential resolution, and SSE encoding—not prompt or model-event interpretation. It never
+  creates resources or fabricates resource-create curl commands.
+- Agent, Environment, Credential Group, and Session creation remain owned by their stable REST
+  resources. Quickstart coordinates those APIs instead of becoming a second lifecycle owner.
+- The frontend may present Fast and Expert modes, but both project the same state and consume the
+  same backend recommendations; it must not carry an independent recommendation engine. It rejects
+  malformed responses, creates all credential-bearing MCP members atomically, and derives launch
+  readiness from the selected Environment policy plus the actual Agent MCP configuration and active
+  Credential Group members. The Agent curl is generated from the exact REST create body only after
+  runtime and model-credential choices are known.
+- The frontend `useQuickstartController` owns workflow progress, design-stream lifecycle, resource
+  creation orchestration, and created-resource identity. Phase-specific hooks own only local UI
+  interaction state and derived presentation data; the page composes them and may orchestrate
+  stable clients, but does not define wire contracts.
+- `quickstart-flow.ts` defines step identity and phase membership;
+  `quickstart-resource-contract.ts` is the sole mapping from resource steps to REST paths and typed
+  resource-ID parsers. Components and controllers must consume that mapping rather than duplicate it.
+- `quickstart-task-client.ts` owns the latest trial Task request path, scoped query identity, and
+  response projection. Its parser delegates the cursor envelope to `cursor-page.ts`; the Quickstart
+  page must not build `/tasks` URLs or partially validate pagination metadata.
+- `session-client.ts` owns the stable frontend Session create/read, global and Agent-scoped list
+  pagination, event, stop, and archive REST contracts plus their canonical scoped query identities. Quickstart,
+  Agent, Trigger, and Session pages orchestrate UI state but do not rebuild those transport payloads,
+  response parsers, or cache identities. Trigger Session selectors consume the client's complete active
+  Agent-scoped Session catalog rather than a fixed first page.
+- `session-resource-client.ts` owns durable Session attachment CRUD and its query identity;
+  `session-sandbox-client.ts` separately owns runtime sandbox file browsing and download transport.
+  UI components must not duplicate either wire contract.
+- `environment-client.ts` owns the complete active Environment option catalog, including the
+  `/environments` transport, typed response parsing, cursor traversal, archived-record exclusion,
+  and one scoped React Query identity exposed through `useManagedEnvironmentOptions`. Quickstart,
+  Agent, Trigger, and Session selectors consume that hook and must not define local Environment list
+  transports, parsers, or cache keys. The Environment management page consumes the same client's
+  paginated list source. The client also owns Environment detail reads and their canonical
+  project-scoped query identity, shared by Environment and Session pages.
+- `agent-client.ts` owns typed Agent list pagination and the complete active Agent option catalog.
+  The Agent management page consumes its paginated source, while Session, Trigger, and Analytics
+  selectors use `useManagedAgentOptions`; none of those consumers owns `/agents` list transport or
+  list parsing.
+  Agent detail, edit, Session, and Quickstart cache access share the client's canonical detail query
+  identity rather than introducing page- or Session-scoped variants. Agent version history also
+  belongs to this client and traverses the endpoint's numeric `before_version` cursor completely;
+  Agent and Session views share one project-scoped version-history cache.
+- `credential-group-client.ts` owns typed Credential Group list pagination and the complete active
+  option catalog. The Credential Group management list consumes its paginated source, while
+  Quickstart and Session selectors use `useManagedCredentialGroupOptions` and share one scoped cache
+  identity. The same client owns Credential Group detail and its non-paginated member collection;
+  authorization consumers explicitly request active members, while the management detail may opt
+  into archived members.
+- `credential-client.ts` owns Credential create/read/update/delete, test, default, archive/restore,
+  strict response parsing, typed list pagination, and the complete active Service and Model
+  Credential catalogs, including compatibility filters and canonical detail/list/selector query
+  identities. UI components retain authorization-aware orchestration and stale-action guards, but
+  must not rebuild `/credentials` paths, payloads, parsers, or cache identities.
+- `skill-client.ts` owns typed Skill list pagination, complete selector and published-version
+  traversal, detail/files/version-files/security-history/usage reads, and every stable non-streaming
+  Skill write contract: create/import/update/delete, file CRUD, version publish/delete/restore,
+  promotion/takedown, lifecycle transitions, security scan access, and AI-authoring draft save. It is
+  the sole owner of Skill REST paths, payloads, response parsing, mutation timeout policy, and
+  canonical query identities. Pages and components retain validation, stale-action guards, cache
+  invalidation, authorization-aware presentation, and multi-call orchestration only. The AI-authoring
+  hook additionally owns its SSE conversation and publish/polling state machines, but consumes the
+  shared client for each stable REST step instead of rebuilding endpoints.
+- `file-client.ts` owns typed File list pagination and complete File option traversal. The File
+  management page consumes its paginated source, while Session creation and persistent-file
+  attachment use `useManagedFileOptions`; upload, deletion, and Session mount decisions remain with
+  their existing owners.
+- `memory-store-client.ts` owns typed Memory Store list pagination, the complete active Memory Store
+  option catalog, and complete per-store Memory directory traversal. The Memory Store detail view
+  consumes `useManagedMemoryDirectory`; it must not truncate the file tree to a single page or define
+  a page-local memory query identity. Archive actions and memory lifecycle remain with the Memory
+  Store domain.
+- `storage-volume-client.ts` owns Storage mount catalogs, platform/organization volume collections,
+  audit pagination, volume lifecycle transport, grant lifecycle transport, strict response parsing,
+  and canonical query identities. The view mode is part of the volume-list identity, and the selected
+  volume is part of audit pagination state. UI pages retain form orchestration only and must not
+  define local `/storage-volumes` requests, parsers, or cache keys.
+- `project-client.ts` owns typed Project list pagination and complete active Project catalog
+  traversal. Project management consumes its paginated source; Storage Volume grant selectors and
+  the cross-organization sidebar loader consume the same catalog boundary rather than fixed first
+  pages or page-local `/auth/projects` parsing. Project settings, access, lifecycle, and API-key
+  views also share the client's organization-scoped detail transport and query identity.
+- `organization-client.ts` owns Organization lifecycle and member REST contracts, strict response
+  parsing, typed Organization and member pagination, complete ownership-transfer candidate
+  traversal, and canonical detail/member query identities. It also owns the platform Organization
+  catalog used by Storage Volume grants. Pages retain UI orchestration and stale-request guards, but
+  must not rebuild Organization paths, payloads, parsers, cache identities, or fixed-size catalogs.
+- `cursor-page.ts` owns strict parsing of the shared `{data, has_more, first_id, last_id}` envelope.
+  It also owns complete-page collection with missing or repeated cursor rejection. Domain clients
+  provide item and typed-cursor parsers; pagination hooks own navigation state only and must not accept
+  undocumented array responses or infer cursors from item payloads.
+
+Security contracts keep runtime-enforced controls distinct from recommendations. Sandbox
+deny-all egress is `enforced`; host allowlists and external-tool authorization are `recommended`
+until the corresponding durable resources exist and satisfy the recommendation. A resource ID alone
+is never proof of enforcement.
+
+### 9.3 Skills — the capability layer
 
 Skills are versioned plugin packs (4 in-repo: `pptx` and `xlsx` document utilities, plus
 `skill-creator` and `skill-security-auditor`), each
 a `SKILL.md`-fronted directory. The pipeline spans three layers:
+
+A Skill does not store a model or Engine binding. The same published Skill can be attached to
+multiple Agents and executed through any compatible Agent runtime/model connection. The model
+selected on the AI authoring page is used only to create or revise the Skill draft.
 
 1. **Parse & validate** (`joysafeter_shared/skill/`) — SKILL.md YAML frontmatter + Agent-Skills
    spec constraints (name/description/allowed-tools), binary/size guards.
@@ -1130,7 +1287,7 @@ callers may use only the public pointer. Skill list/detail/version APIs, Agent s
 the Rust runtime apply the same rule. Cross-project reads are projected from the exposed immutable
 version rather than the mutable parent Skill draft.
 
-### 9.3 Observability — full-chain tracing
+### 9.4 Observability — full-chain tracing
 
 `joysafeter_shared/telemetry/` owns the application-level OTel provider:
 
@@ -1140,7 +1297,7 @@ version rather than the mutable parent Skill draft.
 - Product analytics are computed from durable sessions, tasks, and session events. The removed
   `Trace` / `Observation` persistence prototype is not a runtime or database contract.
 
-### 9.4 Security posture
+### 9.5 Security posture
 
 - **Auth:** JWT (HS256) with org/project/role claims + real-time DB re-verification; HttpOnly
   cookies; CSRF token on mutating requests; passwords SHA-256 pre-hashed client-side.

@@ -17,7 +17,7 @@ from app.joysafeter_domain.schemas.joysafeter_agent import (
     JoySafeterCreateAgentRequest,
     JoySafeterUpdateAgentRequest,
     McpToolsetTool,
-    RemoteMcpServerConfig,
+    StreamableHttpMcpServerConfig,
 )
 from app.joysafeter_domain.services.joysafeter_environment_service import EnvironmentService
 from app.joysafeter_infrastructure.agents import SqlAlchemyAgentRepository
@@ -535,8 +535,8 @@ async def test_create_agent_rejects_duplicate_mcp_server_name_with_structured_er
         name=f"duplicate-mcp-agent-{uuid.uuid4()}",
         engine_kind="claude",
         mcp_servers=[
-            RemoteMcpServerConfig(type="streamable_http", name="tools", url="https://example.com/a"),
-            RemoteMcpServerConfig(type="streamable_http", name="tools", url="https://example.com/b"),
+            StreamableHttpMcpServerConfig(name="tools", url="https://example.com/a"),
+            StreamableHttpMcpServerConfig(name="tools", url="https://example.com/b"),
         ],
     )
 
@@ -558,7 +558,7 @@ async def test_create_agent_rejects_undeclared_mcp_tool_server_with_structured_e
     req = JoySafeterCreateAgentRequest(
         name=f"undeclared-mcp-agent-{uuid.uuid4()}",
         engine_kind="claude",
-        mcp_servers=[RemoteMcpServerConfig(type="streamable_http", name="declared", url="https://example.com/mcp")],
+        mcp_servers=[StreamableHttpMcpServerConfig(name="declared", url="https://example.com/mcp")],
         tools=[McpToolsetTool(mcp_server_name="missing")],
     )
 

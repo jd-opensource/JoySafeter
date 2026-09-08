@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import type { QuickstartGenerationStatus } from '@/hooks/managed/use-quickstart-chat'
+import type { QuickstartGenerationStatus } from '@/hooks/managed/use-quickstart-controller'
 import { useTranslation } from '@/lib/i18n'
 import {
   normalizeQuickstartAgentBlueprint,

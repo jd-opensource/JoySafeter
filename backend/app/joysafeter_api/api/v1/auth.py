@@ -29,6 +29,7 @@ from app.joysafeter_application.api_keys import ApiKeyRevokeResult, ApiKeyServic
 from app.joysafeter_domain.models.joysafeter_auth import AuthUser
 from app.joysafeter_domain.models.joysafeter_organization import Member, Organization
 from app.joysafeter_domain.models.joysafeter_project import Project, ProjectMember
+from app.joysafeter_domain.pagination import apply_created_at_desc_cursor
 from app.joysafeter_domain.services.joysafeter_auth_service import AuthService, IssuedLoginTokens
 from app.joysafeter_domain.services.joysafeter_organization_member_service import OrganizationMemberService
 from app.joysafeter_domain.services.joysafeter_project_service import ProjectService
@@ -547,6 +548,9 @@ class PlatformOrganizationResponse(BaseModel):
 
 class PlatformOrganizationsResponse(BaseModel):
     data: list[PlatformOrganizationResponse]
+    has_more: bool
+    first_id: Optional[OrganizationId] = None
+    last_id: Optional[OrganizationId] = None
 
 
 class UpdatePlatformUserRequest(BaseModel):
@@ -1720,6 +1724,7 @@ async def list_platform_users(
 async def list_platform_organizations(
     q: str = Query("", max_length=100),
     limit: int = Query(100, ge=1, le=500),
+    after_id: Optional[OrganizationId] = Query(None),
     db: AsyncSession = Depends(get_db),
     _auth_ctx: JoySafeterAuthContext = Depends(require_joysafeter_platform_admin),
 ) -> PlatformOrganizationsResponse:
@@ -1727,22 +1732,17 @@ async def list_platform_organizations(
     from sqlalchemy import or_
     from sqlalchemy.orm import selectinload
 
-    query = (
-        select(Organization)
-        .options(selectinload(Organization.members).selectinload(Member.user), selectinload(Organization.projects))
-        .order_by(Organization.created_at.desc())
-        .limit(limit)
+    query = select(Organization).options(
+        selectinload(Organization.members).selectinload(Member.user), selectinload(Organization.projects)
     )
     if q.strip():
         search = f"%{q.strip()}%"
-        query = (
-            select(Organization)
-            .options(selectinload(Organization.members).selectinload(Member.user), selectinload(Organization.projects))
-            .where(or_(Organization.name.ilike(search), Organization.slug.ilike(search)))
-            .order_by(Organization.created_at.desc())
-            .limit(limit)
-        )
+        query = query.where(or_(Organization.name.ilike(search), Organization.slug.ilike(search)))
+    query = apply_created_at_desc_cursor(query, Organization, after_id).limit(limit + 1)
     result = await db.execute(query)
+    rows = list(result.scalars().all())
+    has_more = len(rows) > limit
+    page_rows = rows[:limit]
     return PlatformOrganizationsResponse(
         data=[
             PlatformOrganizationResponse(
@@ -1757,8 +1757,11 @@ async def list_platform_organizations(
                 ],
                 created_at=org.created_at,
             )
-            for org in result.scalars().all()
-        ]
+            for org in page_rows
+        ],
+        has_more=has_more,
+        first_id=page_rows[0].id if page_rows else None,
+        last_id=page_rows[-1].id if page_rows else None,
     )
 
 

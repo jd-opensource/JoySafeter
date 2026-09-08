@@ -32,7 +32,10 @@ from app.joysafeter_application.credentials.snapshot_service import NoPersistent
 from app.joysafeter_domain.credentials.bindings import ModelInferenceBinding
 from app.joysafeter_domain.credentials.dependencies import ReferenceSurfaceKind
 from app.joysafeter_domain.llm.catalog import get_llm_catalog
-from app.joysafeter_domain.llm.model_inference_policy import build_model_inference_policy
+from app.joysafeter_domain.llm.model_inference_policy import (
+    build_model_consumer_inference_policy,
+    build_model_inference_policy,
+)
 from app.joysafeter_domain.models.joysafeter_credential_access_audit import (
     JoySafeterCredentialAccessAudit,
 )
@@ -256,9 +259,8 @@ async def test_ephemeral_consumers_hide_wrong_project_credentials(endpoint, db_s
     await _assert_binding_error_contract(endpoint, credential_id, exc_info.value, "CREDENTIAL_NOT_FOUND")
 
 
-@pytest.mark.parametrize("endpoint", ["quickstart", "authoring"])
 @pytest.mark.asyncio
-async def test_ephemeral_consumers_reject_incompatible_catalog_binding(endpoint, db_session, project_id):
+async def test_quickstart_rejects_incompatible_catalog_binding(db_session, project_id):
     credential_id = await _make_model_credential(
         db_session,
         project_id,
@@ -268,9 +270,14 @@ async def test_ephemeral_consumers_reject_incompatible_catalog_binding(endpoint,
     )
 
     with pytest.raises(AppError) as exc_info:
-        await _invoke(endpoint, credential_id, db_session, project_id)
+        await _invoke("quickstart", credential_id, db_session, project_id)
 
-    await _assert_binding_error_contract(endpoint, credential_id, exc_info.value, "CREDENTIAL_KIND_INVALID")
+    await _assert_binding_error_contract(
+        "quickstart",
+        credential_id,
+        exc_info.value,
+        "CREDENTIAL_KIND_INVALID",
+    )
 
 
 @pytest.mark.parametrize("endpoint", ["quickstart", "authoring"])
@@ -289,10 +296,8 @@ async def test_ephemeral_consumers_fail_closed_on_corrupt_material(endpoint, db_
     await _assert_binding_error_contract(endpoint, credential_id, exc_info.value, "CREDENTIAL_CORRUPT")
 
 
-@pytest.mark.parametrize("endpoint", ["quickstart", "authoring"])
 @pytest.mark.asyncio
-async def test_ephemeral_consumers_reject_disabled_engines(
-    endpoint,
+async def test_quickstart_rejects_disabled_engine(
     db_session,
     project_id,
     monkeypatch,
@@ -300,16 +305,35 @@ async def test_ephemeral_consumers_reject_disabled_engines(
     credential_id = await _make_model_credential(db_session, project_id)
     catalog = get_llm_catalog().model_copy(deep=True)
     catalog.engine("codex").enabled = False
-    endpoint_module = quickstart_module if endpoint == "quickstart" else authoring_module
-    monkeypatch.setattr(endpoint_module, "get_llm_catalog", lambda: catalog)
+    monkeypatch.setattr(quickstart_module, "get_llm_catalog", lambda: catalog)
 
     with pytest.raises(AppError) as exc_info:
-        await _invoke(endpoint, credential_id, db_session, project_id)
+        await _invoke("quickstart", credential_id, db_session, project_id)
 
     assert await handled_app_error_payload(exc_info.value, status_code=400) == {
         "code": "LLM_ENGINE_DISABLED",
         "message": "LLM engine is disabled: codex",
         "data": {"engine_kind": "codex"},
+        "source": "api",
+        "retryable": False,
+        "user_action": "fix_input",
+    }
+
+
+@pytest.mark.asyncio
+async def test_authoring_rejects_disabled_model_consumer(db_session, project_id, monkeypatch):
+    credential_id = await _make_model_credential(db_session, project_id)
+    catalog = get_llm_catalog().model_copy(deep=True)
+    catalog.model_consumer("skill_ai_authoring").enabled = False
+    monkeypatch.setattr(authoring_module, "get_llm_catalog", lambda: catalog)
+
+    with pytest.raises(AppError) as exc_info:
+        await _invoke("authoring", credential_id, db_session, project_id)
+
+    assert await handled_app_error_payload(exc_info.value, status_code=400) == {
+        "code": "LLM_MODEL_CONSUMER_DISABLED",
+        "message": "LLM model consumer is disabled: skill_ai_authoring",
+        "data": {"model_consumer": "skill_ai_authoring"},
         "source": "api",
         "retryable": False,
         "user_action": "fix_input",
@@ -367,10 +391,13 @@ async def test_ephemeral_consumers_load_only_catalog_authorized_material(
 
 
 def test_ephemeral_consumers_share_agent_model_inference_policy_builder() -> None:
-    for path in (*ENDPOINT_PATHS, AGENT_CREDENTIAL_BINDING_PATH):
+    for path in (ENDPOINT_PATHS[0], AGENT_CREDENTIAL_BINDING_PATH):
         source = path.read_text()
         assert "build_model_inference_policy" in source, path
         assert "ModelInferenceBinding(" not in source, path
+    authoring_source = ENDPOINT_PATHS[1].read_text()
+    assert "build_model_consumer_inference_policy" in authoring_source
+    assert "ModelInferenceBinding(" not in authoring_source
 
 
 def test_model_inference_policy_rejects_disabled_engine_before_candidates() -> None:
@@ -385,6 +412,19 @@ def test_model_inference_policy_rejects_disabled_engine_before_candidates() -> N
             engine_kind="codex",
             model_id=None,
         )
+
+
+def test_model_consumer_inference_policy_is_not_a_runtime_engine_binding() -> None:
+    binding = build_model_consumer_inference_policy(
+        get_llm_catalog(),
+        project_id=ProjectId.new(),
+        credential_id=CredentialId.new(),
+        model_consumer_id="skill_ai_authoring",
+        model_id=None,
+    )
+
+    assert binding.engine_kind is None
+    assert binding.model_consumer_id == "skill_ai_authoring"
 
 
 @pytest.mark.asyncio
@@ -606,6 +646,10 @@ def _ephemeral_endpoint_boundary_violations(source: str, *, require_flow: bool) 
             "app.joysafeter_domain.llm.model_inference_policy.build_model_inference_policy",
             "build_model_inference_policy",
         },
+        "build_model_consumer_inference_policy": {
+            "app.joysafeter_domain.llm.model_inference_policy.build_model_consumer_inference_policy",
+            "build_model_consumer_inference_policy",
+        },
         "compose_credential_application": {
             "app.joysafeter_application.credentials.composition.compose_credential_application",
             "compose_credential_application",
@@ -758,7 +802,10 @@ def _ephemeral_endpoint_boundary_violations(source: str, *, require_flow: bool) 
                 if operation == "compose_credential_application":
                     canonical = not any(keyword.arg == "compatibility_mode" for keyword in node.keywords)
                     return ("application", (function.name, node.lineno, node.col_offset), canonical)
-                if operation == "build_model_inference_policy":
+                if operation in {
+                    "build_model_inference_policy",
+                    "build_model_consumer_inference_policy",
+                }:
                     return ("binding", (function.name, node.lineno, node.col_offset))
                 if operation == "validate_model_inference":
                     if (

@@ -285,6 +285,24 @@ function secretPage(items: ReturnType<typeof llmSecret>[]) {
   return { data: items, has_more: false, last_id: items.at(-1)?.id ?? null }
 }
 
+function environmentPage(items: Array<Record<string, unknown>> = []) {
+  return {
+    data: items,
+    has_more: false,
+    first_id: (items[0]?.id as string | undefined) ?? null,
+    last_id: (items.at(-1)?.id as string | undefined) ?? null,
+  }
+}
+
+function skillPage(items: Array<Record<string, unknown>> = []) {
+  return {
+    data: items,
+    has_more: false,
+    first_id: (items[0]?.id as string | undefined) ?? null,
+    last_id: (items.at(-1)?.id as string | undefined) ?? null,
+  }
+}
+
 function projectInfo(archivedAt: string | null = null) {
   return {
     id: 'project-a',
@@ -334,9 +352,12 @@ describe('CreateAgentDialog managed object lifecycle', () => {
   it('refetches selectable dependencies instead of reusing previous project data', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
       if (path === compatibleSecretsPath()) return secretPage([llmSecret('secret-a')])
-      if (path === '/skills')
-        return { data: [{ id: SKILL_ID, name: 'Skill A', latest_version: '1.0.0' }] }
-      if (path === '/environments') return { data: [{ id: ENVIRONMENT_ID, name: 'Env A' }] }
+      if (path.startsWith('/skills?')) {
+        return skillPage([{ id: SKILL_ID, name: 'Skill A', latest_version: '1.0.0' }])
+      }
+      if (path.startsWith('/environments?')) {
+        return environmentPage([{ id: ENVIRONMENT_ID, name: 'Env A' }])
+      }
       return { data: [] }
     })
     const queryClient = new QueryClient({
@@ -355,14 +376,21 @@ describe('CreateAgentDialog managed object lifecycle', () => {
 
     await waitFor(() => {
       expect(managedGetMock).toHaveBeenCalledWith(compatibleSecretsPath(), managedOptions())
-      expect(managedGetMock).toHaveBeenCalledWith('/skills', managedOptions())
-      expect(managedGetMock).toHaveBeenCalledWith('/environments', managedOptions())
+      expect(managedGetMock).toHaveBeenCalledWith('/skills?limit=100', managedOptions())
+      expect(managedGetMock).toHaveBeenCalledWith(
+        '/environments?limit=100&include_archived=false',
+        managedOptions(),
+      )
     })
     expect(
       managedGetMock.mock.calls.filter(([path]) => path === compatibleSecretsPath()),
     ).toHaveLength(1)
-    expect(managedGetMock.mock.calls.filter(([path]) => path === '/skills')).toHaveLength(1)
-    expect(managedGetMock.mock.calls.filter(([path]) => path === '/environments')).toHaveLength(1)
+    expect(managedGetMock.mock.calls.filter(([path]) => path.startsWith('/skills?'))).toHaveLength(
+      1,
+    )
+    expect(
+      managedGetMock.mock.calls.filter(([path]) => path.startsWith('/environments?')),
+    ).toHaveLength(1)
 
     await act(async () => {
       useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-b' })
@@ -373,8 +401,12 @@ describe('CreateAgentDialog managed object lifecycle', () => {
       expect(
         managedGetMock.mock.calls.filter(([path]) => path === compatibleSecretsPath()),
       ).toHaveLength(2)
-      expect(managedGetMock.mock.calls.filter(([path]) => path === '/skills')).toHaveLength(2)
-      expect(managedGetMock.mock.calls.filter(([path]) => path === '/environments')).toHaveLength(2)
+      expect(
+        managedGetMock.mock.calls.filter(([path]) => path.startsWith('/skills?')),
+      ).toHaveLength(2)
+      expect(
+        managedGetMock.mock.calls.filter(([path]) => path.startsWith('/environments?')),
+      ).toHaveLength(2)
     })
   })
 
@@ -384,11 +416,11 @@ describe('CreateAgentDialog managed object lifecycle', () => {
       if (path === compatibleSecretsPath()) {
         return secretPage([llmSecret(secretName)])
       }
-      if (path === '/skills') {
-        return { data: [] }
+      if (path.startsWith('/skills?')) {
+        return skillPage()
       }
-      if (path === '/environments') {
-        return { data: [] }
+      if (path.startsWith('/environments?')) {
+        return environmentPage()
       }
       return { data: [] }
     })
@@ -453,8 +485,8 @@ describe('CreateAgentDialog managed object lifecycle', () => {
   it('does not submit a default secret after the user chooses no selection', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
       if (path === compatibleSecretsPath()) return secretPage([llmSecret('secret-a')])
-      if (path === '/skills') return { data: [] }
-      if (path === '/environments') return { data: [] }
+      if (path.startsWith('/skills?')) return skillPage()
+      if (path.startsWith('/environments?')) return environmentPage()
       return { data: [] }
     })
     managedPostMock.mockResolvedValue({ id: CREATED_AGENT_ID })
@@ -496,8 +528,8 @@ describe('CreateAgentDialog managed object lifecycle', () => {
   it('does not submit a default secret after it leaves the current selectable secret list', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
       if (path === compatibleSecretsPath()) return secretPage([llmSecret('secret-a')])
-      if (path === '/skills') return { data: [] }
-      if (path === '/environments') return { data: [] }
+      if (path.startsWith('/skills?')) return skillPage()
+      if (path.startsWith('/environments?')) return environmentPage()
       return { data: [] }
     })
     managedPostMock.mockResolvedValue({ id: CREATED_AGENT_ID })
@@ -552,7 +584,8 @@ describe('CreateAgentDialog managed object lifecycle', () => {
       if (path === compatibleSecretsPath('codex')) {
         return secretPage([llmSecret('shared-secret', true, ['claude', 'codex'])])
       }
-      if (path === '/skills' || path === '/environments') return { data: [] }
+      if (path.startsWith('/skills?')) return skillPage()
+      if (path.startsWith('/environments?')) return environmentPage()
       return { data: [] }
     })
 
@@ -588,7 +621,8 @@ describe('CreateAgentDialog managed object lifecycle', () => {
       if (path === compatibleSecretsPath('codex')) {
         return secretPage([llmSecret('codex-secret', true, ['codex'])])
       }
-      if (path === '/skills' || path === '/environments') return { data: [] }
+      if (path.startsWith('/skills?')) return skillPage()
+      if (path.startsWith('/environments?')) return environmentPage()
       return { data: [] }
     })
 
@@ -623,7 +657,8 @@ describe('CreateAgentDialog managed object lifecycle', () => {
   it('preserves the agent draft and selects a newly created compatible secret', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
       if (path === compatibleSecretsPath()) return secretPage([])
-      if (path === '/skills' || path === '/environments') return { data: [] }
+      if (path.startsWith('/skills?')) return skillPage()
+      if (path.startsWith('/environments?')) return environmentPage()
       return { data: [] }
     })
 
@@ -655,10 +690,12 @@ describe('CreateAgentDialog managed object lifecycle', () => {
   it('does not submit a fully selected agent draft from old dialog state in the same turn as a project switch', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
       if (path === compatibleSecretsPath()) return secretPage([llmSecret('secret-a')])
-      if (path === '/skills') {
-        return { data: [{ id: SKILL_ID, name: 'Skill A', latest_version: '1.0.0' }] }
+      if (path.startsWith('/skills?')) {
+        return skillPage([{ id: SKILL_ID, name: 'Skill A', latest_version: '1.0.0' }])
       }
-      if (path === '/environments') return { data: [{ id: ENVIRONMENT_ID, name: 'Env A' }] }
+      if (path.startsWith('/environments?')) {
+        return environmentPage([{ id: ENVIRONMENT_ID, name: 'Env A' }])
+      }
       return { data: [] }
     })
     managedPostMock.mockResolvedValue({ id: CREATED_AGENT_ID })
@@ -709,10 +746,12 @@ describe('CreateAgentDialog managed object lifecycle', () => {
   it('does not submit a fully selected agent draft after the current project is archived', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
       if (path === compatibleSecretsPath()) return secretPage([llmSecret('secret-a')])
-      if (path === '/skills') {
-        return { data: [{ id: SKILL_ID, name: 'Skill A', latest_version: '1.0.0' }] }
+      if (path.startsWith('/skills?')) {
+        return skillPage([{ id: SKILL_ID, name: 'Skill A', latest_version: '1.0.0' }])
       }
-      if (path === '/environments') return { data: [{ id: ENVIRONMENT_ID, name: 'Env A' }] }
+      if (path.startsWith('/environments?')) {
+        return environmentPage([{ id: ENVIRONMENT_ID, name: 'Env A' }])
+      }
       return { data: [] }
     })
     managedPostMock.mockResolvedValue({ id: CREATED_AGENT_ID })
@@ -765,8 +804,8 @@ describe('CreateAgentDialog managed object lifecycle', () => {
   it('ignores a create completion after the managed project changes', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
       if (path === compatibleSecretsPath()) return secretPage([])
-      if (path === '/skills') return { data: [] }
-      if (path === '/environments') return { data: [] }
+      if (path.startsWith('/skills?')) return skillPage()
+      if (path.startsWith('/environments?')) return environmentPage()
       return { data: [] }
     })
     const create = deferred<{ id: string }>()
@@ -816,8 +855,8 @@ describe('CreateAgentDialog managed object lifecycle', () => {
   it('ignores a create completion after the current project is archived', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
       if (path === compatibleSecretsPath()) return secretPage([])
-      if (path === '/skills') return { data: [] }
-      if (path === '/environments') return { data: [] }
+      if (path.startsWith('/skills?')) return skillPage()
+      if (path.startsWith('/environments?')) return environmentPage()
       return { data: [] }
     })
     const create = deferred<{ id: string }>()
@@ -869,8 +908,8 @@ describe('CreateAgentDialog managed object lifecycle', () => {
   it('ignores a create completion after the dialog unmounts', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
       if (path === compatibleSecretsPath()) return secretPage([])
-      if (path === '/skills') return { data: [] }
-      if (path === '/environments') return { data: [] }
+      if (path.startsWith('/skills?')) return skillPage()
+      if (path.startsWith('/environments?')) return environmentPage()
       return { data: [] }
     })
     const create = deferred<{ id: string }>()
@@ -923,7 +962,8 @@ describe('CreateAgentDialog managed object lifecycle', () => {
   it('creates agents with the shared canonical MCP transport contract', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
       if (path === compatibleSecretsPath()) return secretPage([])
-      if (path === '/skills' || path === '/environments') return { data: [] }
+      if (path.startsWith('/skills?')) return skillPage()
+      if (path.startsWith('/environments?')) return environmentPage()
       return { data: [] }
     })
     managedPostMock.mockResolvedValueOnce({ id: CREATED_AGENT_ID })

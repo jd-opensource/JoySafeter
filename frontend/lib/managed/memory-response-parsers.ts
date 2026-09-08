@@ -6,7 +6,6 @@ import {
   type MemoryStoreId,
   type MemoryVersionId,
 } from '@/types/entity-id'
-import { parseCollection } from './parse-collection'
 import type { MemoryStore } from '@/types/managed'
 
 export interface MemoryRecord {
@@ -45,8 +44,4 @@ export function parseMemoryResponse(response: unknown): MemoryRecord {
         ? raw.memory_version_id
         : parseMemoryVersionId(raw.memory_version_id),
   }
-}
-
-export function parseMemoryListResponse(response: unknown): MemoryRecord[] {
-  return parseCollection(response, parseMemoryResponse)
 }

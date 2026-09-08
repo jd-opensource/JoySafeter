@@ -96,6 +96,8 @@ def test_auth_route_and_schema_ids_use_entity_specific_types() -> None:
     assert auth_api.PaginatedPlatformUsersResponse.model_fields["first_id"].annotation == UserId | None
     assert auth_api.PaginatedPlatformUsersResponse.model_fields["last_id"].annotation == UserId | None
     assert auth_api.PlatformOrganizationResponse.model_fields["id"].annotation is OrganizationId
+    assert auth_api.PlatformOrganizationsResponse.model_fields["first_id"].annotation == OrganizationId | None
+    assert auth_api.PlatformOrganizationsResponse.model_fields["last_id"].annotation == OrganizationId | None
     assert organizations_api.OrganizationResponse.model_fields["id"].annotation is OrganizationId
     assert organizations_api.OrganizationResponse.model_fields["project_id"].annotation == ProjectId | None
 
@@ -103,6 +105,7 @@ def test_auth_route_and_schema_ids_use_entity_specific_types() -> None:
 def test_organization_pagination_cursors_use_entity_specific_types() -> None:
     assert get_type_hints(organizations_api.list_organizations)["after_id"] == OrganizationId | None
     assert get_type_hints(organizations_api.list_members)["after_id"] == OrganizationMemberId | None
+    assert get_type_hints(auth_api.list_platform_organizations)["after_id"] == OrganizationId | None
 
 
 def test_task_environment_helpers_keep_project_scope_typed() -> None:

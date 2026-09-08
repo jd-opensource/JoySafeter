@@ -80,7 +80,17 @@ const catalog = {
           placeholder: null,
           help_text: null,
           options: [],
-          advanced: false,
+          advanced: true,
+        },
+        {
+          key: 'OPENAI_BASE_URL',
+          label: 'Base URL',
+          type: 'url',
+          required: false,
+          placeholder: null,
+          help_text: null,
+          options: [],
+          advanced: true,
         },
         {
           key: 'OPENAI_MODEL',
@@ -90,11 +100,21 @@ const catalog = {
           placeholder: null,
           help_text: null,
           options: [],
-          advanced: false,
+          advanced: true,
+        },
+        {
+          key: 'OPENAI_REASONING_EFFORT',
+          label: 'Reasoning Effort',
+          type: 'select',
+          required: false,
+          placeholder: null,
+          help_text: null,
+          options: ['low', 'medium', 'high'],
+          advanced: true,
         },
       ],
       required_any_of: [],
-      base_url_key: null,
+      base_url_key: 'OPENAI_BASE_URL',
       model_key: 'OPENAI_MODEL',
     },
   ],
@@ -221,6 +241,22 @@ describe('ModelConnectionConfigurator', () => {
     expect(screen.getByLabelText('managed.llm.protocol')).toBeTruthy()
   })
 
+  it('keeps connection essentials visible and only collapses tuning fields', () => {
+    render(<ModelConnectionConfigurator initialEngineId="native" onCreated={vi.fn()} />)
+    fireEvent.change(screen.getByLabelText('managed.llm.provider'), { target: { value: 'openai' } })
+    fireEvent.change(screen.getByLabelText('managed.llm.protocol'), {
+      target: { value: 'openai_responses' },
+    })
+
+    expect(screen.getByLabelText('API Key')).toBeTruthy()
+    expect(screen.getByLabelText('Base URL')).toBeTruthy()
+    expect(screen.getByLabelText('Model')).toBeTruthy()
+    expect(screen.queryByLabelText('Reasoning Effort')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'managed.llm.showAdvanced' }))
+    expect(screen.getByLabelText('Reasoning Effort')).toBeTruthy()
+  })
+
   it('marks a successful connection test stale after any value changes', async () => {
     managedPostMock.mockResolvedValueOnce({ ok: true, message: 'ok' })
     render(<ModelConnectionConfigurator initialEngineId="native" onCreated={vi.fn()} />)
@@ -252,12 +288,14 @@ describe('ModelConnectionConfigurator', () => {
 
   it('ignores a model create completion after the project changes', async () => {
     const create = deferred<unknown>()
-    managedPostMock.mockReturnValueOnce(create.promise)
+    managedPostMock
+      .mockResolvedValueOnce({ ok: true, message: 'ok' })
+      .mockReturnValueOnce(create.promise)
     const onCreated = vi.fn()
     render(<ModelConnectionConfigurator initialEngineId="native" onCreated={onCreated} />)
     fillModelForm()
     fireEvent.click(screen.getByRole('button', { name: 'managed.llm.createConfiguration' }))
-    await waitFor(() => expect(managedPostMock).toHaveBeenCalledOnce())
+    await waitFor(() => expect(managedPostMock).toHaveBeenCalledTimes(2))
 
     await act(async () => {
       setProject('project-b')
@@ -306,16 +344,40 @@ describe('ModelConnectionConfigurator', () => {
 
   it('submits auth_scheme for anthropic credentials', async () => {
     const create = deferred<unknown>()
-    managedPostMock.mockReturnValueOnce(create.promise)
+    managedPostMock
+      .mockResolvedValueOnce({ ok: true, message: 'ok' })
+      .mockReturnValueOnce(create.promise)
     render(<ModelConnectionConfigurator initialEngineId="claude" onCreated={vi.fn()} />)
     fireEvent.change(screen.getByLabelText('API Key'), { target: { value: 'k' } })
     fireEvent.change(screen.getByPlaceholderText('managed.llm.configurationNamePlaceholder'), {
       target: { value: 'Claude key' },
     })
     fireEvent.click(screen.getByRole('button', { name: 'managed.llm.createConfiguration' }))
-    await waitFor(() => expect(managedPostMock).toHaveBeenCalledOnce())
-    const [, body] = managedPostMock.mock.calls[0]
-    expect(body.auth_scheme).toBe('auto')
-    expect(body.data.ANTHROPIC_API_KEY).toBe('k')
+    await waitFor(() => expect(managedPostMock).toHaveBeenCalledTimes(2))
+    for (const [, body] of managedPostMock.mock.calls) {
+      expect(body.auth_scheme).toBe('auto')
+      expect(body.data.ANTHROPIC_API_KEY).toBe('k')
+    }
+  })
+
+  it('does not create a model connection when automatic validation fails', async () => {
+    managedPostMock.mockResolvedValueOnce({ ok: false, message: '该key不允许访问该模型' })
+    const onCreated = vi.fn()
+    render(<ModelConnectionConfigurator initialEngineId="native" onCreated={onCreated} />)
+    fillModelForm()
+
+    fireEvent.click(screen.getByRole('button', { name: 'managed.llm.createConfiguration' }))
+
+    await waitFor(() => expect(screen.getByText('该key不允许访问该模型')).toBeTruthy())
+    expect(managedPostMock).toHaveBeenCalledTimes(1)
+    expect(managedPostMock).toHaveBeenCalledWith(
+      '/credentials/test',
+      expect.objectContaining({
+        provider: 'openai',
+        protocol: 'openai_responses',
+      }),
+      expect.anything(),
+    )
+    expect(onCreated).not.toHaveBeenCalled()
   })
 })

@@ -6,7 +6,10 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
-import { compatibleCredentialsScopePrefix } from '@/hooks/managed/use-compatible-credentials'
+import {
+  compatibleCredentialsScopePrefix,
+  managedCredentialsQueryPrefix,
+} from '@/lib/managed/credential-client'
 import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
 import { useTranslation } from '@/lib/i18n'
 
@@ -142,7 +145,7 @@ export function CredentialManagementShell() {
 
   const onSecretCreated = useCallback(() => {
     if (!scopeIsActive() || !currentProjectAllowsWrite()) return
-    queryClient.invalidateQueries({ queryKey: ['credentials', managedScope.key] })
+    queryClient.invalidateQueries({ queryKey: managedCredentialsQueryPrefix(managedScope.key) })
     if (secretDialog.kind === 'llm')
       queryClient.invalidateQueries({
         queryKey: compatibleCredentialsScopePrefix(managedScope.key),

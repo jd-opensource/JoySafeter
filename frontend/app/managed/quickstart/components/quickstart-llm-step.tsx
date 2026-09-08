@@ -1,9 +1,6 @@
 'use client'
 
-import { useState } from 'react'
-
-import { CompatibleCredentialPicker } from '@/components/managed/llm/compatible-credential-picker'
-import { ModelConnectionConfigurator } from '@/components/managed/llm/model-connection-configurator'
+import { ModelConnectionSelectionFlow } from '@/components/managed/llm/model-connection-selection-flow'
 import type { CredentialId } from '@/types/entity-id'
 import type { CredentialDetail } from '@/types/managed'
 
@@ -22,30 +19,13 @@ export function QuickstartLlmStep({
   onSelect,
   onCreated,
 }: QuickstartLlmStepProps) {
-  const [view, setView] = useState<'select' | 'create'>('select')
-
-  if (view === 'create') {
-    return (
-      <ModelConnectionConfigurator
-        initialEngineId={engineId}
-        onCancel={() => {
-          setView('select')
-        }}
-        onCreated={(credential) => {
-          setView('select')
-          onCreated(credential)
-        }}
-      />
-    )
-  }
-
   return (
-    <CompatibleCredentialPicker
+    <ModelConnectionSelectionFlow
       engineId={engineId}
       value={value}
       disabled={disabled}
-      onChange={onSelect}
-      onCreateRequested={() => setView('create')}
+      onSelect={onSelect}
+      onCreated={onCreated}
     />
   )
 }

@@ -13,6 +13,7 @@ from app.joysafeter_domain.llm.compatibility import (
     compatible_engine_ids,
     compatible_protocol_ids,
     compatible_provider_protocol_pairs,
+    compatible_provider_protocol_pairs_for_consumer,
     validate_credential_data,
     validate_engine_protocol,
     validate_provider_protocol,
@@ -113,6 +114,11 @@ def test_catalog_loads_initial_engine_and_provider_matrix() -> None:
         "openai_responses",
         "chat_completions",
     ]
+    assert catalog.model_consumer("skill_ai_authoring").supported_protocol_ids == [
+        "anthropic_messages",
+        "openai_responses",
+        "chat_completions",
+    ]
 
     assert [binding.protocol_id for binding in catalog.provider("anthropic").protocol_bindings] == [
         "anthropic_messages"
@@ -121,9 +127,7 @@ def test_catalog_loads_initial_engine_and_provider_matrix() -> None:
         "openai_responses",
         "chat_completions",
     ]
-    assert [binding.protocol_id for binding in catalog.provider("deepseek").protocol_bindings] == [
-        "chat_completions"
-    ]
+    assert [binding.protocol_id for binding in catalog.provider("deepseek").protocol_bindings] == ["chat_completions"]
     assert [binding.protocol_id for binding in catalog.provider("custom").protocol_bindings] == [
         "anthropic_messages",
         "openai_responses",
@@ -212,6 +216,19 @@ def test_compatibility_helpers_preserve_catalog_order() -> None:
         ("custom", "anthropic_messages"),
     ]
     assert compatible_engine_ids("deepseek", "chat_completions") == ["native", "pi"]
+    assert compatible_provider_protocol_pairs_for_consumer("skill_ai_authoring") == [
+        ("anthropic", "anthropic_messages"),
+        ("openai", "openai_responses"),
+        ("openai", "chat_completions"),
+        ("deepseek", "chat_completions"),
+        ("custom", "anthropic_messages"),
+        ("custom", "openai_responses"),
+        ("custom", "chat_completions"),
+    ]
+
+    with pytest.raises(LlmCompatibilityError) as consumer_error:
+        compatible_provider_protocol_pairs_for_consumer("missing")
+    assert consumer_error.value.code == "LLM_MODEL_CONSUMER_UNKNOWN"
 
 
 def test_disabled_engine_and_provider_are_not_usable(tmp_path: Path, monkeypatch) -> None:

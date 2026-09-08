@@ -1,6 +1,5 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
 import { ArrowLeft, Building2, Info } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -9,10 +8,9 @@ import type { ReactNode } from 'react'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
-import { managedGet } from '@/lib/api-client'
+import { useManagedOrganization } from '@/hooks/managed/use-managed-organization'
 import { useTranslation } from '@/lib/i18n'
 import { normalizeManagedRole } from '@/lib/managed/roles'
-import { parseOrganizationDetailResponse } from '@/lib/managed/tenant-response-parsers'
 import { cn } from '@/lib/utils'
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { OrganizationId } from '@/types/entity-id'
@@ -34,12 +32,7 @@ export function OrganizationDetailShell({
   const pathname = usePathname()
   const { t } = useTranslation()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
-  const organizationQuery = useQuery({
-    queryKey: ['organization-detail', organizationId],
-    queryFn: () =>
-      managedGet<unknown>(`organizations/${organizationId}`).then(parseOrganizationDetailResponse),
-    enabled: Boolean(organizationId),
-  })
+  const organizationQuery = useManagedOrganization(organizationId)
   const organization = organizationQuery.data
 
   if (organizationQuery.isLoading) {

@@ -84,8 +84,9 @@ export function buildQuickstartAgentCreateBody(
   }
   if (Object.keys(metadata).length > 0) body.metadata = metadata
 
-  const mcpServers = arrayValue(agentConfig.mcp_servers)
-  if (mcpServers) body.mcp_servers = normalizeMcpServerConfigs(mcpServers)
+  if (agentConfig.mcp_servers !== undefined) {
+    body.mcp_servers = normalizeMcpServerConfigs(agentConfig.mcp_servers)
+  }
 
   const skills = options.allowedSkillIds
     ? filterQuickstartSkillReferences(agentConfig.skills, options.allowedSkillIds)

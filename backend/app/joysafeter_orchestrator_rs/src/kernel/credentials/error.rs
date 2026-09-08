@@ -22,10 +22,12 @@ pub enum CredentialRuntimeError {
     CorruptRecord,
     #[error("credential envelope is invalid")]
     EnvelopeInvalid,
+    #[error("LLM catalog configuration is invalid")]
+    ConfigurationInvalid,
 }
 
 impl CredentialRuntimeError {
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::NotBound,
         Self::NotFound,
         Self::Archived,
@@ -35,6 +37,7 @@ impl CredentialRuntimeError {
         Self::UnsupportedScheme,
         Self::CorruptRecord,
         Self::EnvelopeInvalid,
+        Self::ConfigurationInvalid,
     ];
 
     pub const fn contract_code(self) -> &'static str {
@@ -48,6 +51,7 @@ impl CredentialRuntimeError {
             Self::UnsupportedScheme => "unsupported_scheme",
             Self::CorruptRecord => "corrupt_record",
             Self::EnvelopeInvalid => "envelope_invalid",
+            Self::ConfigurationInvalid => "configuration_invalid",
         }
     }
 }

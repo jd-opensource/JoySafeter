@@ -3,7 +3,7 @@
 import { CheckCircle2, CircleStop, Loader2, RefreshCw, TriangleAlert } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
-import type { QuickstartGenerationState } from '@/hooks/managed/use-quickstart-chat'
+import type { QuickstartGenerationState } from '@/hooks/managed/use-quickstart-controller'
 import { useTranslation } from '@/lib/i18n'
 import { cn } from '@/lib/utils'
 

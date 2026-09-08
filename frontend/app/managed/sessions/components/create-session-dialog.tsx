@@ -1,6 +1,6 @@
 'use client'
 
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueries, useQueryClient } from '@tanstack/react-query'
 import {
   Plus,
   ExternalLink,
@@ -40,24 +40,27 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { currentProjectAllowsWrite } from '@/hooks/managed/use-current-project-read-only'
-import { managedGet, managedPost } from '@/lib/api-client'
+import { useManagedAgentOptions } from '@/hooks/managed/use-managed-agent-options'
+import { useManagedCredentialGroupOptions } from '@/hooks/managed/use-managed-credential-group-options'
+import { useManagedEnvironmentOptions } from '@/hooks/managed/use-managed-environment-options'
+import { useManagedFileOptions } from '@/hooks/managed/use-managed-file-options'
+import { useManagedMemoryStoreOptions } from '@/hooks/managed/use-managed-memory-store-options'
 import { useTranslation } from '@/lib/i18n'
 import { getAgentModelSearchTokens } from '@/lib/managed/agent-model-display'
-import { parseAgentListResponse } from '@/lib/managed/agent-response-parsers'
-import { apiResourceId, apiResourceSubpath } from '@/lib/managed/api-paths'
+import { managedAgentOptionsQueryKey } from '@/lib/managed/agent-client'
 import {
-  parseCredentialGroupCredentialListResponse,
-  parseCredentialGroupListResponse,
-} from '@/lib/managed/credential-group-response-parsers'
-import { parseEnvironmentListResponse } from '@/lib/managed/environment-response-parsers'
+  fetchManagedCredentialGroupMembers,
+  managedCredentialGroupMembersQueryKey,
+  managedCredentialGroupOptionsQueryKey,
+} from '@/lib/managed/credential-group-client'
+import { managedEnvironmentOptionsQueryKey } from '@/lib/managed/environment-client'
 import { toastOperationError } from '@/lib/managed/errors'
-import { parseFileListResponse } from '@/lib/managed/file-response-parsers'
-import { parseMemoryStoreResponse } from '@/lib/managed/memory-response-parsers'
+import { managedFileOptionsQueryKey } from '@/lib/managed/file-client'
+import { managedMemoryStoreOptionsQueryKey } from '@/lib/managed/memory-store-client'
 import { summarizeMcpCredentialCoverage } from '@/lib/managed/mcp-credential-coverage'
-import { parseSessionCreateResponse } from '@/lib/managed/session-response-parsers'
+import { createManagedSession, type ManagedSessionCreateInput } from '@/lib/managed/session-client'
 import {
   hasManagedRequestScope,
-  managedRequestOptions,
   managedScopeKey,
   type ManagedRequestScope,
   useManagedRequestScope,
@@ -75,7 +78,7 @@ import type {
   CredentialGroupCredential,
   Environment,
   FileRecord,
-  PaginatedResponse,
+  MemoryStore,
 } from '@/types/managed'
 
 interface SelectedFile {
@@ -92,13 +95,6 @@ interface SelectedRepo {
   authorization_token: string
 }
 
-interface MemoryStoreOption {
-  id: MemoryStoreId
-  name: string
-  description?: string
-  archived_at?: string | null
-}
-
 interface CreateSessionDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -106,7 +102,7 @@ interface CreateSessionDialogProps {
 }
 
 interface CreateSessionMutationInput {
-  body: Record<string, unknown>
+  input: ManagedSessionCreateInput
   runId: number
   scope: ManagedRequestScope
 }
@@ -146,73 +142,15 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const [showMemoryStoreDropdown, setShowMemoryStoreDropdown] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
 
-  const { data: agents = [] } = useQuery({
-    queryKey: ['agents-for-session', managedScope.key],
-    queryFn: async () => {
-      const res = await managedGet<{ data: unknown[] }>(
-        '/agents',
-        managedRequestOptions(managedScope),
-      )
-      return parseAgentListResponse(res.data || [])
-    },
-    enabled: open && hasManagedRequestScope(managedScope),
-  })
+  const { data: agents = [] } = useManagedAgentOptions({ enabled: open })
 
-  const { data: environments = [] } = useQuery({
-    queryKey: ['envs-for-session', managedScope.key],
-    queryFn: async () => {
-      const res = await managedGet<PaginatedResponse<Environment>>(
-        '/environments',
-        managedRequestOptions(managedScope),
-      )
-      return parseEnvironmentListResponse(res.data || [])
-    },
-    enabled: open && hasManagedRequestScope(managedScope),
-  })
+  const { data: environments = [] } = useManagedEnvironmentOptions({ enabled: open })
 
-  const { data: credentialGroupsResponse } = useQuery({
-    queryKey: ['credential-groups-for-session', managedScope.key],
-    queryFn: () =>
-      managedGet<{ data: unknown[] }>(
-        '/credential-groups',
-        managedRequestOptions(managedScope),
-      ).then((response) => ({
-        ...response,
-        data: parseCredentialGroupListResponse(response.data),
-      })),
-    enabled: open && hasManagedRequestScope(managedScope),
-  })
-  const credentialGroups = useMemo(
-    () => credentialGroupsResponse?.data || [],
-    [credentialGroupsResponse],
-  )
+  const { data: credentialGroups = [] } = useManagedCredentialGroupOptions({ enabled: open })
 
-  const { data: filesResp } = useQuery({
-    queryKey: ['files-for-session', managedScope.key],
-    queryFn: () =>
-      managedGet<{ data: unknown[] }>('/files?limit=100', managedRequestOptions(managedScope)).then(
-        (response) => ({ ...response, data: parseFileListResponse(response.data) }),
-      ),
-    enabled: open && hasManagedRequestScope(managedScope),
-  })
-  const files = useMemo(() => {
-    if (!filesResp) return []
-    return filesResp.data || []
-  }, [filesResp])
+  const { data: files = [] } = useManagedFileOptions({ enabled: open })
 
-  const { data: memoryStoresResp } = useQuery({
-    queryKey: ['memory-stores-for-session', managedScope.key],
-    queryFn: () =>
-      managedGet<{ data: unknown[] }>(
-        '/memory_stores?limit=100',
-        managedRequestOptions(managedScope),
-      ).then((response) => ({ ...response, data: response.data.map(parseMemoryStoreResponse) })),
-    enabled: open && hasManagedRequestScope(managedScope),
-  })
-  const memoryStores = useMemo(() => {
-    const stores = memoryStoresResp?.data || []
-    return stores.filter((store) => !store.archived_at)
-  }, [memoryStoresResp])
+  const { data: memoryStores = [] } = useManagedMemoryStoreOptions({ enabled: open })
   const activeAgents = useMemo(() => agents.filter((a) => !a.archived_at), [agents])
   // Group the agent dropdown by engine so picking one is less of a flat scroll.
   // Stable order: Claude Code → Codex → Native → anything else.
@@ -310,12 +248,8 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   )
   const selectedCredentialMembers = useQueries({
     queries: effectiveSelectedCredentialGroupIds.map((credentialGroupId) => ({
-      queryKey: ['credential-group-members', managedScope.key, credentialGroupId, false],
-      queryFn: () =>
-        managedGet<{ data: unknown[]; has_more: boolean }>(
-          apiResourceSubpath('credential-groups', credentialGroupId, ['members'], { limit: 100 }),
-          managedRequestOptions(managedScope),
-        ).then((response) => parseCredentialGroupCredentialListResponse(response.data)),
+      queryKey: managedCredentialGroupMembersQueryKey(managedScope.key, credentialGroupId, false),
+      queryFn: () => fetchManagedCredentialGroupMembers(credentialGroupId, false, managedScope),
       enabled: open && hasManagedRequestScope(managedScope),
     })),
     combine: (results) => ({
@@ -379,25 +313,23 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     currentProjectAllowsWrite()
 
   const createMutation = useMutation({
-    mutationFn: async ({ body, scope }: CreateSessionMutationInput) => {
+    mutationFn: async ({ input, scope }: CreateSessionMutationInput) => {
       if (!currentManagedScopeIsActive(scope.key)) {
         throw new Error('stale managed scope')
       }
       if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project session create ignored')
       }
-      return managedPost<unknown>('/sessions', body, managedRequestOptions(scope)).then(
-        parseSessionCreateResponse,
-      )
+      return createManagedSession(input, scope)
     },
     onSuccess: (res, input) => {
       if (!isCurrentCreateRun(input.runId, input.scope.key)) return
       onOpenChange(false)
       resetForm()
       if (onCreated) {
-        onCreated(res.id)
+        onCreated(res)
       } else {
-        router.push(`/managed/sessions/${res.id}`)
+        router.push(`/managed/sessions/${res}`)
       }
     },
     onError: (error, input) => {
@@ -452,30 +384,26 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
   const buildCreatePayload = (scope = managedScopeRef.current) => {
     if (!currentManagedScopeIsActive(scope)) return null
     if (!currentProjectAllowsWrite()) return null
-    const currentAgents = queryClient.getQueryData<Agent[]>(['agents-for-session', scope]) ?? agents
+    const currentAgents =
+      queryClient.getQueryData<Agent[]>(managedAgentOptionsQueryKey(scope)) ?? agents
     const currentEnvironments =
-      queryClient.getQueryData<Environment[]>(['envs-for-session', scope]) ?? environments
+      queryClient.getQueryData<Environment[]>(managedEnvironmentOptionsQueryKey(scope)) ??
+      environments
     const currentCredentialGroups =
-      queryClient.getQueryData<{ data?: CredentialGroup[] }>([
-        'credential-groups-for-session',
-        scope,
-      ])?.data ?? credentialGroups
+      queryClient.getQueryData<CredentialGroup[]>(managedCredentialGroupOptionsQueryKey(scope)) ??
+      credentialGroups
     const currentFiles =
-      queryClient.getQueryData<{ data?: FileRecord[] }>(['files-for-session', scope])?.data ?? files
+      queryClient.getQueryData<FileRecord[]>(managedFileOptionsQueryKey(scope)) ?? files
     const currentMemoryStores =
-      queryClient.getQueryData<{ data?: MemoryStoreOption[] }>(['memory-stores-for-session', scope])
-        ?.data ?? memoryStores
+      queryClient.getQueryData<MemoryStore[]>(managedMemoryStoreOptionsQueryKey(scope)) ??
+      memoryStores
     const currentActiveAgents = currentAgents.filter((agent) => !agent.archived_at)
-    const currentActiveEnvs = currentEnvironments.filter((environment) => !environment.archived_at)
-    const currentActiveCredentialGroups = currentCredentialGroups.filter(
-      (credentialGroup) => !credentialGroup.archived_at,
-    )
     const currentActiveMemoryStores = currentMemoryStores.filter((store) => !store.archived_at)
     const currentAgentId = currentActiveAgents.find((agent) => agent.id === agentId)?.id
     if (!currentAgentId) return null
-    const currentEnvId = currentActiveEnvs.find((environment) => environment.id === envId)?.id
+    const currentEnvId = currentEnvironments.find((environment) => environment.id === envId)?.id
     const currentCredentialGroupIds = new Set(
-      currentActiveCredentialGroups.map((credentialGroup) => credentialGroup.id),
+      currentCredentialGroups.map((credentialGroup) => credentialGroup.id),
     )
     const currentSelectedCredentialGroupIds = selectedCredentialGroupIds.filter((id) =>
       currentCredentialGroupIds.has(id),
@@ -486,40 +414,41 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     const currentSelectedMemoryStores = selectedMemoryStores.filter((id) =>
       currentMemoryStoreIds.has(id),
     )
-    const body: Record<string, unknown> = {
-      agent: apiResourceId(currentAgentId),
-    }
-    if (title.trim()) body.title = title.trim()
-    if (currentEnvId) body.environment_id = apiResourceId(currentEnvId)
-    if (currentSelectedCredentialGroupIds.length > 0) {
-      body.credential_group_ids = currentSelectedCredentialGroupIds.map(apiResourceId)
-    }
-    if (currentSelectedFiles.length > 0) {
-      body.file_resources = currentSelectedFiles.map((f) => ({
-        type: 'file',
-        file_id: f.file_id,
-        mount_path: f.mount_path,
-      }))
-    }
-    if (currentSelectedMemoryStores.length > 0) {
-      body.resources = currentSelectedMemoryStores.map((id) => ({
-        memory_store_id: id,
-        access: 'read_write',
-      }))
+    const input: ManagedSessionCreateInput = {
+      agentId: currentAgentId,
+      ...(title.trim() ? { title: title.trim() } : {}),
+      ...(currentEnvId ? { environmentId: currentEnvId } : {}),
+      ...(currentSelectedCredentialGroupIds.length > 0
+        ? { credentialGroupIds: currentSelectedCredentialGroupIds }
+        : {}),
+      ...(currentSelectedFiles.length > 0
+        ? {
+            fileResources: currentSelectedFiles.map((file) => ({
+              fileId: file.file_id,
+              mountPath: file.mount_path,
+            })),
+          }
+        : {}),
+      ...(currentSelectedMemoryStores.length > 0
+        ? {
+            memoryStoreResources: currentSelectedMemoryStores.map((memoryStoreId) => ({
+              memoryStoreId,
+            })),
+          }
+        : {}),
     }
     const validRepos = selectedRepos.filter((r) => r.url.trim())
     if (validRepos.length > 0) {
-      body.repo_resources = validRepos.map((r) => ({
-        type: 'github_repository',
-        url: r.url.trim(),
-        ...(r.branch.trim() ? { branch: r.branch.trim() } : {}),
-        ...(r.mount_path.trim() ? { mount_path: r.mount_path.trim() } : {}),
-        ...(r.authorization_token.trim()
-          ? { authorization_token: r.authorization_token.trim() }
+      input.repositoryResources = validRepos.map((repo) => ({
+        url: repo.url.trim(),
+        ...(repo.branch.trim() ? { branch: repo.branch.trim() } : {}),
+        ...(repo.mount_path.trim() ? { mountPath: repo.mount_path.trim() } : {}),
+        ...(repo.authorization_token.trim()
+          ? { authorizationToken: repo.authorization_token.trim() }
           : {}),
       }))
     }
-    return body
+    return input
   }
 
   const handleCreate = () => {
@@ -540,12 +469,12 @@ export function CreateSessionDialog({ open, onOpenChange, onCreated }: CreateSes
     const requestScope = managedRequestScopeRef.current
     const scope = requestScope.key
     if (!currentManagedScopeIsActive(scope)) return
-    const body = buildCreatePayload(scope)
-    if (!body) return
+    const input = buildCreatePayload(scope)
+    if (!input) return
     const runId = createRunRef.current + 1
     createRunRef.current = runId
     createMutation.mutate({
-      body,
+      input,
       runId,
       scope: requestScope,
     })

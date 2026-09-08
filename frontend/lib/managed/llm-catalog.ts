@@ -4,6 +4,7 @@ import type {
   LlmCatalog,
   LlmCredentialProfile,
   LlmEngineCapability,
+  LlmModelConsumerCapability,
   LlmProtocolDefinition,
   LlmProviderDefinition,
   LlmProviderProtocolOption,
@@ -52,6 +53,8 @@ const engineSchema = z
   })
   .strict()
 
+const modelConsumerSchema = engineSchema
+
 const protocolSchema = z
   .object({
     id: z.string().min(1),
@@ -73,6 +76,7 @@ const catalogSchema = z
   .object({
     version: z.string().min(1),
     engines: z.array(engineSchema).min(1),
+    model_consumers: z.array(modelConsumerSchema).default([]),
     protocols: z.array(protocolSchema).min(1),
     providers: z.array(providerSchema).min(1),
     credential_profiles: z.array(credentialProfileSchema).min(1),
@@ -91,6 +95,10 @@ function validateCatalogReferences(catalog: LlmCatalog) {
   ensureUnique(
     'engine',
     catalog.engines.map((engine) => engine.id),
+  )
+  ensureUnique(
+    'model consumer',
+    catalog.model_consumers.map((consumer) => consumer.id),
   )
   ensureUnique(
     'protocol',
@@ -116,6 +124,19 @@ function validateCatalogReferences(catalog: LlmCatalog) {
     for (const protocolId of engine.preferred_protocol_ids) {
       if (!engine.supported_protocol_ids.includes(protocolId)) {
         throw new Error(`Engine ${engine.id} prefers unsupported protocol: ${protocolId}`)
+      }
+    }
+  }
+
+  for (const consumer of catalog.model_consumers) {
+    for (const protocolId of consumer.supported_protocol_ids) {
+      if (!protocolIds.has(protocolId)) {
+        throw new Error(`Model consumer ${consumer.id} references unknown protocol: ${protocolId}`)
+      }
+    }
+    for (const protocolId of consumer.preferred_protocol_ids) {
+      if (!consumer.supported_protocol_ids.includes(protocolId)) {
+        throw new Error(`Model consumer ${consumer.id} prefers unsupported protocol: ${protocolId}`)
       }
     }
   }
@@ -174,6 +195,15 @@ export function getEngine(catalog: LlmCatalog, engineId: string): LlmEngineCapab
 
 export function getEnabledEngines(catalog: LlmCatalog): LlmEngineCapability[] {
   return catalog.engines.filter((engine) => engine.enabled)
+}
+
+export function getModelConsumer(
+  catalog: LlmCatalog,
+  consumerId: string,
+): LlmModelConsumerCapability {
+  const consumer = catalog.model_consumers.find((item) => item.id === consumerId)
+  if (!consumer) throw new Error(`Unknown LLM model consumer: ${consumerId}`)
+  return consumer
 }
 
 export function findProvider(
@@ -258,6 +288,16 @@ export function getProviderProtocolOptions(
   const engine = getEngine(catalog, engineId)
   if (!engine.enabled) return []
   const supported = new Set(engine.supported_protocol_ids)
+  return buildProviderProtocolOptions(catalog, (protocolId) => supported.has(protocolId))
+}
+
+export function getConsumerProviderProtocolOptions(
+  catalog: LlmCatalog,
+  consumerId: string,
+): LlmProviderProtocolOption[] {
+  const consumer = getModelConsumer(catalog, consumerId)
+  if (!consumer.enabled) return []
+  const supported = new Set(consumer.supported_protocol_ids)
   return buildProviderProtocolOptions(catalog, (protocolId) => supported.has(protocolId))
 }
 

@@ -90,17 +90,17 @@ flowchart TB
 
 ### 服务与容器
 
-| 组件 | Compose 服务 | 角色 | 关键职责 |
-|---|---|---|---|
-| **API** | `api` | `JOYSAFETER_SERVICE_ROLE=api` | REST `/api/v1/*`、SSE 执行流、通知 WebSocket、鉴权 |
-| **Orchestrator（Rust）** | `orchestrator-rs`（profile `rust-orchestrator`） | — | gRPC `AgentBridge` 服务、任务调度器、沙箱生命周期、事件总线 |
-| **Worker** | `worker` | `worker` | 消费 Redis 事件 Stream，批量持久化到 `joysafeter_session_events`，再发布供 SSE 使用 |
-| **前端** | `frontend` | — | Next.js App Router UI |
-| **PostgreSQL** | `db` | — | 所有状态的权威存储 |
-| **Redis** | `redis`（profile `local-redis`）或外部 | — | 事件 Streams、Pub/Sub 扇出、任务队列、协调 |
-| **Envoy** | `joysafeter-envoy` | — | 代理每个沙箱的 unix socket；强制每沙箱出口白名单 |
-| **skillspector** | `skillspector` | — | 独立的技能安全扫描服务；默认仅提示风险，可选只在发布版本时强制 |
-| **db-init** | `db-init`（profile `init`） | — | 一次性 Alembic 迁移 |
+| 组件                     | Compose 服务                                     | 角色                          | 关键职责                                                                            |
+| ------------------------ | ------------------------------------------------ | ----------------------------- | ----------------------------------------------------------------------------------- |
+| **API**                  | `api`                                            | `JOYSAFETER_SERVICE_ROLE=api` | REST `/api/v1/*`、SSE 执行流、通知 WebSocket、鉴权                                  |
+| **Orchestrator（Rust）** | `orchestrator-rs`（profile `rust-orchestrator`） | —                             | gRPC `AgentBridge` 服务、任务调度器、沙箱生命周期、事件总线                         |
+| **Worker**               | `worker`                                         | `worker`                      | 消费 Redis 事件 Stream，批量持久化到 `joysafeter_session_events`，再发布供 SSE 使用 |
+| **前端**                 | `frontend`                                       | —                             | Next.js App Router UI                                                               |
+| **PostgreSQL**           | `db`                                             | —                             | 所有状态的权威存储                                                                  |
+| **Redis**                | `redis`（profile `local-redis`）或外部           | —                             | 事件 Streams、Pub/Sub 扇出、任务队列、协调                                          |
+| **Envoy**                | `joysafeter-envoy`                               | —                             | 代理每个沙箱的 unix socket；强制每沙箱出口白名单                                    |
+| **skillspector**         | `skillspector`                                   | —                             | 独立的技能安全扫描服务；默认仅提示风险，可选只在发布版本时强制                      |
+| **db-init**              | `db-init`（profile `init`）                      | —                             | 一次性 Alembic 迁移                                                                 |
 
 当前支持的本地栈使用部署脚本：
 `cd deploy && ./deploy.sh doctor && ./deploy.sh build --group runtime && ./deploy.sh local && ./deploy.sh verify`。
@@ -111,28 +111,28 @@ Registry 派生的 runtime 镜像库存，不创建领域对象，也不修改 P
 
 每个服务只有一个清晰的所有权边界。跨服务调用必须保持这些契约。
 
-| 参与方 | 拥有什么 | 消费什么 | 发布 / 修改什么 | 不应该做什么 |
-|---|---|---|---|---|
-| 前端 | 产品 UI 状态、鉴权跳转、SSE 订阅 | REST 响应、SSE 事件、通知 WS | 通过 REST 发起用户命令 | 直接访问 Redis、Postgres、orchestrator gRPC 或沙箱容器 |
-| API | Auth/RBAC、REST 校验、CRUD、任务创建、SSE 回放/实时桥接、Skill 写入时扫描调用 | 浏览器请求、DB 状态、Redis Pub/Sub 实时事件 | DB 行、Redis 任务唤醒、Redis 命令中继 | 运行 agent harness、创建沙箱、消费可靠事件 Stream |
-| Rust orchestrator | 调度、任务租约、沙箱生命周期、runner gRPC、单一 elected xDS authority、控制命令 ACK、事件发射 | DB pending 任务、Redis 唤醒/命令、runner gRPC 流、Envoy ACK/NACK | task/sandbox/session 状态、网络策略 generation/status、Redis Stream 事件、Redis Pub/Sub 广播、authority 拥有的 xDS 资源 | 承载产品 REST API、拥有浏览器鉴权、作为主路径批量持久化事件日志，或让非 authority 副本修改 xDS |
-| 沙箱 runner | 容器内 harness 执行、工具/MCP 调用、沙箱内 memory/file sync | gRPC `SetupSandbox` / `StartTask`、沙箱 env、任务级 files | gRPC runner 事件/结果、memory sync 消息 | 接收通用 secrets map 或远程 MCP 明文认证材料、直连宿主网络、修改平台 DB/Redis、绕过 Envoy 出站策略 |
-| Worker | 可靠事件持久化、`seq` 分配、Redis Stream 恢复/重投 | Redis Stream 消费组 | `joysafeter_session_events`、DB 写入后再发布 Pub/Sub | 调度任务、创建沙箱、暴露用户 API |
-| SkillSpector | 静态 Skill 安全扫描服务 | API/domain service 发送的 Skill 内容 | 风险提示与可选发布时强制 verdict | 决定运行时打包或使已发布版本失效 |
-| PostgreSQL | 领域状态、task/session/sandbox FSM、MCP runtime generation、网络策略状态、事件日志的权威存储 | API/orchestrator/worker/db-init 写入 | 持久化行 | 充当队列或实时扇出总线 |
-| Redis | 唤醒、Streams、Pub/Sub、命令中继、ownership/heartbeat 协调 | API/orchestrator/worker 的 list/stream/pubsub 流量 | 临时消息与可靠 Stream 消息 | 被当作调度或 xDS 状态权威；两者都以 Postgres 为准 |
+| 参与方            | 拥有什么                                                                                      | 消费什么                                                         | 发布 / 修改什么                                                                                                         | 不应该做什么                                                                                       |
+| ----------------- | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| 前端              | 产品 UI 状态、鉴权跳转、SSE 订阅                                                              | REST 响应、SSE 事件、通知 WS                                     | 通过 REST 发起用户命令                                                                                                  | 直接访问 Redis、Postgres、orchestrator gRPC 或沙箱容器                                             |
+| API               | Auth/RBAC、REST 校验、CRUD、任务创建、SSE 回放/实时桥接、Skill 写入时扫描调用                 | 浏览器请求、DB 状态、Redis Pub/Sub 实时事件                      | DB 行、Redis 任务唤醒、Redis 命令中继                                                                                   | 运行 agent harness、创建沙箱、消费可靠事件 Stream                                                  |
+| Rust orchestrator | 调度、任务租约、沙箱生命周期、runner gRPC、单一 elected xDS authority、控制命令 ACK、事件发射 | DB pending 任务、Redis 唤醒/命令、runner gRPC 流、Envoy ACK/NACK | task/sandbox/session 状态、网络策略 generation/status、Redis Stream 事件、Redis Pub/Sub 广播、authority 拥有的 xDS 资源 | 承载产品 REST API、拥有浏览器鉴权、作为主路径批量持久化事件日志，或让非 authority 副本修改 xDS     |
+| 沙箱 runner       | 容器内 harness 执行、工具/MCP 调用、沙箱内 memory/file sync                                   | gRPC `SetupSandbox` / `StartTask`、沙箱 env、任务级 files        | gRPC runner 事件/结果、memory sync 消息                                                                                 | 接收通用 secrets map 或远程 MCP 明文认证材料、直连宿主网络、修改平台 DB/Redis、绕过 Envoy 出站策略 |
+| Worker            | 可靠事件持久化、`seq` 分配、Redis Stream 恢复/重投                                            | Redis Stream 消费组                                              | `joysafeter_session_events`、DB 写入后再发布 Pub/Sub                                                                    | 调度任务、创建沙箱、暴露用户 API                                                                   |
+| SkillSpector      | 静态 Skill 安全扫描服务                                                                       | API/domain service 发送的 Skill 内容                             | 风险提示与可选发布时强制 verdict                                                                                        | 决定运行时打包或使已发布版本失效                                                                   |
+| PostgreSQL        | 领域状态、task/session/sandbox FSM、MCP runtime generation、网络策略状态、事件日志的权威存储  | API/orchestrator/worker/db-init 写入                             | 持久化行                                                                                                                | 充当队列或实时扇出总线                                                                             |
+| Redis             | 唤醒、Streams、Pub/Sub、命令中继、ownership/heartbeat 协调                                    | API/orchestrator/worker 的 list/stream/pubsub 流量               | 临时消息与可靠 Stream 消息                                                                                              | 被当作调度或 xDS 状态权威；两者都以 Postgres 为准                                                  |
 
 ### 故障归属
 
-| 现象 | 首要归属 | 优先检查 |
-|---|---|---|
-| 用户无法登录或 CRUD 资源 | API | `api` 日志、鉴权配置、数据库连通性 |
-| Session 已创建但任务不启动 | Orchestrator | pending task 行、`global_queue` 唤醒、orchestrator 日志、DB lease/fencing 配置 |
-| 沙箱一直未 ready | Orchestrator + Docker 宿主机 | Docker socket 挂载、sandbox 镜像、workspace volume、runner `RunnerReady` 超时 |
-| Agent 在跑但浏览器收不到实时事件 | API SSE bridge + Redis Pub/Sub | API `SessionBroadcaster`、Redis Pub/Sub、浏览器 `?after_seq` 回放 |
-| 实时能看到事件但刷新后消失 | Worker | Redis Stream pending、worker 日志、Postgres 插入错误、advisory lock 竞争 |
-| Skill 运行时不可用 | Skill domain | 引用版本是否存在、版本文件是否完整 |
-| 沙箱无法访问模型/MCP/目标 | elected xDS authority + Envoy | PostgreSQL generation/status、authority Lease/epoch、Envoy ACK/NACK、目标 DNS 与网络模式 |
+| 现象                             | 首要归属                       | 优先检查                                                                                 |
+| -------------------------------- | ------------------------------ | ---------------------------------------------------------------------------------------- |
+| 用户无法登录或 CRUD 资源         | API                            | `api` 日志、鉴权配置、数据库连通性                                                       |
+| Session 已创建但任务不启动       | Orchestrator                   | pending task 行、`global_queue` 唤醒、orchestrator 日志、DB lease/fencing 配置           |
+| 沙箱一直未 ready                 | Orchestrator + Docker 宿主机   | Docker socket 挂载、sandbox 镜像、workspace volume、runner `RunnerReady` 超时            |
+| Agent 在跑但浏览器收不到实时事件 | API SSE bridge + Redis Pub/Sub | API `SessionBroadcaster`、Redis Pub/Sub、浏览器 `?after_seq` 回放                        |
+| 实时能看到事件但刷新后消失       | Worker                         | Redis Stream pending、worker 日志、Postgres 插入错误、advisory lock 竞争                 |
+| Skill 运行时不可用               | Skill domain                   | 引用版本是否存在、版本文件是否完整                                                       |
+| 沙箱无法访问模型/MCP/目标        | elected xDS authority + Envoy  | PostgreSQL generation/status、authority Lease/epoch、Envoy ACK/NACK、目标 DNS 与网络模式 |
 
 ---
 
@@ -200,20 +200,20 @@ sequenceDiagram
 
 运行时使用若干各司其职的通信通道。此表为权威参考。
 
-| 通道 | 机制 | 用途 | 锚点 |
-|---|---|---|---|
-| 浏览器 → API | HTTPS REST `/api/v1/*` | 所有 CRUD + 命令 | `joysafeter_api/api/v1/router.py` |
-| **实时事件 → 浏览器** | **SSE** `GET /sessions/{id}/events/stream` | 主执行流（`?after_seq` 回放 DB，再转实时） | `joysafeter_api/api/v1/sessions.py` |
-| 通知 → 浏览器 | WebSocket `/ws/notifications` | 用户级通知（进程内 `NotificationManager`） | `joysafeter_api/app.py`、`joysafeter_api/websocket/notification_manager.py` |
-| 单任务流 | WebSocket `/tasks/{id}/stream` | 单任务输出（bridge 队列 → Redis 回退） | `joysafeter_api/api/v1/tasks.py` |
-| 任务入队 | Redis **list** `joysafeter:global_queue` | API `rpush` → Rust orchestrator 调度器弹出 | `joysafeter_api/services.py`、`joysafeter_orchestrator_rs/src/kernel/queue.rs` |
-| **可靠事件总线** | Redis **Streams** `joysafeter:orchestrator:events` + 消费组 | orchestrator `XADD` → Worker `XREADGROUP` → 落库 | `joysafeter_orchestrator_rs/src/events/stream_publisher.rs`、`joysafeter_worker/events/stream_consumer.py` |
-| **实时事件扇出** | Redis **Pub/Sub** `joysafeter:session_events:{id}` | 跨实例 SSE 投递（`SessionBroadcaster`） | `joysafeter_orchestrator_rs/src/kernel/session_broadcaster.rs`、`joysafeter_shared/orchestrator_bridge/session_broadcaster.py` |
-| 控制/取消中继 | Redis **Pub/Sub** `joysafeter:cmd:{instance}` | 把 cancel/input/shutdown 路由到拥有该沙箱的实例 | `joysafeter_shared/orchestrator_bridge/runtime_commands.py`、`joysafeter_orchestrator_rs/src/kernel/command_listener.rs` |
-| 网络策略唤醒 | Redis **Stream** `joysafeter:network-policy:requests` | 唤醒 elected xDS authority 处理精确 PostgreSQL generation 或 teardown；不保存 xDS 状态 | `joysafeter_orchestrator_rs/src/kernel/ha/redis_impl.rs`、`joysafeter_orchestrator_rs/src/xds/authority.rs` |
-| orchestrator ↔ runner | **gRPC** `AgentBridge`（双向流，:9090） | Agent 执行协议 | `proto/joysafeter.proto`、`joysafeter_orchestrator_rs/src/grpc/server.rs` |
-| runner 出口 | Envoy 代理（unix socket） | 每沙箱域名白名单，默认全拒 | `joysafeter_orchestrator_rs/src/sandbox/envoy.rs` |
-| 技能扫描 | HTTP → skillspector `:8010` | 写入时信息扫描；可选仅在发布时执行新的 fail-closed 扫描 | `joysafeter_skill_security.py` |
+| 通道                  | 机制                                                        | 用途                                                                                   | 锚点                                                                                                                           |
+| --------------------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 浏览器 → API          | HTTPS REST `/api/v1/*`                                      | 所有 CRUD + 命令                                                                       | `joysafeter_api/api/v1/router.py`                                                                                              |
+| **实时事件 → 浏览器** | **SSE** `GET /sessions/{id}/events/stream`                  | 主执行流（`?after_seq` 回放 DB，再转实时）                                             | `joysafeter_api/api/v1/sessions.py`                                                                                            |
+| 通知 → 浏览器         | WebSocket `/ws/notifications`                               | 用户级通知（进程内 `NotificationManager`）                                             | `joysafeter_api/app.py`、`joysafeter_api/websocket/notification_manager.py`                                                    |
+| 单任务流              | WebSocket `/tasks/{id}/stream`                              | 单任务输出（bridge 队列 → Redis 回退）                                                 | `joysafeter_api/api/v1/tasks.py`                                                                                               |
+| 任务入队              | Redis **list** `joysafeter:global_queue`                    | API `rpush` → Rust orchestrator 调度器弹出                                             | `joysafeter_api/services.py`、`joysafeter_orchestrator_rs/src/kernel/queue.rs`                                                 |
+| **可靠事件总线**      | Redis **Streams** `joysafeter:orchestrator:events` + 消费组 | orchestrator `XADD` → Worker `XREADGROUP` → 落库                                       | `joysafeter_orchestrator_rs/src/events/stream_publisher.rs`、`joysafeter_worker/events/stream_consumer.py`                     |
+| **实时事件扇出**      | Redis **Pub/Sub** `joysafeter:session_events:{id}`          | 跨实例 SSE 投递（`SessionBroadcaster`）                                                | `joysafeter_orchestrator_rs/src/kernel/session_broadcaster.rs`、`joysafeter_shared/orchestrator_bridge/session_broadcaster.py` |
+| 控制/取消中继         | Redis **Pub/Sub** `joysafeter:cmd:{instance}`               | 把 cancel/input/shutdown 路由到拥有该沙箱的实例                                        | `joysafeter_shared/orchestrator_bridge/runtime_commands.py`、`joysafeter_orchestrator_rs/src/kernel/command_listener.rs`       |
+| 网络策略唤醒          | Redis **Stream** `joysafeter:network-policy:requests`       | 唤醒 elected xDS authority 处理精确 PostgreSQL generation 或 teardown；不保存 xDS 状态 | `joysafeter_orchestrator_rs/src/kernel/ha/redis_impl.rs`、`joysafeter_orchestrator_rs/src/xds/authority.rs`                    |
+| orchestrator ↔ runner | **gRPC** `AgentBridge`（双向流，:9090）                     | Agent 执行协议                                                                         | `proto/joysafeter.proto`、`joysafeter_orchestrator_rs/src/grpc/server.rs`                                                      |
+| runner 出口           | Envoy 代理（unix socket）                                   | 每沙箱域名白名单，默认全拒                                                             | `joysafeter_orchestrator_rs/src/sandbox/envoy.rs`                                                                              |
+| 技能扫描              | HTTP → skillspector `:8010`                                 | 写入时信息扫描；可选仅在发布时执行新的 fail-closed 扫描                                | `joysafeter_skill_security.py`                                                                                                 |
 
 **API ↔ orchestrator 走 Redis，而非直接 gRPC。** Python API/worker 进程不再导入已删除的 Python
 orchestrator 包。它们只通过 `joysafeter_shared.orchestrator_bridge` 使用轻量 API 侧 helper 和测试 seam；
@@ -244,25 +244,25 @@ Cookie/session 回退（首次登录自动开通默认 org+project）。所有 p
 引擎室。托管 gRPC `AgentBridge` 服务以及一组数据库驱动的控制循环。Agent 代码**不**在本进程运行——
 它在沙箱 runner 内运行，通过 gRPC 触达。
 
-| 子系统 | 模块 | 职责 |
-|---|---|---|
-| Runner gRPC 服务 | `src/grpc/server.rs` | 只绑定 Runner TCP/UDS listener、配置 tonic 限制并管理 server task 生命周期 |
-| Runner transport | `src/grpc/transport.rs` | 把封闭的 `AgentBridge.Session` protobuf 流适配为应用层 `RunnerInbound` port、限制连接数，并把 tonic stream/error 类型封闭在 adapter 内 |
-| Runner inbound port | `src/kernel/runner/inbound.rs` | 定义 Setup、执行、恢复和 session 编排共同消费的 transport-neutral 消息源；不拥有连接或任务状态 |
-| Runner session | `src/kernel/runner/session.rs` | 编排握手、bridge 替换/注册与统一退出路径，通过 `RunnerFlowSet` 协同子流程 |
-| Runner 子流程 | `src/kernel/runner/{admission,setup,task_lifecycle,execution,recovery,memory_sync,failure,cleanup,metrics}.rs` | 分别拥有身份/协议准入、Setup、持久任务转换、执行/事件、重连恢复、memory 同步、终态故障驱逐、断连清理与低基数观测 |
-| xDS 控制面 | `src/xds/control_plane.rs`、`src/xds/resource_store.rs`、`src/xds/node_ownership.rs`、`src/xds/delta.rs` | 单一进程级装配根、原子且显式归属的资源世界、完整 sandbox-to-node 生命周期与 Delta reconciliation |
-| xDS authority/transport | `src/xds/authority.rs`、`src/xds/auth.rs`、`src/xds/transport.rs`、`src/xds/leader.rs` | `Standby → Staging → RecoveryServing → Ready → Revoked`、epoch fencing、认证 ADS 与 leader endpoint 发布 |
-| 任务调度器 | `src/kernel/scheduler.rs` | 认领 pending 任务（`FOR UPDATE SKIP LOCKED`），解析沙箱，推入沙箱队列 |
-| 任务控制器 | `src/kernel/task_controller.rs` | 生命周期、启动恢复、故障转移/重试 |
-| 沙箱控制器 | `src/kernel/sandbox_controller.rs` | 空闲清扫、provisioning 轮询、预热池、孤儿清理 |
-| 沙箱解析器 | `src/kernel/sandbox_resolver.rs` | 三段式解析：复用会话沙箱 → 从池认领 → 新建；注入 runner env |
-| 沙箱 bridge | `src/kernel/sandbox_bridge.rs` | 每连接进程内状态：runner 流、connection ID、Setup generation、runtime activity、订阅者与控制队列 |
-| HA bridge store | `src/kernel/ha/{traits,local,redis_impl}.rs` | Runner 连接所有权的唯一权威：本地查找或 Redis owner + connection-generation fencing、heartbeat、compare-and-delete 与跨实例分派 |
-| Redis 协调器 | `src/kernel/redis_coordinator.rs` | 不包含 Runner ownership 的跨实例协调：实例心跳、task 映射、分布式锁、队列和事件发布 |
-| 命令监听器 | `src/kernel/command_listener.rs` | Redis cancel/input/shutdown/memory_update 中继与 ACK |
-| 事件总线 | `src/events/bus.rs` | 进程内事件总线，驱动 stream 持久化和实时扇出 |
-| 会话广播器 | `src/kernel/session_broadcaster.rs` | 实时 SSE 扇出：Redis Pub/Sub |
+| 子系统                  | 模块                                                                                                           | 职责                                                                                                                                   |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Runner gRPC 服务        | `src/grpc/server.rs`                                                                                           | 只绑定 Runner TCP/UDS listener、配置 tonic 限制并管理 server task 生命周期                                                             |
+| Runner transport        | `src/grpc/transport.rs`                                                                                        | 把封闭的 `AgentBridge.Session` protobuf 流适配为应用层 `RunnerInbound` port、限制连接数，并把 tonic stream/error 类型封闭在 adapter 内 |
+| Runner inbound port     | `src/kernel/runner/inbound.rs`                                                                                 | 定义 Setup、执行、恢复和 session 编排共同消费的 transport-neutral 消息源；不拥有连接或任务状态                                         |
+| Runner session          | `src/kernel/runner/session.rs`                                                                                 | 编排握手、bridge 替换/注册与统一退出路径，通过 `RunnerFlowSet` 协同子流程                                                              |
+| Runner 子流程           | `src/kernel/runner/{admission,setup,task_lifecycle,execution,recovery,memory_sync,failure,cleanup,metrics}.rs` | 分别拥有身份/协议准入、Setup、持久任务转换、执行/事件、重连恢复、memory 同步、终态故障驱逐、断连清理与低基数观测                       |
+| xDS 控制面              | `src/xds/control_plane.rs`、`src/xds/resource_store.rs`、`src/xds/node_ownership.rs`、`src/xds/delta.rs`       | 单一进程级装配根、原子且显式归属的资源世界、完整 sandbox-to-node 生命周期与 Delta reconciliation                                       |
+| xDS authority/transport | `src/xds/authority.rs`、`src/xds/auth.rs`、`src/xds/transport.rs`、`src/xds/leader.rs`                         | `Standby → Staging → RecoveryServing → Ready → Revoked`、epoch fencing、认证 ADS 与 leader endpoint 发布                               |
+| 任务调度器              | `src/kernel/scheduler.rs`                                                                                      | 认领 pending 任务（`FOR UPDATE SKIP LOCKED`），解析沙箱，推入沙箱队列                                                                  |
+| 任务控制器              | `src/kernel/task_controller.rs`                                                                                | 生命周期、启动恢复、故障转移/重试                                                                                                      |
+| 沙箱控制器              | `src/kernel/sandbox_controller.rs`                                                                             | 空闲清扫、provisioning 轮询、预热池、孤儿清理                                                                                          |
+| 沙箱解析器              | `src/kernel/sandbox_resolver.rs`                                                                               | 三段式解析：复用会话沙箱 → 从池认领 → 新建；注入 runner env                                                                            |
+| 沙箱 bridge             | `src/kernel/sandbox_bridge.rs`                                                                                 | 每连接进程内状态：runner 流、connection ID、Setup generation、runtime activity、订阅者与控制队列                                       |
+| HA bridge store         | `src/kernel/ha/{traits,local,redis_impl}.rs`                                                                   | Runner 连接所有权的唯一权威：本地查找或 Redis owner + connection-generation fencing、heartbeat、compare-and-delete 与跨实例分派        |
+| Redis 协调器            | `src/kernel/redis_coordinator.rs`                                                                              | 不包含 Runner ownership 的跨实例协调：实例心跳、task 映射、分布式锁、队列和事件发布                                                    |
+| 命令监听器              | `src/kernel/command_listener.rs`                                                                               | Redis cancel/input/shutdown/memory_update 中继与 ACK                                                                                   |
+| 事件总线                | `src/events/bus.rs`                                                                                            | 进程内事件总线，驱动 stream 持久化和实时扇出                                                                                           |
+| 会话广播器              | `src/kernel/session_broadcaster.rs`                                                                            | 实时 SSE 扇出：Redis Pub/Sub                                                                                                           |
 
 启动顺序（`src/bootstrap/application.rs`；`src/main.rs` 只负责委托）：配置 + 数据库 + Redis 协调器 → 单一进程级 xDS authority 与
 `XdsControlPlane` → provider adapter 接收控制面 → 独立认证的 `:9092` ADS 服务 → provider 初始化 → `Staging` / `RecoveryServing`
@@ -292,14 +292,14 @@ orchestrator 只有一个组合根，下面挂接可独立替换的子流程。�
 监督退出，不得复制 provider、network-policy、xDS 或 transport 的领域判断。因此具体 provider 通过 Registry/
 Factory 装载，`main.rs` 和业务服务不得通过分支硬编码实例化。
 
-| 领域 | 模块 | 拥有的能力 | 输入 → 输出 | 允许依赖 | 失败归属 |
-|---|---|---|---|---|---|
-| 进程入口 | `src/main.rs` | 日志、配置入口和委托 | 环境 → `JoySafeterConfig` → `OrchestratorApplication` | `bootstrap` | 进程配置非法 |
-| 组合根 | `src/bootstrap/application.rs` | 进程级对象图、启动顺序、后台循环启动和协同退出 | 已验证配置 → 已初始化端口、服务、handle | 配置、DB/Redis 构造器、Registry、应用服务、transport | 必需基础设施缺失或跨组件拓扑非法 |
-| Provider Registry | `src/bootstrap/registry.rs` | provider 名称规范化、查找和 factory 分派 | provider 名 + factory context → `RuntimeComponents` | 只依赖 factory 接口 | 未知/禁用 provider、factory 构造失败 |
-| Runtime Factory | `src/bootstrap/runtime_factories.rs` | Docker/Kubernetes/Daytona/E2B adapter 装配及仅用于组合的事件 handler | 配置 + 共享 xDS context → provider、network-policy runtime、可选 Envoy manager | 具体 adapter，不被业务调用 | provider 配置或构造失败 |
-| 监督 | `src/bootstrap/supervisor.rs` | OS 退出信号、健康与指标 HTTP 暴露 | readiness + xDS snapshot → 进程生命周期/HTTP 响应 | 稳定健康接口 | listener 失败归本模块；领域失败仍回归原 owner |
-| 策略材料 adapter | `src/bootstrap/network_policy_material.rs` | `NetworkPolicyMaterialResolver` 的 PostgreSQL/凭据实现 | `SandboxId` → `DesiredNetworkPolicy` 输入 | DB query、credential projection | sandbox 缺失、凭据重建或材料读取失败 |
+| 领域              | 模块                                       | 拥有的能力                                                           | 输入 → 输出                                                                    | 允许依赖                                             | 失败归属                                      |
+| ----------------- | ------------------------------------------ | -------------------------------------------------------------------- | ------------------------------------------------------------------------------ | ---------------------------------------------------- | --------------------------------------------- |
+| 进程入口          | `src/main.rs`                              | 日志、配置入口和委托                                                 | 环境 → `JoySafeterConfig` → `OrchestratorApplication`                          | `bootstrap`                                          | 进程配置非法                                  |
+| 组合根            | `src/bootstrap/application.rs`             | 进程级对象图、启动顺序、后台循环启动和协同退出                       | 已验证配置 → 已初始化端口、服务、handle                                        | 配置、DB/Redis 构造器、Registry、应用服务、transport | 必需基础设施缺失或跨组件拓扑非法              |
+| Provider Registry | `src/bootstrap/registry.rs`                | provider 名称规范化、查找和 factory 分派                             | provider 名 + factory context → `RuntimeComponents`                            | 只依赖 factory 接口                                  | 未知/禁用 provider、factory 构造失败          |
+| Runtime Factory   | `src/bootstrap/runtime_factories.rs`       | Docker/Kubernetes/Daytona/E2B adapter 装配及仅用于组合的事件 handler | 配置 + 共享 xDS context → provider、network-policy runtime、可选 Envoy manager | 具体 adapter，不被业务调用                           | provider 配置或构造失败                       |
+| 监督              | `src/bootstrap/supervisor.rs`              | OS 退出信号、健康与指标 HTTP 暴露                                    | readiness + xDS snapshot → 进程生命周期/HTTP 响应                              | 稳定健康接口                                         | listener 失败归本模块；领域失败仍回归原 owner |
+| 策略材料 adapter  | `src/bootstrap/network_policy_material.rs` | `NetworkPolicyMaterialResolver` 的 PostgreSQL/凭据实现               | `SandboxId` → `DesiredNetworkPolicy` 输入                                      | DB query、credential projection                      | sandbox 缺失、凭据重建或材料读取失败          |
 
 新增 sandbox 后端时，只向 `ProviderFactoryRegistry` 注册一个 `ProviderFactory`，统一产出
 `SandboxProvider`、`NetworkPolicyRuntime` 和可选 `EnvoyManager`。调用方只消费 trait，不按 provider 类型
@@ -320,16 +320,16 @@ connection-generation key，注册、heartbeat、删除均受该 generation fenc
 `src/kernel/network_policy/` 拥有业务期望、确定性 revision、精确 generation 编排，以及 runtime 结果到
 PostgreSQL 状态转换的规则。它不拥有容器、Pod、ADS session 或 JSON/protobuf 编码。
 
-| 模块 | 职责与对外能力 | 依赖与边界 |
-|---|---|---|
-| `mod.rs` | `DesiredNetworkPolicy`、规范化脱敏 revision、`NetworkPolicyGeneration` 值对象 | 纯领域输入；不能访问 provider/transport |
-| `envoy_model.rs` | 已验证且 transport-neutral 的 listener/cluster/credential 策略模型 | 纯模型与校验；renderer 依赖它，不能反向依赖 renderer |
-| `material.rs` | `NetworkPolicyMaterialResolver` 输入端口 | 由 bootstrap 实现；领域只看 `SandboxId → DesiredNetworkPolicy` |
-| `ports.rs` | `NetworkPolicyRuntime` 执行端口和 `NetworkPolicyRequestQueue` 唤醒端口 | 基础设施实现；PostgreSQL 始终是权威 |
-| `request.rs` | 中立 reconcile/remove 命令；需要时携带精确 generation | 可经 Redis 运输，但不携带 runtime 状态 |
-| `application.rs` | 准备 generation、校验材料、apply/remove、等待投递、持久化精确 CAS 结果 | 使用 DB query、领域端口和 authority guard；不构造 provider/xDS server |
-| `authority.rs` | `NetworkPolicyAuthorityHandler`，把领域工作适配到通用 elected-authority worker | 在当前 mutation guard 下加载 DB inventory、apply/prune |
-| `recovery.rs` | 重建并校验存活 limited-network inventory，分类 ready/deferred/quarantine | 读取 PostgreSQL、调用 runtime recovery 端口、持久化精确恢复结果 |
+| 模块             | 职责与对外能力                                                                 | 依赖与边界                                                            |
+| ---------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| `mod.rs`         | `DesiredNetworkPolicy`、规范化脱敏 revision、`NetworkPolicyGeneration` 值对象  | 纯领域输入；不能访问 provider/transport                               |
+| `envoy_model.rs` | 已验证且 transport-neutral 的 listener/cluster/credential 策略模型             | 纯模型与校验；renderer 依赖它，不能反向依赖 renderer                  |
+| `material.rs`    | `NetworkPolicyMaterialResolver` 输入端口                                       | 由 bootstrap 实现；领域只看 `SandboxId → DesiredNetworkPolicy`        |
+| `ports.rs`       | `NetworkPolicyRuntime` 执行端口和 `NetworkPolicyRequestQueue` 唤醒端口         | 基础设施实现；PostgreSQL 始终是权威                                   |
+| `request.rs`     | 中立 reconcile/remove 命令；需要时携带精确 generation                          | 可经 Redis 运输，但不携带 runtime 状态                                |
+| `application.rs` | 准备 generation、校验材料、apply/remove、等待投递、持久化精确 CAS 结果         | 使用 DB query、领域端口和 authority guard；不构造 provider/xDS server |
+| `authority.rs`   | `NetworkPolicyAuthorityHandler`，把领域工作适配到通用 elected-authority worker | 在当前 mutation guard 下加载 DB inventory、apply/prune                |
+| `recovery.rs`    | 重建并校验存活 limited-network inventory，分类 ready/deferred/quarantine       | 读取 PostgreSQL、调用 runtime recovery 端口、持久化精确恢复结果       |
 
 正常 reconcile 的唯一数据链路是：
 
@@ -354,21 +354,21 @@ PostgreSQL 状态转换的规则。它不拥有容器、Pod、ADS session 或 JS
 `src/xds/` 拥有进程内 xDS authority 与协议状态。它只接收已验证资源和显式 ownership；不读取业务凭据、不决定
 desired policy、不管理容器/Pod，也不持久化 sandbox 生命周期。
 
-| 模块 | 拥有的能力 | 输入 → 输出 / 失败行为 |
-|---|---|---|
-| `authority.rs` | authority FSM、epoch、recovery/mutation guard、application 串行锁、撤销 | Lease/生命周期事件 → fenced capability guard；旧 epoch fail closed |
-| `leader.rs` | Kubernetes Lease 观察与 leader-only Pod label 发布 | Lease + authority phase → xDS Service endpoint 资格；API 失败只重试，不授予 authority |
-| `authority_worker.rs` | 与 Redis/network-policy 无关的通用 recover/reconcile/apply 循环 | request source + `AuthorityWork` handler → 串行、带 guard 的工作 |
-| `control_plane.rs` | 组合 resource、ownership、delivery、ADS 的稳定进程内 facade | 显式 sandbox resource/placement → delivery attempt 与 snapshot |
-| `model.rs` | resource type、显式 owner、managed resource、sandbox bundle | 只有类型值；禁止从名称反推 owner |
-| `resource_store.rs` | 原子资源世界与有界 revision log | 带 owner 的资源批次 → 单调 world revision |
-| `node_ownership.rs` | sandbox-to-node 真相和 ownership transition | 中立 placement fact → scoped visibility revision |
-| `inventory.rs` | 原子 recovery inventory 校验与安装结果 | 完整恢复世界 → installed/deferred inventory |
-| `delivery.rs` | 精确 generation delivery attempt 与 CDS/LDS quorum 完成 | world revision + node session ACK/NACK → attempt 终态 |
-| `delta.rs` | Delta ADS subscription、重连 reconcile、per-node session、stream closure | 已认证协议消息 ↔ resource delta/ACK/NACK 更新 |
-| `auth.rs` | shared-token keyring 解析和 client principal 认证 | request metadata → principal 或 `Unauthenticated` |
-| `transport.rs` | 仅独立 tonic ADS listener | `XdsControlPlane` + authenticator → `:9092` server handle |
-| `metrics.rs` | 有界基数健康状态和 Prometheus 投影 | 内部计数/状态 → health/metrics snapshot |
+| 模块                  | 拥有的能力                                                               | 输入 → 输出 / 失败行为                                                                |
+| --------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| `authority.rs`        | authority FSM、epoch、recovery/mutation guard、application 串行锁、撤销  | Lease/生命周期事件 → fenced capability guard；旧 epoch fail closed                    |
+| `leader.rs`           | Kubernetes Lease 观察与 leader-only Pod label 发布                       | Lease + authority phase → xDS Service endpoint 资格；API 失败只重试，不授予 authority |
+| `authority_worker.rs` | 与 Redis/network-policy 无关的通用 recover/reconcile/apply 循环          | request source + `AuthorityWork` handler → 串行、带 guard 的工作                      |
+| `control_plane.rs`    | 组合 resource、ownership、delivery、ADS 的稳定进程内 facade              | 显式 sandbox resource/placement → delivery attempt 与 snapshot                        |
+| `model.rs`            | resource type、显式 owner、managed resource、sandbox bundle              | 只有类型值；禁止从名称反推 owner                                                      |
+| `resource_store.rs`   | 原子资源世界与有界 revision log                                          | 带 owner 的资源批次 → 单调 world revision                                             |
+| `node_ownership.rs`   | sandbox-to-node 真相和 ownership transition                              | 中立 placement fact → scoped visibility revision                                      |
+| `inventory.rs`        | 原子 recovery inventory 校验与安装结果                                   | 完整恢复世界 → installed/deferred inventory                                           |
+| `delivery.rs`         | 精确 generation delivery attempt 与 CDS/LDS quorum 完成                  | world revision + node session ACK/NACK → attempt 终态                                 |
+| `delta.rs`            | Delta ADS subscription、重连 reconcile、per-node session、stream closure | 已认证协议消息 ↔ resource delta/ACK/NACK 更新                                         |
+| `auth.rs`             | shared-token keyring 解析和 client principal 认证                        | request metadata → principal 或 `Unauthenticated`                                     |
+| `transport.rs`        | 仅独立 tonic ADS listener                                                | `XdsControlPlane` + authenticator → `:9092` server handle                             |
+| `metrics.rs`          | 有界基数健康状态和 Prometheus 投影                                       | 内部计数/状态 → health/metrics snapshot                                               |
 
 authority 生命周期是 xDS mutation 的唯一权限模型。`RecoveryAuthorityGuard` 只允许启动原子恢复；
 `MutationAuthorityGuard` 只在 `Ready` 存在。Lease 丢失会撤销 epoch、关闭既有 ADS stream 并使在途工作失效。
@@ -377,18 +377,18 @@ resource store、node ownership、delivery quorum 和 ADS session 分离，避�
 
 #### Sandbox 与 transport adapter
 
-| 模块 | 拥有的能力 | 明确不拥有 |
-|---|---|---|
-| `src/sandbox/provider.rs` | 可替换 create/start/stop/destroy/status/exec/file 生命周期与 capability 端口 | 不做 PostgreSQL generation 转换，不访问 xDS authority |
-| `src/sandbox/docker.rs` | Docker container、mount、socket 与 runtime facts | 不直接发布/删除 xDS resource |
-| `src/sandbox/k8s.rs` | Pod/PVC/spec 生命周期、节点本地 socket 目录清理与 watcher 装配 | 不判断 ownership，不修改 xDS state |
-| `src/sandbox/pod_watcher.rs` | 观察 Kubernetes Pod 并发出中立 `PlacementEvent` | 不依赖 `XdsControlPlane` 或 policy application |
-| `src/sandbox/runtime.rs` | socket preparation、placement event 的小型基础设施端口 | 不包含 provider/xDS 实现 |
-| `src/sandbox/envoy.rs` | `NetworkPolicyRuntime` adapter：socket 准备、模型批处理、等待 delivery | 不拥有 desired policy、durable generation 或 ADS protocol state |
-| `src/sandbox/envoy_render/{json,proto}.rs` | 把已验证 listener/cluster spec 纯转换为 Envoy JSON/protobuf | 无 I/O、DB、authority、delivery 或 provider lifecycle |
-| `src/sandbox/envoy_delivery.rs` | provider-facing `EnvoyDelivery` 端口及 `XdsControlPlane` adapter | 不做 desired-policy 决策，不隐式推断 owner |
-| `src/sandbox/envoy_filesystem.rs` | 受限的本地 filesystem delivery adapter | 不宣称支持非空原子恢复或完整 CDS/LDS 语义 |
-| `src/grpc/server.rs` | Runner `AgentBridge` 认证、stream 协议、执行/控制消息 | 不承载 ADS、不选举 authority、不修改 xDS resource state |
+| 模块                                       | 拥有的能力                                                                   | 明确不拥有                                                      |
+| ------------------------------------------ | ---------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `src/sandbox/provider.rs`                  | 可替换 create/start/stop/destroy/status/exec/file 生命周期与 capability 端口 | 不做 PostgreSQL generation 转换，不访问 xDS authority           |
+| `src/sandbox/docker.rs`                    | Docker container、mount、socket 与 runtime facts                             | 不直接发布/删除 xDS resource                                    |
+| `src/sandbox/k8s.rs`                       | Pod/PVC/spec 生命周期、节点本地 socket 目录清理与 watcher 装配               | 不判断 ownership，不修改 xDS state                              |
+| `src/sandbox/pod_watcher.rs`               | 观察 Kubernetes Pod 并发出中立 `PlacementEvent`                              | 不依赖 `XdsControlPlane` 或 policy application                  |
+| `src/sandbox/runtime.rs`                   | socket preparation、placement event 的小型基础设施端口                       | 不包含 provider/xDS 实现                                        |
+| `src/sandbox/envoy.rs`                     | `NetworkPolicyRuntime` adapter：socket 准备、模型批处理、等待 delivery       | 不拥有 desired policy、durable generation 或 ADS protocol state |
+| `src/sandbox/envoy_render/{json,proto}.rs` | 把已验证 listener/cluster spec 纯转换为 Envoy JSON/protobuf                  | 无 I/O、DB、authority、delivery 或 provider lifecycle           |
+| `src/sandbox/envoy_delivery.rs`            | provider-facing `EnvoyDelivery` 端口及 `XdsControlPlane` adapter             | 不做 desired-policy 决策，不隐式推断 owner                      |
+| `src/sandbox/envoy_filesystem.rs`          | 受限的本地 filesystem delivery adapter                                       | 不宣称支持非空原子恢复或完整 CDS/LDS 语义                       |
+| `src/grpc/server.rs`                       | Runner `AgentBridge` 认证、stream 协议、执行/控制消息                        | 不承载 ADS、不选举 authority、不修改 xDS resource state         |
 
 Kubernetes placement 链路刻意采用依赖反转：watcher 只发 `PlacementEvent`，bootstrap factory 安装 handler，
 再把事件映射到 `XdsControlPlane` ownership 调用。这样 Kubernetes facts 可替换，provider 也拿不到 xDS context。
@@ -405,16 +405,16 @@ toolset 生成默认 Deny，显式启用的具体工具仍可按 toolset 权限�
 Runner adapter 保留同样校验作为进程内最后防线，而不是第二套策略来源。重复 builtin toolset、同一 server 的重复
 MCP toolset、同一 toolset 内重复 selector 以及重复 custom tool 名称均明确拒绝，不依赖顺序或 adapter 猜测。
 
-| 阶段 | 归属 | 输入 → 输出 | 失败归属 |
-|---|---|---|---|
-| Agent 命令校验 | Python `AgentConfigurationPolicy` | 类型化请求 + MCP 声明 → 可持久化且无歧义的工具配置 | PostgreSQL 变更前拒绝重复 toolset/selector/custom 名称和未声明 MCP 引用 |
-| 执行快照 | PostgreSQL + `run_spec.rs` | 版本化 Agent/Environment → 不可变任务视图 | 拒绝非法 typed ID/快照覆盖；快照已有字段不回退到 live 可变状态 |
-| 授权编译 | `kernel/tool_policy.rs` | 快照 `tools` JSON → provider-neutral `ToolPolicy` | 统一拥有继承、enabled/disabled、selector 唯一性和 fail-closed 解析 |
-| MCP 规划 | `kernel/mcp_runtime_plan.rs` | 声明 + 已授权凭据元数据 + 网络模式 → Runner 安全配置 + Envoy 路由 | 拥有 transport/auth 匹配和秘密落点，不决定工具授权 |
-| 引擎兼容性 | `kernel/engine_adapter.rs` | engine + 已编译策略 + 能力投影 → 可执行/不可执行 | 拒绝 runtime 无法落实的组合；Skill、MCP、custom tool 是独立能力 |
-| Harness 编排 | `kernel/harness_input_builder.rs` | 不可变投影 → 请求局部 `HarnessInput` | 只编排子流程，在模型秘密暴露前校验能力，并执行最终 generation fence |
-| 传输与执行 | `grpc/harness_projection.rs` → Runner decoder → runtime adapter | `HarnessInput` → protobuf → 原生 runtime 配置 | gRPC 只序列化；Runner 拒绝缺失/未知 wire 值；adapter 保留本地最终防线 |
-| 事件分类 | `events/mapping.rs` | runtime 工具名 + 不可变声明名称集合 → session event 类型 | 识别 `mcp__<server>__<tool>`，未知 server 不会被扩权为 MCP 事件 |
+| 阶段           | 归属                                                            | 输入 → 输出                                                       | 失败归属                                                                |
+| -------------- | --------------------------------------------------------------- | ----------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| Agent 命令校验 | Python `AgentConfigurationPolicy`                               | 类型化请求 + MCP 声明 → 可持久化且无歧义的工具配置                | PostgreSQL 变更前拒绝重复 toolset/selector/custom 名称和未声明 MCP 引用 |
+| 执行快照       | PostgreSQL + `run_spec.rs`                                      | 版本化 Agent/Environment → 不可变任务视图                         | 拒绝非法 typed ID/快照覆盖；快照已有字段不回退到 live 可变状态          |
+| 授权编译       | `kernel/tool_policy.rs`                                         | 快照 `tools` JSON → provider-neutral `ToolPolicy`                 | 统一拥有继承、enabled/disabled、selector 唯一性和 fail-closed 解析      |
+| MCP 规划       | `kernel/mcp_runtime_plan.rs`                                    | 声明 + 已授权凭据元数据 + 网络模式 → Runner 安全配置 + Envoy 路由 | 拥有 transport/auth 匹配和秘密落点，不决定工具授权                      |
+| 引擎兼容性     | `kernel/engine_adapter.rs`                                      | engine + 已编译策略 + 能力投影 → 可执行/不可执行                  | 拒绝 runtime 无法落实的组合；Skill、MCP、custom tool 是独立能力         |
+| Harness 编排   | `kernel/harness_input_builder.rs`                               | 不可变投影 → 请求局部 `HarnessInput`                              | 只编排子流程，在模型秘密暴露前校验能力，并执行最终 generation fence     |
+| 传输与执行     | `grpc/harness_projection.rs` → Runner decoder → runtime adapter | `HarnessInput` → protobuf → 原生 runtime 配置                     | gRPC 只序列化；Runner 拒绝缺失/未知 wire 值；adapter 保留本地最终防线   |
+| 事件分类       | `events/mapping.rs`                                             | runtime 工具名 + 不可变声明名称集合 → session event 类型          | 识别 `mcp__<server>__<tool>`，未知 server 不会被扩权为 MCP 事件         |
 
 Kubernetes socket 存储遵循同一归属规则：sandbox initContainer 在 Runner 启动前创建 UUID 作用域的节点
 本地 hostPath 目录；不可恢复的 Pod 停止或销毁时，由 Kubernetes provider 通过每个节点上的 Envoy
@@ -454,15 +454,15 @@ timeout 负责终态失败，因此 placement 缺失在 xDS 边界失败，不�
 
 ### Runner → Orchestrator（`RunnerMessage`）
 
-| 消息 | 含义 |
-|---|---|
-| `RunnerReady` | 首条消息；携带 `sandbox_id`、`runner_token`（HMAC 校验）、可用 provider、重连状态 |
-| `RunnerHarnessEvent` | 实时事件流（见下） |
-| `RunnerHarnessResult` | 终态结果：`status`、`output`、`error`、`TokenUsage`（含按模型细分）、`duration_ms` |
-| `RunnerHeartbeat` | 存活（任何消息都会重置心跳期限；120s 超时） |
-| `RunnerIdle` | harness 进入空闲；把 `harness_session_id` / `work_dir` 持久化回会话 |
-| `MemoryFileSync` | Agent 在沙箱内写了 memory 文件 → 同步回来 |
-| `SandboxSetupResult` | 对单个 `setup_id` 与运行时配置 generation 的关联结果；成功时原子携带该 generation 的不可变 Skill 物化回执 |
+| 消息                  | 含义                                                                                                      |
+| --------------------- | --------------------------------------------------------------------------------------------------------- |
+| `RunnerReady`         | 首条消息；携带 `sandbox_id`、`runner_token`（HMAC 校验）、可用 provider、重连状态                         |
+| `RunnerHarnessEvent`  | 实时事件流（见下）                                                                                        |
+| `RunnerHarnessResult` | 终态结果：`status`、`output`、`error`、`TokenUsage`（含按模型细分）、`duration_ms`                        |
+| `RunnerHeartbeat`     | 存活（任何消息都会重置心跳期限；120s 超时）                                                               |
+| `RunnerIdle`          | harness 进入空闲；把 `harness_session_id` / `work_dir` 持久化回会话                                       |
+| `MemoryFileSync`      | Agent 在沙箱内写了 memory 文件 → 同步回来                                                                 |
+| `SandboxSetupResult`  | 对单个 `setup_id` 与运行时配置 generation 的关联结果；成功时原子携带该 generation 的不可变 Skill 物化回执 |
 
 **`RunnerHarnessEvent`** 携带 `seq` + `timestamp_ms` + 一个 `oneof`：
 `TextEvent` · `ThinkingEvent` · `ToolUseEvent`（`tool`、`call_id`、`input_json`、
@@ -473,14 +473,14 @@ token/tool 指标）。
 
 ### Orchestrator → Runner（`OrchestratorMessage`）
 
-| 消息 | 载荷 |
-|---|---|
-| `SetupSandbox` | generation 级沙箱准备：稳定的 `skills[]`、`mcp_servers[]`、`custom_tools[]`、`setup_commands[]`、`memory_mounts[]`、`repos[]`、工具策略、`provider`、`model`、env、`setup_id` 与 `runtime_config_generation` |
-| `StartTask` | 引用已应用 `runtime_config_generation` 的权威任务快照：`task_id`、prompt/system prompt、provider/model、执行限制、env、任务级 `mcp_servers`/`repos`/`custom_tools`、工具策略及 `files[]`/`file_refs[]`；不再运输或物化 Skill |
-| `CancelTask` | `reason` |
-| `SendInput` | `content`（控制请求回复 / 中断注入） |
-| `Shutdown` | `reason` |
-| `MemoryFileUpdate` | 把 memory-store 文件变更推入沙箱 |
+| 消息               | 载荷                                                                                                                                                                                                                         |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SetupSandbox`     | generation 级沙箱准备：稳定的 `skills[]`、`mcp_servers[]`、`custom_tools[]`、`setup_commands[]`、`memory_mounts[]`、`repos[]`、工具策略、`provider`、`model`、env、`setup_id` 与 `runtime_config_generation`                 |
+| `StartTask`        | 引用已应用 `runtime_config_generation` 的权威任务快照：`task_id`、prompt/system prompt、provider/model、执行限制、env、任务级 `mcp_servers`/`repos`/`custom_tools`、工具策略及 `files[]`/`file_refs[]`；不再运输或物化 Skill |
+| `CancelTask`       | `reason`                                                                                                                                                                                                                     |
+| `SendInput`        | `content`（控制请求回复 / 中断注入）                                                                                                                                                                                         |
+| `Shutdown`         | `reason`                                                                                                                                                                                                                     |
+| `MemoryFileUpdate` | 把 memory-store 文件变更推入沙箱                                                                                                                                                                                             |
 
 > 协议不再提供通用 `secrets` map。受管 MCP 凭据与受限网络模式下的模型凭据停留在 Envoy
 > 边界；非受限网络模式的模型凭据只通过沙箱创建 env 提供；仓库克隆凭据使用窄化且仅限 clone 的
@@ -512,12 +512,12 @@ stage 只拥有自己的 harness 包和 entrypoint。`deploy.sh` 只选择 targe
 
 一个 Cargo workspace（edition 2024，tonic/prost gRPC）。四个 crate：
 
-| Crate | 角色 |
-|---|---|
-| `joysafeter-types` | 共享类型 + `HarnessAdapter` trait SPI（`start`/`cancel`/`send_input`/`provider`/`is_available`）、`HarnessInput`、`HarnessEvent`（镜像 proto oneof） |
-| `joysafeter-runtime` | `AdapterRegistry` + 具体引擎适配器（claude / codex / native / pi / mock） |
-| `joysafeter-runner` | 沙箱内二进制，向 orchestrator 讲 gRPC `AgentBridge` |
-| `joysafeter-ctl` | `joysafeterctl` 运维/开发 CLI（声明式 REST 客户端） |
+| Crate                | 角色                                                                                                                                                 |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `joysafeter-types`   | 共享类型 + `HarnessAdapter` trait SPI（`start`/`cancel`/`send_input`/`provider`/`is_available`）、`HarnessInput`、`HarnessEvent`（镜像 proto oneof） |
+| `joysafeter-runtime` | `AdapterRegistry` + 具体引擎适配器（claude / codex / native / pi / mock）                                                                            |
+| `joysafeter-runner`  | 沙箱内二进制，向 orchestrator 讲 gRPC `AgentBridge`                                                                                                  |
+| `joysafeter-ctl`     | `joysafeterctl` 运维/开发 CLI（声明式 REST 客户端）                                                                                                  |
 
 runner 从 env 启动（`JOYSAFETER_ORCHESTRATOR_URL`、`JOYSAFETER_SANDBOX_ID`、`JOYSAFETER_RUNNER_TOKEN`），
 拨号 orchestrator（TCP 或经 Envoy 的 unix socket），发送 `RunnerReady`，并服务
@@ -525,24 +525,24 @@ runner 从 env 启动（`JOYSAFETER_ORCHESTRATOR_URL`、`JOYSAFETER_SANDBOX_ID`�
 命令、克隆 repo、写 `.claude/settings.json`（MCP + 工具 + 工具规则）、构建 `HarnessInput`，把 harness
 作为常驻子进程拉起：
 
-| `provider` | 适配器 | 拉起 | 协议 |
-|---|---|---|---|
-| `claude` | `ClaudeAdapter` | `claude` CLI | stdin/stdout 上的 stream-json，`--permission-prompt-tool stdio` |
-| `codex` | `CodexAdapter` | `codex app-server --listen stdio://` | JSON-RPC |
-| `native` | `NativeAdapter` | **`ccb`** 二进制 | claude 风格 stream-json——自研 "Harness-Core" 引擎（仅在 Rust runner 侧为独立引擎） |
-| `pi` | `PiAdapter` | `pi` CLI | 按 provider 配置选择 OpenAI Responses / Chat Completions / Anthropic messages |
-| `mock` | `MockAdapter` | 测试替身 | 由 env 开关 |
+| `provider` | 适配器          | 拉起                                 | 协议                                                                               |
+| ---------- | --------------- | ------------------------------------ | ---------------------------------------------------------------------------------- |
+| `claude`   | `ClaudeAdapter` | `claude` CLI                         | stdin/stdout 上的 stream-json，`--permission-prompt-tool stdio`                    |
+| `codex`    | `CodexAdapter`  | `codex app-server --listen stdio://` | JSON-RPC                                                                           |
+| `native`   | `NativeAdapter` | **`ccb`** 二进制                     | claude 风格 stream-json——自研 "Harness-Core" 引擎（仅在 Rust runner 侧为独立引擎） |
+| `pi`       | `PiAdapter`     | `pi` CLI                             | 按 provider 配置选择 OpenAI Responses / Chat Completions / Anthropic messages      |
+| `mock`     | `MockAdapter`   | 测试替身                             | 由 env 开关                                                                        |
 
 ### 6.3 沙箱 provider（`app/joysafeter_orchestrator_rs/src/sandbox/`）
 
 由 `JOYSAFETER_SANDBOX_PROVIDER` 选择（默认 `docker`）。SPI：`SandboxProvider`
 （`create/start/stop/destroy/status/exec/inject_files/setup_networking/...`）。
 
-| Provider | 后端 | 说明 |
-|---|---|---|
-| **Docker** | 本地 `aiodocker` | 默认。挂载 `work_dir:/workspace`，memory 挂到 `/mnt/memory/<name>`。加固：`CapDrop ALL`、no-new-privileges、PidsLimit、非 root。受限网络 → `NetworkMode=none` + Envoy unix socket |
-| **E2B** | E2B REST（Firecracker VM） | 需 `E2B_API_KEY` + `E2B_TEMPLATE_ID` |
-| **Daytona** | Daytona REST | 需 `DAYTONA_API_URL` + `DAYTONA_API_KEY` |
+| Provider    | 后端                       | 说明                                                                                                                                                                              |
+| ----------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Docker**  | 本地 `aiodocker`           | 默认。挂载 `work_dir:/workspace`，memory 挂到 `/mnt/memory/<name>`。加固：`CapDrop ALL`、no-new-privileges、PidsLimit、非 root。受限网络 → `NetworkMode=none` + Envoy unix socket |
+| **E2B**     | E2B REST（Firecracker VM） | 需 `E2B_API_KEY` + `E2B_TEMPLATE_ID`                                                                                                                                              |
+| **Daytona** | Daytona REST               | 需 `DAYTONA_API_URL` + `DAYTONA_API_KEY`                                                                                                                                          |
 
 **Envoy** 给每个沙箱独立网络命名空间、无直接出口：runner 经 unix-socket gRPC 管道触达 orchestrator，
 所有出站 HTTP 都经过带**默认全拒域名白名单**的 Envoy listener。模块边界固定如下：
@@ -638,19 +638,19 @@ token；确认所有 Envoy 已重连且鉴权/拒绝指标正常后，再移除�
 
 ### 7.1 核心实体
 
-| 实体 | 表 | 角色 |
-|---|---|---|
-| `JoySafeterAgent` | `joysafeter_agents` | Agent 定义。能力（`skills`、`tools`、`mcp_servers`、`model`、`agents`、`commands`）以 **JSONB 反范式**存在行上，非 join 表。经 `joysafeter_agent_versions` 版本化 |
-| `JoySafeterSession` | `joysafeter_sessions` | 会话/线程。累计 token 用量；创建时快照 Agent |
-| `JoySafeterSessionEvent` | `joysafeter_session_events` | **追加式事件日志**，`unique(session_id, seq)`。即持久化的事件流 |
-| `JoySafeterTask` | `joysafeter_tasks` | 运行/执行单元。经 `chat_session_id` 关联会话 |
-| `JoySafeterSandbox` | `joysafeter_sandboxes` | 沙箱生命周期记录；每会话 ≤1 个活跃沙箱 |
-| `JoySafeterCredential` | `joysafeter_credentials` | 统一的模型、服务和 MCP 凭据；值使用 **AES-256-GCM 加密**，仅在授权运行时按字段解密 |
-| `JoySafeterCredentialGroup` | `joysafeter_credential_groups` | 项目级 MCP 凭据分组；会话绑定位于 `joysafeter_session_credential_groups` |
-| `JoySafeterSkill`（+ 版本、文件、扫描、协作者、用量） | `joysafeter_skills*` | 完整技能子系统：四级可见性、生命周期 FSM、安全扫描、版本快照 |
-| `JoySafeterMemoryStore` / `Memory` / `MemoryVersion` | `joysafeter_memory*` | Agent 可写 KV 存储，带追加式版本历史 |
-| `JoySafeterFile` / `SessionFile` / `SessionRepo` | `joysafeter_files*` | 挂入会话的上传文件与 git repo |
-| 身份 | `joysafeter_users`、`_auth_sessions`、`_oauth_account`、`_organizations`、`_organization_members`、`_organization_projects`、`_project_members`、`_api_keys` | 用户、会话、OAuth 关联、组织、项目、成员、API key |
+| 实体                                                  | 表                                                                                                                                                           | 角色                                                                                                                                                              |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JoySafeterAgent`                                     | `joysafeter_agents`                                                                                                                                          | Agent 定义。能力（`skills`、`tools`、`mcp_servers`、`model`、`agents`、`commands`）以 **JSONB 反范式**存在行上，非 join 表。经 `joysafeter_agent_versions` 版本化 |
+| `JoySafeterSession`                                   | `joysafeter_sessions`                                                                                                                                        | 会话/线程。累计 token 用量；创建时快照 Agent                                                                                                                      |
+| `JoySafeterSessionEvent`                              | `joysafeter_session_events`                                                                                                                                  | **追加式事件日志**，`unique(session_id, seq)`。即持久化的事件流                                                                                                   |
+| `JoySafeterTask`                                      | `joysafeter_tasks`                                                                                                                                           | 运行/执行单元。经 `chat_session_id` 关联会话                                                                                                                      |
+| `JoySafeterSandbox`                                   | `joysafeter_sandboxes`                                                                                                                                       | 沙箱生命周期记录；每会话 ≤1 个活跃沙箱                                                                                                                            |
+| `JoySafeterCredential`                                | `joysafeter_credentials`                                                                                                                                     | 统一的模型、服务和 MCP 凭据；值使用 **AES-256-GCM 加密**，仅在授权运行时按字段解密                                                                                |
+| `JoySafeterCredentialGroup`                           | `joysafeter_credential_groups`                                                                                                                               | 项目级 MCP 凭据分组；会话绑定位于 `joysafeter_session_credential_groups`                                                                                          |
+| `JoySafeterSkill`（+ 版本、文件、扫描、协作者、用量） | `joysafeter_skills*`                                                                                                                                         | 完整技能子系统：四级可见性、生命周期 FSM、安全扫描、版本快照                                                                                                      |
+| `JoySafeterMemoryStore` / `Memory` / `MemoryVersion`  | `joysafeter_memory*`                                                                                                                                         | Agent 可写 KV 存储，带追加式版本历史                                                                                                                              |
+| `JoySafeterFile` / `SessionFile` / `SessionRepo`      | `joysafeter_files*`                                                                                                                                          | 挂入会话的上传文件与 git repo                                                                                                                                     |
+| 身份                                                  | `joysafeter_users`、`_auth_sessions`、`_oauth_account`、`_organizations`、`_organization_members`、`_organization_projects`、`_project_members`、`_api_keys` | 用户、会话、OAuth 关联、组织、项目、成员、API key                                                                                                                 |
 
 持久化模式：auth/skills 有一个薄 `BaseRepository[T]`，但大多数服务直接对每请求的 `AsyncSession` 下 SQLAlchemy
 语句并在服务方法内 commit（无 unit-of-work）。
@@ -659,12 +659,12 @@ token；确认所有 Envoy 已重连且鉴权/拒绝指标正常后，再移除�
 
 四个不同 FSM 治理生命周期。转移带守卫（条件式 `UPDATE ... WHERE status = ...` 或 advisory-lock），并发写入不会破坏状态。
 
-| FSM | 实体 | 状态 | 终态 |
-|---|---|---|---|
-| **Task** | `JoySafeterTask` | `pending → scheduling → running → {completed, failed, aborted, timeout, cancelled}`（+ retry → `pending`） | 5 个结果 |
-| **Session** | `JoySafeterSession` | `idle ↔ running ↔ rescheduling`，任意 → `terminated` | `terminated`（可再激活） |
-| **Sandbox** | `JoySafeterSandbox` | `creating → provisioning → pooled → idle ↔ running → stopping → stopped / error → destroyed` | `destroyed` |
-| **技能生命周期** | `JoySafeterSkill` | `draft → pending_review → {approved, rejected}`、`approved → archived`、reopen/unarchive 边 | — |
+| FSM              | 实体                | 状态                                                                                                       | 终态                     |
+| ---------------- | ------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------ |
+| **Task**         | `JoySafeterTask`    | `pending → scheduling → running → {completed, failed, aborted, timeout, cancelled}`（+ retry → `pending`） | 5 个结果                 |
+| **Session**      | `JoySafeterSession` | `idle ↔ running ↔ rescheduling`，任意 → `terminated`                                                       | `terminated`（可再激活） |
+| **Sandbox**      | `JoySafeterSandbox` | `creating → provisioning → pooled → idle ↔ running → stopping → stopped / error → destroyed`               | `destroyed`              |
+| **技能生命周期** | `JoySafeterSkill`   | `draft → pending_review → {approved, rejected}`、`approved → archived`、reopen/unarchive 边                | —                        |
 
 发布版本要求当前 Skill 为 `approved`。版本发布后，Agent 引用、运行时打包和晋级只依赖不可变的已发布
 版本，不再回查父 Skill 后续的生命周期或扫描状态。
@@ -712,29 +712,29 @@ authoring 的草稿文件在持久化前没有实体身份，禁止用空字符�
 `joysafeter.agent_execution_snapshot.v2`；更早的字段与快照 schema 必须在部署前由迁移完成重写，
 运行时读取器直接拒绝，不再桥接。
 
-| 分组 | 前缀 | 要点 |
-|---|---|---|
-| **Auth** | `/auth` | 注册/登录、登出、refresh、密码重置、邮箱验证、`ws-token`、`switch-context`、projects、api-keys、members |
-| **OAuth / SSO** | `/auth/oauth` | provider 列表、authorize、callback、账号关联/解绑 |
-| **Agents** | `/agents` | CRUD、archive、versions、`/tasks`、`/sessions` |
-| **Tasks** | `/tasks` | 创建+入队、列表、获取、取消、**WS** `/tasks/{id}/stream` |
-| **Sessions** | `/sessions` | CRUD、archive、stop、`POST /events`（发送）、`GET /events`（历史）、**SSE** `/events/stream`、resources（文件/repo） |
-| **Triggers** | `/triggers` | Cron/webhook 触发器 CRUD、手动 `/run`、运行历史、入站 `/webhook`（含签名 `/webhook-sample`、`/test`） |
-| **Environments** | `/environments` | 沙箱镜像/配置 CRUD |
-| **Credentials** | `/credentials` | 模型连接、服务凭据、MCP 成员、生命周期、连通性测试、引用与默认选择 |
-| **Credential groups** | `/credential-groups` | MCP 凭据分组、生命周期、成员关系与引用 |
-| **LLM** | `/llm` | 模型 `/catalog`（OpenAI 兼容 provider 模型） |
-| **Skills** | `/skills` | CRUD、`import-zip`、files、versions、security-scans、生命周期转移、admin 重扫 |
-| **Skills AI 创作** | `/skills/ai-authoring` | **SSE** `/chat`（LLM 创作回合）、`/save-draft` |
-| **Sandboxes** | `/sandboxes` | 列表、获取、停止 |
-| **Network policies** | `/network-policies` | 出口 `/diagnostics`、按会话策略 `/sessions/{id}` |
-| **Memory stores** | `/memory_stores` | store + memory CRUD、versions、redact；沙箱 memory sync 经 Rust runtime 中继 |
-| **Files** | `/files` | 上传、列表、元数据、下载、删除 |
-| **Storage volumes** | `/storage-volumes` | 卷 `/catalog` + CRUD、项目与组织授权、`/audit/logs` |
-| **Organizations** | `/organizations` | 组织 + 成员 CRUD、transfer-ownership |
-| **Analytics** | `/analytics` | 用量分析：汇总、时序、引擎占比、调用、Agent 对比/排名、时延/错误统计 |
-| **Quickstart** | `/quickstart` | **SSE** `/chat`——引导式 onboarding LLM 代理 |
-| **Health** | `/health` | API 对 PostgreSQL 与已配置 Redis 的就绪检查及存活；不推断 orchestrator 成员或 xDS readiness |
+| 分组                  | 前缀                   | 要点                                                                                                                 |
+| --------------------- | ---------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **Auth**              | `/auth`                | 注册/登录、登出、refresh、密码重置、邮箱验证、`ws-token`、`switch-context`、projects、api-keys、members              |
+| **OAuth / SSO**       | `/auth/oauth`          | provider 列表、authorize、callback、账号关联/解绑                                                                    |
+| **Agents**            | `/agents`              | CRUD、archive、versions、`/tasks`、`/sessions`                                                                       |
+| **Tasks**             | `/tasks`               | 创建+入队、列表、获取、取消、**WS** `/tasks/{id}/stream`                                                             |
+| **Sessions**          | `/sessions`            | CRUD、archive、stop、`POST /events`（发送）、`GET /events`（历史）、**SSE** `/events/stream`、resources（文件/repo） |
+| **Triggers**          | `/triggers`            | Cron/webhook 触发器 CRUD、手动 `/run`、运行历史、入站 `/webhook`（含签名 `/webhook-sample`、`/test`）                |
+| **Environments**      | `/environments`        | 沙箱镜像/配置 CRUD                                                                                                   |
+| **Credentials**       | `/credentials`         | 模型连接、服务凭据、MCP 成员、生命周期、连通性测试、引用与默认选择                                                   |
+| **Credential groups** | `/credential-groups`   | MCP 凭据分组、生命周期、成员关系与引用                                                                               |
+| **LLM**               | `/llm`                 | 模型 `/catalog`（OpenAI 兼容 provider 模型）                                                                         |
+| **Skills**            | `/skills`              | CRUD、`import-zip`、files、versions、security-scans、生命周期转移、admin 重扫                                        |
+| **Skills AI 创作**    | `/skills/ai-authoring` | **SSE** `/chat`（LLM 创作回合）、`/save-draft`                                                                       |
+| **Sandboxes**         | `/sandboxes`           | 列表、获取、停止                                                                                                     |
+| **Network policies**  | `/network-policies`    | 出口 `/diagnostics`、按会话策略 `/sessions/{id}`                                                                     |
+| **Memory stores**     | `/memory_stores`       | store + memory CRUD、versions、redact；沙箱 memory sync 经 Rust runtime 中继                                         |
+| **Files**             | `/files`               | 上传、列表、元数据、下载、删除                                                                                       |
+| **Storage volumes**   | `/storage-volumes`     | 卷 `/catalog` + CRUD、项目与组织授权、`/audit/logs`                                                                  |
+| **Organizations**     | `/organizations`       | 组织 + 成员 CRUD、transfer-ownership                                                                                 |
+| **Analytics**         | `/analytics`           | 用量分析：汇总、时序、引擎占比、调用、Agent 对比/排名、时延/错误统计                                                 |
+| **Quickstart**        | `/quickstart`          | JSON `/recommendations` 提供确定性规划；**SSE** `/chat` 仅负责 Agent 设计                                            |
+| **Health**            | `/health`              | API 对 PostgreSQL 与已配置 Redis 的就绪检查及存活；不推断 orchestrator 成员或 xDS readiness                          |
 
 ---
 
@@ -750,7 +750,48 @@ quickstart）。**Agent 工作负载的模型流量委托给沙箱内的 CLI har
 因此真实的模型路由、重试与回退位于 runner 和 CLI 中，而非 Python。模型配置与凭据是 DB 驱动的
 （`joysafeter_credentials`，加密），经统一 Credentials UI 管理。
 
-### 9.2 技能——能力层
+### 9.2 Quickstart——单一有界能力
+
+Quickstart 在后端契约和前端状态中统一采用四阶段模型：
+`understand → design → secure → prove`。编号子步骤只用于界面组织，不能进入 API 协议。
+
+- `joysafeter_domain.quickstart` 统一拥有阶段词汇、引擎就绪度与安全策略。
+- `joysafeter_application.quickstart` 是唯一 Quickstart 用例所有者：推荐服务组合模型目录、项目级模型连接与确定性规则；设计服务统一拥有模型 prompt、tool schema，以及从 provider-neutral 模型事件到 Quickstart 标准事件的转换。
+- `POST /api/v1/quickstart/recommendations` 通过唯一受支持的
+  `quickstart_recommendation.v4` 契约只读地提供 `understand` 与 `secure` 决策；冻结契约包含完整
+  Pydantic JSON Schema，并通过精确一致性测试防止漂移。
+- Secure 推荐以最终通过校验的 Agent 草稿为权威来源，仅在草稿不存在时回退到历史意图。每个远程
+  MCP Server 中仅需要凭据的 `required` 或 `optional` 项会投影 `name`、`url` 与
+  `auth_requirement`；本地 MCP 和无需认证的 MCP 不产生 Credential Group 推荐。
+- Quickstart Agent 草稿直接复用 Agent 的标准 `McpServerConfig` 判别联合类型；不接受 MCP map
+  或已移除的 `type=url` 别名，Design 工具 schema 与 Agent 创建、更新请求使用同一个 MCP 模型生成。
+- `POST /api/v1/quickstart/chat` 仅服务创造性的 `design` 阶段，并输出
+  `phase=design`、`artifact=agent_blueprint` 的 SSE 事件；API 适配层只负责请求校验、凭据解析和 SSE 编码，不解释 prompt 或模型事件；它不创建资源，也不伪造资源创建 curl。
+- Agent、Environment、Credential Group 与 Session 仍由各自稳定 REST 资源负责生命周期；Quickstart 只编排，不成为第二个资源所有者。
+- Fast 与 Expert 只是同一状态的两种呈现，必须消费同一后端推荐，前端不得再维护独立推荐引擎。
+  前端拒绝畸形响应，原子创建所有需要凭据的 MCP 成员，并仅根据所选 Environment 的真实网络策略、
+  实际 Agent MCP 配置与 Credential Group 活跃成员声明启动就绪；资源 ID 本身不是控制已落实的证据。
+  Agent curl 只在运行时与模型凭据已确定后，使用最终 REST 创建请求体生成。
+- 前端 `useQuickstartController` 统一拥有流程进度、设计流生命周期、资源创建编排与已创建资源身份；阶段专用 hook 只拥有局部交互状态和派生展示数据；页面负责组合这些 owner，并可编排稳定 client，但不得定义 wire contract。
+- `quickstart-flow.ts` 统一定义步骤身份与阶段归属；`quickstart-resource-contract.ts` 是资源步骤到 REST 路径及强类型资源 ID 解析器的唯一映射。组件和 controller 必须消费该映射，不得重复定义。
+- `quickstart-task-client.ts` 统一拥有最新 trial Task 的请求路径、带作用域 query identity 与响应投影；其 parser 必须把游标 envelope 委托给 `cursor-page.ts`。Quickstart 页面不得自行拼装 `/tasks` URL，也不得只校验部分分页元数据。
+- `session-client.ts` 统一拥有前端稳定 Session 创建、读取、全局与 Agent 维度列表分页、事件、停止与归档 REST 契约，以及带作用域的标准 query identity。Quickstart、Agent、Trigger 与 Session 页面只编排 UI 状态，不得重复构造这些 transport payload、响应解析器或缓存身份；Trigger 的 Session 选择器消费完整的 Agent 维度活跃 Session 目录，不得固定只取首屏。
+- `session-resource-client.ts` 统一拥有持久化 Session 挂载资源的 CRUD 与 query identity；`session-sandbox-client.ts` 独立拥有运行时 sandbox 文件浏览和下载 transport。UI 组件不得重复构造这两类 wire contract。
+- `environment-client.ts` 统一拥有完整的活跃 Environment 选项目录，包括 `/environments` transport、强类型响应解析、游标遍历、归档记录排除，以及通过 `useManagedEnvironmentOptions` 暴露的唯一带作用域 React Query identity。Environment 管理页消费同一 client 的分页列表 source；Quickstart、Agent、Trigger 与 Session 选择器只能消费 options hook，不得各自定义 Environment 列表 transport、parser 或缓存键。Environment 与 Session 页面使用同一 client 提供的详情读取和项目级 query identity。
+- `agent-client.ts` 统一拥有强类型 Agent 列表分页与完整的活跃 Agent 选项目录。Agent 管理页消费其分页 source，Session、Trigger 与 Analytics 选择器消费 `useManagedAgentOptions`；这些消费者均不得自行拥有 `/agents` 列表 transport 或列表解析。Agent 详情、编辑、Session 以及 Quickstart 的缓存访问共享 client 定义的详情 query identity，不得引入页面级或 Session 级变体。Agent 版本历史同样归该 client 所有，并完整遍历接口的数字 `before_version` 游标；Agent 与 Session 视图共享同一个项目级版本历史缓存。
+- `credential-group-client.ts` 统一拥有强类型 Credential Group 列表分页与完整的活跃选项目录。Credential Group 管理列表消费其分页 source，Quickstart 与 Session 选择器消费 `useManagedCredentialGroupOptions` 并共享唯一的作用域缓存身份；同一 client 还拥有 Credential Group 详情及其非分页成员集合。授权消费者必须显式读取 active members，只有管理详情可按需包含归档成员。
+- `credential-client.ts` 统一拥有 Credential 创建、读取、更新、删除、连通性测试、设默认、归档/恢复、严格响应解析、强类型列表分页，以及完整的活跃 Service/Model Credential 目录，包括兼容性筛选和标准详情/列表/选择器 query identity。UI 组件只保留权限感知的编排与过期动作保护，不得重复拼装 `/credentials` 路径、请求体、解析器或缓存身份。
+- `skill-client.ts` 统一拥有强类型 Skill 列表分页、完整选项目录与已发布版本遍历、详情/文件/版本文件/安全历史/使用记录读取，以及所有稳定的非流式 Skill 写契约：创建/导入/更新/删除、文件 CRUD、版本发布/删除/恢复、晋级/下架、生命周期转换、安全扫描访问与 AI 创作草稿保存。Skill REST 路径、payload、响应解析、mutation 超时策略和标准 query identity 只能在该 client 中定义。页面与组件只保留校验、过期动作保护、缓存失效、权限感知展示及多调用编排；AI 创作 hook 额外拥有 SSE 对话和发布/轮询状态机，但其中每个稳定 REST 步骤都必须消费共享 client，不得重新拼接 endpoint。
+- `file-client.ts` 统一拥有强类型 File 列表分页与完整 File 选项目录遍历。File 管理页消费其分页 source，Session 创建与持久文件挂载消费 `useManagedFileOptions`；上传、删除与 Session 挂载决策仍由原有边界负责。
+- `memory-store-client.ts` 统一拥有强类型 Memory Store 列表分页、完整活跃选项目录，以及单个 Store 的完整 Memory 目录遍历。Memory Store 详情页消费 `useManagedMemoryDirectory`，不得把文件树截断为单页或自定义页面级 memory query identity；归档操作与 memory 生命周期仍由 Memory Store 领域负责。
+- `storage-volume-client.ts` 统一拥有 Storage 挂载目录、平台/组织视图的 Volume 集合、审计分页、Volume 生命周期、授权生命周期、严格响应解析与标准 query identity。Volume 列表 identity 必须包含视图模式，审计分页状态必须包含所选 Volume；UI 页面只保留表单编排，不得自行定义 `/storage-volumes` 请求、解析器或缓存键。
+- `project-client.ts` 统一拥有强类型 Project 列表分页与完整的活跃 Project 目录遍历。Project 管理页消费其分页 source；Storage Volume 授权选择器与侧边栏跨组织加载复用同一目录边界，不得固定只取首屏或在页面内解析 `/auth/projects`。Project 设置、访问控制、生命周期与 API Key 视图也共享该 client 的组织级详情 transport 和 query identity。
+- `organization-client.ts` 统一拥有 Organization 生命周期与成员 REST 契约、严格响应解析、强类型 Organization/成员分页、所有权转让候选人的完整遍历，以及标准详情/成员 query identity；同时拥有 Storage Volume 授权所需的平台 Organization 目录。页面只保留 UI 编排与过期请求保护，不得重复拼装 Organization 路径、请求体、解析器、缓存身份或固定上限目录。
+- `cursor-page.ts` 统一严格解析共享的 `{data, has_more, first_id, last_id}` envelope，并统一负责完整分页收集以及缺失/重复 cursor 的拒绝。领域 client 只提供 item 与强类型 cursor parser；分页 hook 只拥有翻页状态，不得接受契约外数组响应，也不得从 item payload 猜测 cursor。
+
+安全加固阶段必须明确区分强制与建议：沙箱默认拒绝外连属于 `enforced`；host allowlist 与外部工具授权在持久化资源真正创建前属于 `recommended`。
+
+### 9.3 技能——能力层
 
 技能是版本化的插件包（仓库内 4 个：`pptx`、`xlsx` 文档工具，加 `skill-creator`、`skill-security-auditor`），每个是一个
 以 `SKILL.md` 打头的目录。流水线横跨三层：
@@ -778,7 +819,7 @@ quickstart）。**Agent 工作负载的模型流量委托给沙箱内的 CLI har
 列表/详情/版本 API、Agent 保存校验与 Rust 运行时使用同一规则。跨项目读取展示暴露的不可变版本快照，
 不会返回父 Skill 后续编辑但尚未晋级的草稿内容。
 
-### 9.3 可观测性——全链路追踪
+### 9.4 可观测性——全链路追踪
 
 `joysafeter_shared/telemetry/` 负责应用级 OTel provider：
 
@@ -788,7 +829,7 @@ quickstart）。**Agent 工作负载的模型流量委托给沙箱内的 CLI har
 - 产品分析指标来自持久化的 Session、Task 与 session event。已删除的 `Trace` / `Observation`
   持久化原型不属于运行时或数据库契约。
 
-### 9.4 安全态势
+### 9.5 安全态势
 
 - **鉴权：** JWT（HS256）带 org/project/role 声明 + 实时 DB 复核；HttpOnly Cookie；变更请求带 CSRF token；
   密码在客户端先做 SHA-256 预哈希。

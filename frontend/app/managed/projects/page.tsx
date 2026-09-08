@@ -27,19 +27,19 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
-import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
+import { useManagedProjectList } from '@/hooks/managed/use-managed-project-list'
 import { useProjectContext } from '@/hooks/managed/use-project-context'
 import { managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
-import { parseProjectInfo, type ProjectInfoPayload } from '@/lib/managed/tenant-response-parsers'
+import type { ProjectSummary } from '@/lib/managed/tenant-response-parsers'
+import { MANAGED_PROJECTS_QUERY_ROOT } from '@/lib/managed/project-client'
 import { useUserPermissionsContext } from '@/providers/permissions-provider'
 import { useProjectStore } from '@/stores/managed/project-store'
-import type { ProjectInfo } from '@/stores/managed/project-store'
-import { parseProjectId, type OrganizationId, type ProjectId } from '@/types/entity-id'
+import { type OrganizationId, type ProjectId } from '@/types/entity-id'
 
-type Project = ProjectInfo
+type Project = ProjectSummary
 
 interface ProjectScopedAction {
   runId: number
@@ -96,13 +96,7 @@ export default function ProjectsPage() {
     goToPage,
     setPageSize,
     reset: resetProjectsPagination,
-  } = usePaginatedList<Project>({
-    queryKey: 'projects-list',
-    path: '/auth/projects',
-    includeArchived: showArchived,
-    parseItem: (item) => parseProjectInfo(item as ProjectInfoPayload),
-    parseCursor: parseProjectId,
-  })
+  } = useManagedProjectList(showArchived)
 
   const resetCreateDraft = () => {
     setShowCreate(false)
@@ -166,7 +160,7 @@ export default function ProjectsPage() {
     onSuccess: (_data, variables) => {
       if (!isCurrentAction(variables.runId, variables.scope)) return
       resetProjectsPagination()
-      queryClient.invalidateQueries({ queryKey: ['projects-list'] })
+      queryClient.invalidateQueries({ queryKey: [MANAGED_PROJECTS_QUERY_ROOT] })
       resetCreateDraft()
     },
     onError: (error, variables) => {
@@ -304,7 +298,7 @@ export default function ProjectsPage() {
       <ResourceErrorState
         error={error}
         resource="project"
-        onRetry={() => queryClient.invalidateQueries({ queryKey: ['projects-list'] })}
+        onRetry={() => queryClient.invalidateQueries({ queryKey: [MANAGED_PROJECTS_QUERY_ROOT] })}
       />
     )
   }

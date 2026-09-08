@@ -5,10 +5,13 @@ import { useRouter } from 'next/navigation'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { ArrowLeft, Save } from 'lucide-react'
 import { useTranslation } from '@/lib/i18n'
-import { managedGet, managedPost } from '@/lib/api-client'
+import { managedPost } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
 import { parseEnvironmentResponse } from '@/lib/managed/environment-response-parsers'
-import { parseCredentialResponse } from '@/lib/managed/credential-response-parsers'
+import {
+  fetchManagedEnvironment,
+  managedEnvironmentQueryKey,
+} from '@/lib/managed/environment-client'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import {
   hasManagedRequestScope,
@@ -17,13 +20,8 @@ import {
   useManagedRequestScope,
 } from '@/lib/managed/request-scope'
 import type { ManagedRequestScope } from '@/lib/managed/request-scope'
-import type {
-  Environment,
-  EnvironmentMountResource,
-  Credential,
-  StorageVolumeCatalogItem,
-} from '@/types/managed'
-import { parseEnvironmentId, parseCredentialId, type EnvironmentId } from '@/types/entity-id'
+import type { Environment, EnvironmentMountResource } from '@/types/managed'
+import { parseEnvironmentId, type EnvironmentId } from '@/types/entity-id'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -51,6 +49,8 @@ import {
   currentProjectAllowsWrite,
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
+import { useManagedStorageMountCatalog } from '@/hooks/managed/use-managed-storage-mount-catalog'
+import { useServiceCredentials } from '@/hooks/managed/use-service-credentials'
 import {
   EgressServicesEditor,
   buildEgressServices,
@@ -61,7 +61,6 @@ import {
   type EgressServiceErrors,
   type EgressServiceForm,
 } from '@/components/managed/environments-egress-editor'
-import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
 
 interface SaveEnvironmentVariables {
   envId: EnvironmentId
@@ -127,30 +126,13 @@ function EnvironmentDetailPageInner({ params }: { params: Promise<{ envId: strin
     isError,
     error,
   } = useQuery({
-    queryKey: ['environment', managedScope.key, envId],
-    queryFn: () =>
-      managedGet<Environment>(
-        apiResourcePath('environments', envId),
-        managedRequestOptions(managedScope),
-      ).then(parseEnvironmentResponse),
+    queryKey: managedEnvironmentQueryKey(managedScope.key, envId),
+    queryFn: () => fetchManagedEnvironment(envId, managedScope),
     enabled: hasManagedRequestScope(managedScope),
     retry: shouldRetryManagedResourceError,
   })
-  const { data: secrets } = usePaginatedList<Credential>({
-    queryKey: 'service-credentials',
-    path: '/credentials?kind=service',
-    includeArchived: false,
-    limit: 50,
-    parseItem: parseCredentialResponse,
-    parseCursor: parseCredentialId,
-  })
-  const { data: storageCatalog } = useQuery({
-    queryKey: ['storage-mount-catalog', managedScope.key],
-    queryFn: () => managedGet<{ data: StorageVolumeCatalogItem[] }>('/storage-volumes/catalog'),
-    enabled: hasManagedRequestScope(managedScope),
-    staleTime: 60_000,
-  })
-  const storageVolumes = storageCatalog?.data || []
+  const { data: secrets } = useServiceCredentials()
+  const { data: storageVolumes = [] } = useManagedStorageMountCatalog()
 
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -315,7 +297,9 @@ function EnvironmentDetailPageInner({ params }: { params: Promise<{ envId: strin
     },
     onSuccess: (_data, { envId, requestScope, runId, scope }) => {
       if (!isCurrentSaveRun(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['environment', requestScope.key, envId] })
+      queryClient.invalidateQueries({
+        queryKey: managedEnvironmentQueryKey(requestScope.key, envId),
+      })
       queryClient.invalidateQueries({ queryKey: ['environments', requestScope.key] })
       router.push('/managed/environments')
     },

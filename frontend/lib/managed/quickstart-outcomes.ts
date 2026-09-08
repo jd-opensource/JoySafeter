@@ -1,6 +1,12 @@
+import {
+  QUICKSTART_PHASE_DEFINITIONS,
+  quickstartPhaseForStep,
+  quickstartStepsForPhase,
+  type QuickstartStepId,
+} from './quickstart-flow'
 import type { QuickstartTrialStatus } from './quickstart-trial-status'
 
-export type QuickstartOutcomeId = 'understand' | 'design' | 'protect' | 'prove'
+export type QuickstartOutcomeId = 'understand' | 'design' | 'secure' | 'prove'
 export type QuickstartOutcomeStatus = 'complete' | 'complete_with_gaps' | 'active' | 'pending'
 
 export interface QuickstartOutcome {
@@ -10,10 +16,7 @@ export interface QuickstartOutcome {
 }
 
 function activeOutcomeForStep(currentStep: number): QuickstartOutcomeId {
-  if (currentStep <= 2) return 'understand'
-  if (currentStep === 3) return 'design'
-  if (currentStep <= 5) return 'protect'
-  return 'prove'
+  return quickstartPhaseForStep(currentStep as QuickstartStepId)
 }
 
 export function deriveQuickstartOutcomes({
@@ -28,27 +31,30 @@ export function deriveQuickstartOutcomes({
   trialStatus: QuickstartTrialStatus
 }): QuickstartOutcome[] {
   const activeOutcome = activeOutcomeForStep(currentStep)
-  const completed: Record<QuickstartOutcomeId, boolean> = {
-    understand: completedSteps.has(1) && completedSteps.has(2),
-    design: completedSteps.has(3),
-    protect: completedSteps.has(4) && completedSteps.has(5),
-    prove: trialStatus === 'response_received',
-  }
+  const completed = Object.fromEntries(
+    QUICKSTART_PHASE_DEFINITIONS.map((phase) => [
+      phase.id,
+      phase.id === 'prove'
+        ? trialStatus === 'response_received'
+        : phase.steps.every((step) => completedSteps.has(step)),
+    ]),
+  ) as Record<QuickstartOutcomeId, boolean>
 
-  const protectionReviewed = [4, 5].every(
+  const securitySteps = quickstartStepsForPhase('secure')
+  const securityReviewed = securitySteps.every(
     (step) => completedSteps.has(step) || skippedSteps.has(step),
   )
-  const protectionHasGaps = [4, 5].some((step) => skippedSteps.has(step))
+  const securityHasGaps = securitySteps.some((step) => skippedSteps.has(step))
 
-  return (['understand', 'design', 'protect', 'prove'] as const).map((id, index) => {
+  return QUICKSTART_PHASE_DEFINITIONS.map(({ id, ordinal }) => {
     let status: QuickstartOutcomeStatus = completed[id]
       ? 'complete'
       : id === activeOutcome
         ? 'active'
         : 'pending'
-    if (id === 'protect' && protectionReviewed) {
-      status = protectionHasGaps ? 'complete_with_gaps' : 'complete'
+    if (id === 'secure' && securityReviewed) {
+      status = securityHasGaps ? 'complete_with_gaps' : 'complete'
     }
-    return { id, ordinal: index + 1, status }
+    return { id, ordinal, status }
   })
 }

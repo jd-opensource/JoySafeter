@@ -5,11 +5,10 @@ import { useRouter } from 'next/navigation'
 import { useTranslation } from '@/lib/i18n'
 import { useQueryClient } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
-import { usePaginatedList } from '@/hooks/managed/use-paginated-list'
+import { useManagedMemoryStoreList } from '@/hooks/managed/use-managed-memory-store-list'
 import { managedPost } from '@/lib/api-client'
 import { apiResourcePath } from '@/lib/managed/api-paths'
-import { parseMemoryStoreResponse } from '@/lib/managed/memory-response-parsers'
-import { parseMemoryStoreId } from '@/types/entity-id'
+import { managedMemoryStoreListQueryPrefix } from '@/lib/managed/memory-store-client'
 import {
   managedRequestOptions,
   managedScopeKey,
@@ -66,13 +65,7 @@ export default function MemoryStoreListPage() {
     goPrev,
     goToPage,
     setPageSize,
-  } = usePaginatedList<MemoryStore>({
-    queryKey: 'memory-stores',
-    path: '/memory_stores',
-    includeArchived: showArchived,
-    parseItem: parseMemoryStoreResponse,
-    parseCursor: parseMemoryStoreId,
-  })
+  } = useManagedMemoryStoreList(showArchived)
 
   const stores = data.filter(
     (s) =>
@@ -134,7 +127,7 @@ export default function MemoryStoreListPage() {
     if (!currentManagedScopeAllowsWrite(actionScope)) return
     const storeStillCurrent = queryClient
       .getQueriesData<{ data?: MemoryStore[] }>({
-        queryKey: ['memory-stores', actionScope, '/memory_stores'],
+        queryKey: managedMemoryStoreListQueryPrefix(actionScope),
       })
       .some(([, page]) => page?.data?.some((currentStore) => currentStore.id === store.id))
     if (!storeStillCurrent) return

@@ -13,7 +13,7 @@ describe('deriveQuickstartOutcomes', () => {
     ).toEqual([
       { id: 'understand', ordinal: 1, status: 'complete' },
       { id: 'design', ordinal: 2, status: 'complete' },
-      { id: 'protect', ordinal: 3, status: 'active' },
+      { id: 'secure', ordinal: 3, status: 'active' },
       { id: 'prove', ordinal: 4, status: 'pending' },
     ])
   })
@@ -36,7 +36,7 @@ describe('deriveQuickstartOutcomes', () => {
     ).toBe('complete')
   })
 
-  it('marks Protect as reviewed with gaps when optional controls were explicitly skipped', () => {
+  it('marks Secure as reviewed with gaps when optional controls were explicitly skipped', () => {
     expect(
       deriveQuickstartOutcomes({
         currentStep: 6,
@@ -44,6 +44,6 @@ describe('deriveQuickstartOutcomes', () => {
         skippedSteps: new Set([4, 5]),
         trialStatus: 'idle',
       }),
-    ).toContainEqual({ id: 'protect', ordinal: 3, status: 'complete_with_gaps' })
+    ).toContainEqual({ id: 'secure', ordinal: 3, status: 'complete_with_gaps' })
   })
 })

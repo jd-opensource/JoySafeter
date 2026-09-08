@@ -867,7 +867,7 @@ class SqlAlchemyCredentialRepository:
         name: str | None = None,
         provider: str | None = None,
         protocol: str | None = None,
-        compatible_engine: str | None = None,
+        compatible_provider_protocol_pairs: list[tuple[str, str]] | None = None,
         include_archived: bool | None = None,
         limit: int = 20,
         after_id: Optional[CredentialId] = None,
@@ -887,17 +887,12 @@ class SqlAlchemyCredentialRepository:
             q = q.where(JoySafeterCredential.provider == provider)
         if protocol is not None:
             q = q.where(JoySafeterCredential.protocol == protocol)
-        if compatible_engine is not None:
-            # Import locally to avoid coupling the service module to the LLM
-            # catalog at import time.
-            from app.joysafeter_domain.llm.compatibility import (
-                compatible_provider_protocol_pairs,
-            )
-
-            pairs = compatible_provider_protocol_pairs(compatible_engine)
+        if compatible_provider_protocol_pairs is not None:
             q = q.where(
                 JoySafeterCredential.kind == CredentialKind.MODEL.value,
-                tuple_(JoySafeterCredential.provider, JoySafeterCredential.protocol).in_(pairs),
+                tuple_(JoySafeterCredential.provider, JoySafeterCredential.protocol).in_(
+                    compatible_provider_protocol_pairs
+                ),
             )
         if after_id:
             cursor_is_default = (

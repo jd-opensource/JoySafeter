@@ -1,9 +1,9 @@
 use std::fs;
-use std::io::{Cursor, Write};
+use std::io::{self, Cursor, Write};
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use anyhow::{bail, Context};
+use anyhow::bail;
 use zip::write::FileOptions;
 
 use crate::proto;
@@ -20,14 +20,49 @@ pub async fn handle_request(request: proto::SandboxFileRequest) -> proto::Sandbo
     let result = tokio::task::spawn_blocking(move || handle_request_blocking(request)).await;
     match result {
         Ok(Ok(response)) => response,
-        Ok(Err(err)) => error_response(request_id, "SANDBOX_FILE_ERROR", err.to_string()),
+        Ok(Err(err)) => error_response(request_id, err.code, err.message),
         Err(err) => error_response(request_id, "SANDBOX_FILE_JOIN_ERROR", err.to_string()),
+    }
+}
+
+struct SandboxFileFailure {
+    code: &'static str,
+    message: String,
+}
+
+impl SandboxFileFailure {
+    fn new(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            message: message.into(),
+        }
+    }
+
+    fn from_io(error: io::Error, not_found_code: &'static str, not_found_message: String) -> Self {
+        match error.kind() {
+            io::ErrorKind::NotFound => Self::new(not_found_code, not_found_message),
+            io::ErrorKind::PermissionDenied => Self::new("PERMISSION_DENIED", error.to_string()),
+            _ => Self::new("SANDBOX_FILE_ERROR", error.to_string()),
+        }
+    }
+
+    fn from_operation(error: anyhow::Error) -> Self {
+        if let Some(io_error) = error.downcast_ref::<io::Error>() {
+            return match io_error.kind() {
+                io::ErrorKind::NotFound => Self::new("NOT_FOUND", error.to_string()),
+                io::ErrorKind::PermissionDenied => {
+                    Self::new("PERMISSION_DENIED", error.to_string())
+                }
+                _ => Self::new("SANDBOX_FILE_ERROR", error.to_string()),
+            };
+        }
+        Self::new("SANDBOX_FILE_ERROR", error.to_string())
     }
 }
 
 fn handle_request_blocking(
     request: proto::SandboxFileRequest,
-) -> anyhow::Result<proto::SandboxFileResponse> {
+) -> Result<proto::SandboxFileResponse, SandboxFileFailure> {
     let (root, path) = resolve_workspace_path(&request.path)?;
     let max_bytes = if request.max_bytes == 0 {
         match request.operation.as_str() {
@@ -37,7 +72,7 @@ fn handle_request_blocking(
     } else {
         request.max_bytes.min(HARD_MAX_ARCHIVE_BYTES)
     };
-    match request.operation.as_str() {
+    let response = match request.operation.as_str() {
         "list" => list_path(&request.request_id, &root, &path),
         "content" => read_content(&request.request_id, &root, &path),
         "raw" => read_raw(&request.request_id, &root, &path, max_bytes),
@@ -47,14 +82,24 @@ fn handle_request_blocking(
             "INVALID_OPERATION",
             format!("unsupported sandbox file operation: {other}"),
         )),
-    }
+    };
+    response.map_err(SandboxFileFailure::from_operation)
 }
 
-fn resolve_workspace_path(raw: &str) -> anyhow::Result<(PathBuf, PathBuf)> {
+fn resolve_workspace_path(raw: &str) -> Result<(PathBuf, PathBuf), SandboxFileFailure> {
     if raw.contains('\0') {
-        bail!("path contains NUL byte");
+        return Err(SandboxFileFailure::new(
+            "INVALID_PATH",
+            "path contains NUL byte",
+        ));
     }
-    let root = fs::canonicalize(workspace_root()).context("workspace root not found")?;
+    let root = fs::canonicalize(workspace_root()).map_err(|error| {
+        SandboxFileFailure::from_io(
+            error,
+            "WORKSPACE_NOT_FOUND",
+            "workspace root not found".to_string(),
+        )
+    })?;
     let candidate = if raw.trim().is_empty() || raw == WORKSPACE_ROOT {
         root.clone()
     } else if let Some(rest) = raw.strip_prefix("/workspace/") {
@@ -64,9 +109,19 @@ fn resolve_workspace_path(raw: &str) -> anyhow::Result<(PathBuf, PathBuf)> {
     } else {
         root.join(raw)
     };
-    let resolved = fs::canonicalize(&candidate)
-        .with_context(|| format!("path not found: {}", display_user_path(raw)))?;
-    ensure_under_root(&root, &resolved)?;
+    let resolved = fs::canonicalize(&candidate).map_err(|error| {
+        SandboxFileFailure::from_io(
+            error,
+            "NOT_FOUND",
+            format!("path not found: {}", display_user_path(raw)),
+        )
+    })?;
+    if resolved != root && !resolved.starts_with(&root) {
+        return Err(SandboxFileFailure::new(
+            "PATH_OUTSIDE_WORKSPACE",
+            "path must stay under /workspace",
+        ));
+    }
     Ok((root, resolved))
 }
 
@@ -290,6 +345,13 @@ fn archive_path(
             .to_string();
         walk_archive(root, path, &base_name, &mut zip, &mut stats)?;
     }
+    if stats.files == 0 {
+        return Ok(error_response(
+            request_id.to_string(),
+            "ARCHIVE_EMPTY",
+            "archive is empty",
+        ));
+    }
     let cursor = zip.finish()?;
     let data = cursor.into_inner();
     let data_len = data.len() as u64;
@@ -480,6 +542,7 @@ mod tests {
         })
         .await;
         assert!(!escaped.ok);
+        assert_eq!(escaped.code, "PATH_OUTSIDE_WORKSPACE");
 
         let oversized = handle_request(proto::SandboxFileRequest {
             request_id: "big-1".to_string(),
@@ -490,5 +553,68 @@ mod tests {
         .await;
         assert!(!oversized.ok);
         assert_eq!(oversized.code, "FILE_TOO_LARGE");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn reports_missing_workspace_paths_with_not_found_code() {
+        let _guard = TEST_WORKSPACE_LOCK.lock().await;
+        let temp = tempdir().expect("temp workspace");
+        std::env::set_var("JOYSAFETER_TEST_WORKSPACE_ROOT", temp.path());
+
+        let response = handle_request(proto::SandboxFileRequest {
+            request_id: "archive-missing".to_string(),
+            operation: "archive".to_string(),
+            path: "/workspace/artifacts".to_string(),
+            max_bytes: 1024 * 1024,
+        })
+        .await;
+
+        assert!(!response.ok);
+        assert_eq!(response.code, "NOT_FOUND");
+        assert_eq!(response.error, "path not found: /workspace/artifacts");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn reports_missing_workspace_root_as_infrastructure_failure() {
+        let _guard = TEST_WORKSPACE_LOCK.lock().await;
+        let temp = tempdir().expect("temp parent");
+        std::env::set_var(
+            "JOYSAFETER_TEST_WORKSPACE_ROOT",
+            temp.path().join("missing-workspace"),
+        );
+
+        let response = handle_request(proto::SandboxFileRequest {
+            request_id: "workspace-missing".to_string(),
+            operation: "archive".to_string(),
+            path: "/workspace/artifacts".to_string(),
+            max_bytes: 1024 * 1024,
+        })
+        .await;
+
+        assert!(!response.ok);
+        assert_eq!(response.code, "WORKSPACE_NOT_FOUND");
+        assert_eq!(response.error, "workspace root not found");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn reports_empty_archive_when_directory_has_no_visible_files() {
+        let _guard = TEST_WORKSPACE_LOCK.lock().await;
+        let temp = tempdir().expect("temp workspace");
+        std::env::set_var("JOYSAFETER_TEST_WORKSPACE_ROOT", temp.path());
+        fs::create_dir(temp.path().join("artifacts")).expect("mkdir artifacts");
+        fs::write(temp.path().join("artifacts/.hidden"), b"ignored")
+            .expect("write hidden artifact");
+
+        let response = handle_request(proto::SandboxFileRequest {
+            request_id: "archive-empty".to_string(),
+            operation: "archive".to_string(),
+            path: "/workspace/artifacts".to_string(),
+            max_bytes: 1024 * 1024,
+        })
+        .await;
+
+        assert!(!response.ok);
+        assert_eq!(response.code, "ARCHIVE_EMPTY");
+        assert!(response.content_bytes.is_empty());
     }
 }

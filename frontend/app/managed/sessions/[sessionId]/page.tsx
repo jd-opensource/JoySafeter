@@ -32,18 +32,21 @@ import {
   ShieldCheck,
   AlertTriangle,
 } from 'lucide-react'
-import {
-  managedDelete,
-  managedFetchResponse,
-  managedGet,
-  managedPatch,
-  managedPost,
-} from '@/lib/api-client'
-import { apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
+import { managedGet } from '@/lib/api-client'
+import { apiResourcePath } from '@/lib/managed/api-paths'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import { shortEntityId } from '@/lib/managed/entity-id-display'
+import {
+  fetchManagedAgent,
+  fetchManagedAgentVersionHistory,
+  managedAgentQueryKey,
+  managedAgentVersionsQueryKey,
+} from '@/lib/managed/agent-client'
+import {
+  fetchManagedEnvironment,
+  managedEnvironmentQueryKey,
+} from '@/lib/managed/environment-client'
 import { mcpServerEndpointLabel } from '@/lib/managed/mcp-config'
-import { generateUUID } from '@/lib/utils/uuid'
 import {
   hasManagedRequestScope,
   managedRequestOptions,
@@ -62,28 +65,47 @@ import {
   sortSessionEvents,
 } from '@/lib/managed/session-events'
 import { useSessionStream } from '@/lib/managed/sse'
-import { parseSessionId, tryParseEnvironmentId, type SessionId } from '@/types/entity-id'
-import { parseEnvironmentResponse } from '@/lib/managed/environment-response-parsers'
 import {
-  parseCredentialGroupCredentialListResponse,
-  parseCredentialGroupResponse,
-} from '@/lib/managed/credential-group-response-parsers'
-import { parseSkillUsageListResponse } from '@/lib/managed/skill-response-parsers'
-import { parseSessionEventListResponse } from '@/lib/managed/event-response-parsers'
+  parseSessionId,
+  tryParseEnvironmentId,
+  type SessionId,
+  type SessionResourceId,
+} from '@/types/entity-id'
 import {
-  parseAgentResponse,
-  parseAgentVersionListResponse,
-} from '@/lib/managed/agent-response-parsers'
-import { parseSessionResponse } from '@/lib/managed/session-response-parsers'
+  fetchManagedCredentialGroup,
+  fetchManagedCredentialGroupMembers,
+  managedCredentialGroupMembersQueryKey,
+  managedCredentialGroupQueryKey,
+} from '@/lib/managed/credential-group-client'
+import {
+  appendManagedSessionEvents,
+  archiveManagedSession,
+  fetchManagedSessionEvents,
+  fetchManagedSession,
+  fetchManagedSessionSkillUsage,
+  managedSessionQueryKey,
+  managedSessionSkillUsageQueryKey,
+  sendManagedSessionUserMessage,
+  stopManagedSession,
+  type SessionEventInput,
+} from '@/lib/managed/session-client'
+import {
+  addManagedSessionFileResource,
+  fetchManagedSessionResources,
+  managedSessionResourcesQueryKey,
+  removeManagedSessionResource,
+  rotateManagedSessionRepositoryToken,
+} from '@/lib/managed/session-resource-client'
+import {
+  fetchManagedSessionSandboxDownload,
+  fetchManagedSessionSandboxFileContent,
+  fetchManagedSessionSandboxFiles,
+  managedSessionSandboxFileContentQueryKey,
+  managedSessionSandboxFilesQueryKey,
+} from '@/lib/managed/session-sandbox-client'
 import { getSessionDisplayTitle } from '@/lib/managed/session-display'
 import { networkPolicyRefetchInterval } from '@/lib/managed/network-policy-refresh'
 import { AgentModelSummary } from '@/components/managed/agent/agent-model-summary'
-import {
-  parseFileListResponse,
-  parseSessionFileResourceResponse,
-  parseSessionRepoResourceResponse,
-  parseSessionResourceListResponse,
-} from '@/lib/managed/file-response-parsers'
 import {
   getCachedSessionEventState,
   setCachedSessionEventState,
@@ -131,6 +153,8 @@ import {
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
 import { useSessionSkillUsageRefresh } from '@/hooks/managed/use-session-skill-usage-refresh'
+import { useManagedFileOptions } from '@/hooks/managed/use-managed-file-options'
+import { managedFileOptionsQueryKey } from '@/lib/managed/file-client'
 
 const TRANSCRIPT_TYPES = new Set([
   'user.message',
@@ -258,12 +282,8 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
     isError,
     error,
   } = useQuery({
-    queryKey: ['session', sessionScope],
-    queryFn: () =>
-      managedGet<unknown>(
-        apiResourcePath('sessions', id),
-        managedRequestOptions(managedScope),
-      ).then(parseSessionResponse),
+    queryKey: managedSessionQueryKey(managedScope.key, id),
+    queryFn: () => fetchManagedSession(id, managedScope),
     enabled: !!id && hasManagedRequestScope(managedScope),
     retry: shouldRetryManagedResourceError,
     refetchInterval: (query) => {
@@ -276,72 +296,46 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
 
   const agentId = session?.agent?.agent_id || session?.agent?.id
   const { data: agentDetail } = useQuery({
-    queryKey: ['agent', sessionScope, agentId],
-    queryFn: () =>
-      managedGet<unknown>(
-        apiResourcePath('agents', agentId!),
-        managedRequestOptions(managedScope),
-      ).then(parseAgentResponse),
+    queryKey: managedAgentQueryKey(managedScope.key, agentId ?? null),
+    queryFn: () => fetchManagedAgent(agentId!, managedScope),
     enabled: !!agentId && activeDrawer === 'agent' && hasManagedRequestScope(managedScope),
   })
 
   const envId = tryParseEnvironmentId(session?.environment_id)
   const { data: envDetail } = useQuery({
-    queryKey: ['environment', sessionScope, envId],
-    queryFn: () =>
-      managedGet<Environment>(
-        apiResourcePath('environments', envId!),
-        managedRequestOptions(managedScope),
-      ).then(parseEnvironmentResponse),
+    queryKey: managedEnvironmentQueryKey(managedScope.key, envId),
+    queryFn: () => fetchManagedEnvironment(envId!, managedScope),
     enabled: !!envId && hasManagedRequestScope(managedScope),
   })
 
   const credentialGroupId = session?.credential_group_ids?.[0]
   const { data: credentialGroupDetail } = useQuery({
-    queryKey: ['credential-group', sessionScope, credentialGroupId],
-    queryFn: () =>
-      managedGet<unknown>(
-        apiResourcePath('credential-groups', credentialGroupId!),
-        managedRequestOptions(managedScope),
-      ).then(parseCredentialGroupResponse),
+    queryKey: managedCredentialGroupQueryKey(managedScope.key, credentialGroupId ?? null),
+    queryFn: () => fetchManagedCredentialGroup(credentialGroupId!, managedScope),
     enabled: !!credentialGroupId && hasManagedRequestScope(managedScope),
   })
 
   const { data: credentialGroupCredentials } = useQuery({
-    queryKey: ['credential-group-members', sessionScope, credentialGroupId],
-    queryFn: () =>
-      managedGet<{ data: unknown[] }>(
-        apiResourceSubpath('credential-groups', credentialGroupId!, ['members'], { limit: 100 }),
-        managedRequestOptions(managedScope),
-      ).then((response) => ({
-        ...response,
-        data: parseCredentialGroupCredentialListResponse(response.data),
-      })),
+    queryKey: managedCredentialGroupMembersQueryKey(
+      managedScope.key,
+      credentialGroupId ?? null,
+      false,
+    ),
+    queryFn: () => fetchManagedCredentialGroupMembers(credentialGroupId!, false, managedScope),
     enabled:
       !!credentialGroupId &&
       activeDrawer === 'credential-group' &&
       hasManagedRequestScope(managedScope),
   })
 
-  const { data: sessionResources } = useQuery({
-    queryKey: ['session-resources', sessionScope],
-    queryFn: () =>
-      managedGet<{ data: unknown[] }>(
-        apiResourcePath('sessions', id, 'resources'),
-        managedRequestOptions(managedScope),
-      ).then((response) => ({
-        ...response,
-        data: parseSessionResourceListResponse(response.data),
-      })),
+  const { data: sessionResources = [] } = useQuery({
+    queryKey: managedSessionResourcesQueryKey(managedScope.key, id),
+    queryFn: () => fetchManagedSessionResources(id, managedScope),
     enabled: !!id && hasManagedRequestScope(managedScope),
   })
   const { data: sessionSkillUsage } = useQuery({
-    queryKey: ['session-skill-usage', sessionScope],
-    queryFn: () =>
-      managedGet<unknown>(
-        apiResourcePath('sessions', id, 'skill-usage'),
-        managedRequestOptions(managedScope),
-      ).then((response) => ({ data: parseSkillUsageListResponse(response) })),
+    queryKey: managedSessionSkillUsageQueryKey(managedScope.key, id),
+    queryFn: () => fetchManagedSessionSkillUsage(id, managedScope),
     enabled: !!id && hasManagedRequestScope(managedScope),
   })
 
@@ -361,13 +355,16 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
       }),
   })
   const mountedFiles = useMemo(
-    () => (sessionResources?.data || []).filter((r): r is SessionFileResource => r.type === 'file'),
+    () =>
+      sessionResources.filter(
+        (resource): resource is SessionFileResource => resource.type === 'file',
+      ),
     [sessionResources],
   )
   const mountedRepos = useMemo(
     () =>
-      (sessionResources?.data || []).filter(
-        (r): r is SessionRepoResource => r.type === 'github_repository',
+      sessionResources.filter(
+        (resource): resource is SessionRepoResource => resource.type === 'github_repository',
       ),
     [sessionResources],
   )
@@ -429,7 +426,9 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
   const currentSessionDetail = useCallback(() => {
     if (!id) return null
     if (!currentSessionScopeIsActive()) return null
-    const current = queryClient.getQueryData<Session>(['session', sessionScopeRef.current])
+    const current = queryClient.getQueryData<Session>(
+      managedSessionQueryKey(managedRequestScopeRef.current.key, id),
+    )
     return current?.id === id ? current : null
   }, [currentSessionScopeIsActive, id, queryClient])
 
@@ -444,32 +443,34 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
       if (!currentSessionScopeIsActive(actionScope)) return
       setIsLoadingMore(true)
       try {
-        const query: Record<string, string | number> = {
-          limit: 100,
-          order: mode === 'latest' || mode === 'older' ? 'desc' : 'asc',
-        }
-        if (mode === 'older' && cursor != null) query.before_seq = cursor
-        if (mode === 'newer' && cursor != null) query.after_seq = cursor
-
-        const res = await managedGet<unknown[] | { data: unknown[]; has_more: boolean }>(
-          apiResourceSubpath('sessions', id, ['events'], query),
-          managedRequestOptions(requestScope),
+        const page = await fetchManagedSessionEvents(
+          id,
+          {
+            limit: 100,
+            order: mode === 'latest' || mode === 'older' ? 'desc' : 'asc',
+            ...(cursor != null && mode !== 'latest'
+              ? {
+                  cursor: {
+                    direction: mode === 'older' ? ('before' as const) : ('after' as const),
+                    sequence: cursor,
+                  },
+                }
+              : {}),
+          },
+          requestScope,
         )
         if (!currentSessionScopeIsActive(actionScope)) return
-        const newEvents = sortSessionEvents(
-          parseSessionEventListResponse(Array.isArray(res) ? res : res.data),
-        )
-        const hasMore = Array.isArray(res) ? newEvents.length >= 100 : res.has_more
+        const newEvents = sortSessionEvents(page.events)
 
         setLoadedEvents((prev) =>
           mode === 'latest' ? newEvents : mergeSessionEvents(prev, newEvents),
         )
         if (mode === 'latest') {
-          setHasMoreEvents(hasMore)
+          setHasMoreEvents(page.hasMore)
           setStreamAfterSeq(getMaxSeq(newEvents))
           setEventsInitialized(true)
         } else if (mode === 'older') {
-          setHasMoreEvents(hasMore)
+          setHasMoreEvents(page.hasMore)
         }
       } catch {
         if (mode === 'latest' && currentSessionScopeIsActive(actionScope)) {
@@ -507,7 +508,11 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
   const canSendMessage = !projectReadOnly && isIdle && !isArchived && !isSending
   const wasRunningRef = useRef(false)
 
-  useSessionSkillUsageRefresh({ isRunning, sessionScope })
+  useSessionSkillUsageRefresh({
+    isRunning,
+    scopeKey: managedScope.key,
+    sessionId: id,
+  })
 
   // Update session status from live SSE events only. Initial SSE replay can contain
   // out-of-order status events, while the session query is DB-authoritative.
@@ -523,7 +528,7 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
     if (statusEvents.length === 0) return
     // Trigger API refetch instead of directly overriding status —
     // prevents stale/out-of-order SSE events from showing wrong status
-    queryClient.invalidateQueries({ queryKey: ['session', sessionScope] })
+    queryClient.invalidateQueries({ queryKey: managedSessionQueryKey(managedScope.key, id) })
   }, [streamEvents, sseConnected, session, id, queryClient])
 
   useEffect(() => {
@@ -550,21 +555,11 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
     setMsgInput('')
     setStreamForced(true)
     try {
-      await managedPost(
-        apiResourcePath('sessions', sessionId, 'events'),
-        {
-          events: [{ type: 'user.message', content: [{ type: 'text', text }] }],
-        },
-        {
-          ...managedRequestOptions(requestScope),
-          headers: {
-            ...managedRequestOptions(requestScope).headers,
-            'Idempotency-Key': `session-message:${generateUUID()}`,
-          },
-        },
-      )
+      await sendManagedSessionUserMessage(sessionId, text, requestScope)
       if (!isCurrentAction(runId, actionScope)) return
-      queryClient.invalidateQueries({ queryKey: ['session', actionScope] })
+      queryClient.invalidateQueries({
+        queryKey: managedSessionQueryKey(requestScope.key, sessionId),
+      })
     } catch (e) {
       if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
@@ -594,21 +589,17 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
       setApprovingCallId(callId)
       setStreamForced(true)
       try {
-        const payload: Record<string, unknown> = {
+        const payload: SessionEventInput = {
           type: 'user.tool_confirmation',
           tool_use_id: callId,
           approved,
         }
         if (!approved && denyMessage) payload.deny_message = denyMessage
-        await managedPost(
-          apiResourcePath('sessions', sessionId, 'events'),
-          {
-            events: [payload],
-          },
-          managedRequestOptions(requestScope),
-        )
+        await appendManagedSessionEvents(sessionId, [payload], requestScope)
         if (!isCurrentAction(runId, actionScope)) return
-        queryClient.invalidateQueries({ queryKey: ['session', actionScope] })
+        queryClient.invalidateQueries({
+          queryKey: managedSessionQueryKey(requestScope.key, sessionId),
+        })
       } catch (e) {
         if (!isCurrentAction(runId, actionScope)) return
         toastOperationError(t, e, 'common.operationFailed')
@@ -633,13 +624,11 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
     if (!currentSessionScopeIsActive(actionScope)) return
     const sessionId = id
     try {
-      await managedPost(
-        apiResourcePath('sessions', sessionId, 'archive'),
-        {},
-        managedRequestOptions(requestScope),
-      )
+      await archiveManagedSession(sessionId, requestScope)
       if (!isCurrentAction(runId, actionScope)) return
-      queryClient.invalidateQueries({ queryKey: ['session', actionScope] })
+      queryClient.invalidateQueries({
+        queryKey: managedSessionQueryKey(requestScope.key, sessionId),
+      })
     } catch (e) {
       if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
@@ -658,13 +647,11 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
     if (!currentSessionScopeIsActive(actionScope)) return
     const sessionId = id
     try {
-      await managedPost(
-        apiResourcePath('sessions', sessionId, 'stop'),
-        {},
-        managedRequestOptions(requestScope),
-      )
+      await stopManagedSession(sessionId, requestScope)
       if (!isCurrentAction(runId, actionScope)) return
-      queryClient.invalidateQueries({ queryKey: ['session', actionScope] })
+      queryClient.invalidateQueries({
+        queryKey: managedSessionQueryKey(requestScope.key, sessionId),
+      })
     } catch (e) {
       if (!isCurrentAction(runId, actionScope)) return
       toastOperationError(t, e, 'common.operationFailed')
@@ -680,9 +667,11 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
   const invalidateSessionResources = useCallback(
     (scope: string) => {
       if (!currentSessionScopeIsActive(scope)) return
-      queryClient.invalidateQueries({ queryKey: ['session-resources', scope] })
+      queryClient.invalidateQueries({
+        queryKey: managedSessionResourcesQueryKey(managedScope.key, id),
+      })
     },
-    [currentSessionScopeIsActive, queryClient],
+    [currentSessionScopeIsActive, id, managedScope.key, queryClient],
   )
 
   const allEvents = useMemo(() => {
@@ -1481,8 +1470,7 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
         <AgentDrawer
           session={session}
           agent={agentDetail || null}
-          skillUsage={sessionSkillUsage?.data || []}
-          queryScope={sessionScope}
+          skillUsage={sessionSkillUsage || []}
           requestScope={managedScope}
           onClose={() => setActiveDrawer(null)}
           onGoToAgent={() => {
@@ -1500,7 +1488,7 @@ function SessionDetailPageInner({ params }: { params: Promise<{ sessionId: strin
       {activeDrawer === 'credential-group' && credentialGroupDetail && (
         <CredentialGroupDrawer
           credentialGroup={credentialGroupDetail}
-          credentials={credentialGroupCredentials?.data || []}
+          credentials={credentialGroupCredentials || []}
           onClose={() => setActiveDrawer(null)}
           onGoToCredentialGroup={() =>
             router.push(`/managed/credentials/mcp/${credentialGroupDetail.id}`)
@@ -1541,7 +1529,6 @@ function AgentDrawer({
   session,
   agent,
   skillUsage,
-  queryScope,
   requestScope,
   onClose,
   onGoToAgent,
@@ -1549,7 +1536,6 @@ function AgentDrawer({
   session: Session
   agent: Agent | null
   skillUsage: SessionSkillUsage[]
-  queryScope: string
   requestScope: ManagedRequestScope
   onClose: () => void
   onGoToAgent: () => void
@@ -1562,19 +1548,12 @@ function AgentDrawer({
   const agentId = agent?.id || session.agent?.id || null
 
   const { data: versionsData } = useQuery({
-    queryKey: ['agent-versions', queryScope, agentId],
-    queryFn: () =>
-      managedGet<{ data: unknown[] }>(
-        apiResourcePath('agents', agentId!, 'versions'),
-        managedRequestOptions(requestScope),
-      ).then((response) => ({
-        ...response,
-        data: parseAgentVersionListResponse(response.data),
-      })),
+    queryKey: managedAgentVersionsQueryKey(requestScope.key, agentId),
+    queryFn: () => fetchManagedAgentVersionHistory(agentId!, requestScope),
     enabled: !!agentId && hasManagedRequestScope(requestScope),
   })
 
-  const rawVersions = versionsData?.data || []
+  const rawVersions = versionsData || []
   const currentVersion = agent?.version || session.agent?.version
 
   const versions = useMemo(() => {
@@ -2322,30 +2301,6 @@ function CredentialGroupDrawer({
   )
 }
 
-type SandboxFileEntry = {
-  name: string
-  path: string
-  file_type: 'file' | 'directory' | string
-  size: number
-  mtime: number
-}
-
-type SandboxFileListResponse = {
-  ok: boolean
-  path: string
-  entries: SandboxFileEntry[]
-}
-
-type SandboxFileContentResponse = {
-  ok: boolean
-  path: string
-  encoding?: string
-  content?: string
-  content_base64?: string
-  content_type?: string
-  filename?: string
-}
-
 function SandboxFilesPanel({
   sessionId,
   requestScope,
@@ -2359,17 +2314,9 @@ function SandboxFilesPanel({
   const [searchText, setSearchText] = useState('')
 
   const previewQuery = useQuery({
-    queryKey: ['session-sandbox-file-content', sessionId, requestScope.key, previewPath],
+    queryKey: managedSessionSandboxFileContentQueryKey(requestScope.key, sessionId, previewPath),
     queryFn: () =>
-      managedGet<SandboxFileContentResponse>(
-        apiResourceSubpath('sessions', sessionId, ['sandbox', 'files', 'content'], {
-          path: previewPath || '',
-        }),
-        {
-          ...managedRequestOptions(requestScope),
-          timeout: 20000,
-        },
-      ),
+      fetchManagedSessionSandboxFileContent(sessionId, previewPath || '', requestScope),
     enabled: Boolean(previewPath) && hasManagedRequestScope(requestScope),
     retry: false,
   })
@@ -2379,13 +2326,12 @@ function SandboxFilesPanel({
   const downloadFile = async (targetPath: string, archive = false) => {
     setDownloadingPath(targetPath)
     try {
-      const endpoint = apiResourceSubpath(
-        'sessions',
+      const response = await fetchManagedSessionSandboxDownload(
         sessionId,
-        ['sandbox', 'files', archive ? 'archive' : 'raw'],
-        { path: targetPath },
+        targetPath,
+        requestScope,
+        { archive },
       )
-      const response = await managedFetchResponse(endpoint, managedRequestOptions(requestScope))
       const blob = await response.blob()
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
@@ -2497,21 +2443,14 @@ function SandboxDirectoryTree({
   const [expanded, setExpanded] = useState(defaultExpanded)
   const normalizedSearch = searchText.trim().toLowerCase()
   const { data, isLoading, error } = useQuery({
-    queryKey: ['session-sandbox-files', sessionId, requestScope.key, path],
-    queryFn: () =>
-      managedGet<SandboxFileListResponse>(
-        apiResourceSubpath('sessions', sessionId, ['sandbox', 'files'], { path }),
-        {
-          ...managedRequestOptions(requestScope),
-          timeout: 20000,
-        },
-      ),
+    queryKey: managedSessionSandboxFilesQueryKey(requestScope.key, sessionId, path),
+    queryFn: () => fetchManagedSessionSandboxFiles(sessionId, path, requestScope),
     enabled: expanded && Boolean(sessionId) && hasManagedRequestScope(requestScope),
     retry: false,
   })
   const entries = (data?.entries || []).filter((entry) => {
     if (!normalizedSearch) return true
-    return entry.name.toLowerCase().includes(normalizedSearch) || entry.file_type === 'directory'
+    return entry.name.toLowerCase().includes(normalizedSearch) || entry.type === 'directory'
   })
 
   return (
@@ -2543,7 +2482,7 @@ function SandboxDirectoryTree({
             </div>
           ) : (
             entries.map((entry) =>
-              entry.file_type === 'directory' ? (
+              entry.type === 'directory' ? (
                 <SandboxDirectoryTree
                   key={entry.path}
                   sessionId={sessionId}
@@ -2650,15 +2589,7 @@ function FilesDrawer({
     return { runId, scope: operationScopeRef.current }
   }
 
-  const filesForAddQuery = useQuery({
-    queryKey: ['files-for-add', operationScope],
-    queryFn: () =>
-      managedGet<{ data: unknown[] }>('/files?limit=100', managedRequestOptions(requestScope)).then(
-        (response) => ({ ...response, data: parseFileListResponse(response.data) }),
-      ),
-    enabled: pickerOpen && hasManagedRequestScope(requestScope),
-    retry: false,
-  })
+  const filesForAddQuery = useManagedFileOptions({ enabled: pickerOpen })
 
   const addFileMutation = useMutation({
     mutationFn: ({
@@ -2673,15 +2604,14 @@ function FilesDrawer({
       scope: string
     }) => {
       if (!isCurrentMutation(runId, scope)) return Promise.resolve(undefined)
-      return managedPost<unknown>(
-        apiResourcePath('sessions', sessionId, 'resources'),
+      return addManagedSessionFileResource(
+        sessionId,
         {
-          type: 'file',
-          file_id: file.id,
-          mount_path: `/workspace/${file.filename}`,
+          fileId: file.id,
+          mountPath: `/workspace/${file.filename}`,
         },
-        managedRequestOptions(requestScopeRef.current),
-      ).then(parseSessionFileResourceResponse)
+        requestScopeRef.current,
+      )
     },
     onSuccess: (_data, vars) => {
       if (!isCurrentMutation(vars.runId, vars.scope)) return
@@ -2707,10 +2637,7 @@ function FilesDrawer({
       scope: string
     }) => {
       if (!isCurrentMutation(runId, scope)) return Promise.resolve(undefined)
-      return managedDelete(
-        apiResourcePath('sessions', sessionId, 'resources', resource.id),
-        managedRequestOptions(requestScopeRef.current),
-      )
+      return removeManagedSessionResource(sessionId, resource.id, requestScopeRef.current)
     },
     onSuccess: (_data, vars) => {
       if (!isCurrentMutation(vars.runId, vars.scope)) return
@@ -2730,11 +2657,10 @@ function FilesDrawer({
 
   const handleAddFile = (file: FileRecord) => {
     if (!canMutate()) return
-    const currentFiles = queryClient.getQueryData<{ data?: FileRecord[] }>([
-      'files-for-add',
-      operationScopeRef.current,
-    ])
-    const currentFile = (currentFiles?.data || filesForAddQuery.data?.data || []).find(
+    const currentFiles = queryClient.getQueryData<FileRecord[]>(
+      managedFileOptionsQueryKey(operationScopeRef.current),
+    )
+    const currentFile = (currentFiles || filesForAddQuery.data || []).find(
       (candidate) => candidate.id === file.id,
     )
     if (!currentFile) return
@@ -2749,11 +2675,10 @@ function FilesDrawer({
 
   const handleRemoveFile = (resource: SessionFileResource) => {
     if (!canMutate()) return
-    const currentResources = queryClient.getQueryData<{ data?: SessionResource[] }>([
-      'session-resources',
-      operationScopeRef.current,
-    ])
-    const currentFile = (currentResources?.data || files)
+    const currentResources = queryClient.getQueryData<SessionResource[]>(
+      managedSessionResourcesQueryKey(requestScopeRef.current.key, sessionId),
+    )
+    const currentFile = (currentResources || files)
       .filter((candidate): candidate is SessionFileResource => candidate.type === 'file')
       .find((candidate) => candidate.id === resource.id)
     if (!currentFile) return
@@ -2787,13 +2712,13 @@ function FilesDrawer({
             <p className="text-sm text-muted-foreground">
               {t('managed.sessions.filesUnavailable')}
             </p>
-          ) : (filesForAddQuery.data?.data || []).length === 0 ? (
+          ) : (filesForAddQuery.data || []).length === 0 ? (
             <p className="text-sm text-muted-foreground">
               {t('managed.sessions.noFilesAvailable')}
             </p>
           ) : (
             <div className="space-y-1">
-              {(filesForAddQuery.data?.data || []).map((file) => (
+              {(filesForAddQuery.data || []).map((file) => (
                 <button
                   key={file.id}
                   type="button"
@@ -2959,7 +2884,7 @@ function ReposDrawer({
       runId,
       scope,
     }: {
-      resourceId: string
+      resourceId: SessionResourceId
       sessionId: SessionId
       token: string
       draftVersion: number
@@ -2967,13 +2892,12 @@ function ReposDrawer({
       scope: string
     }) => {
       if (!isCurrentMutation(runId, scope)) return Promise.resolve(undefined)
-      return managedPatch<unknown>(
-        apiResourcePath('sessions', sessionId, 'resources', resourceId),
-        {
-          authorization_token: token,
-        },
-        managedRequestOptions(requestScope),
-      ).then(parseSessionRepoResourceResponse)
+      return rotateManagedSessionRepositoryToken(
+        sessionId,
+        resourceId,
+        { authorizationToken: token },
+        requestScope,
+      )
     },
     onSuccess: (_data, vars) => {
       if (!isCurrentMutation(vars.runId, vars.scope)) return
@@ -2998,11 +2922,10 @@ function ReposDrawer({
     if (!token) return
     if (!canMutate()) return
 
-    const currentResources = queryClient.getQueryData<{ data?: SessionResource[] }>([
-      'session-resources',
-      operationScopeRef.current,
-    ])
-    const currentRepo = (currentResources?.data || repos)
+    const currentResources = queryClient.getQueryData<SessionResource[]>(
+      managedSessionResourcesQueryKey(requestScope.key, sessionId),
+    )
+    const currentRepo = (currentResources || repos)
       .filter((resource): resource is SessionRepoResource => resource.type === 'github_repository')
       .find((resource) => resource.id === repo.id)
     if (!currentRepo) return

@@ -12,7 +12,7 @@ import { useProjectStore } from '@/stores/managed/project-store'
 import { SESSION_ID } from '@/test-utils/entity-ids'
 import { parseAgentId, parseStorageMountAuditId } from '@/types/entity-id'
 
-import { usePaginatedList } from './use-paginated-list'
+import { usePaginatedList, type ManagedPaginatedListFetcher } from './use-paginated-list'
 
 const managedGetMock = managedGet as unknown as ReturnType<typeof vi.fn>
 
@@ -92,6 +92,48 @@ function HarnessWithParser() {
       return { ...raw, name: raw.name.toUpperCase() }
     },
     parseCursor: parseTestCursor,
+  })
+
+  return <div data-testid="items">{data.map((item) => item.name).join(',')}</div>
+}
+
+function HarnessWithError() {
+  const { error } = usePaginatedList<Item>({
+    queryKey: 'items-with-error',
+    path: '/items',
+    parseCursor: parseTestCursor,
+  })
+
+  return <div data-testid="error">{error instanceof Error ? error.message : ''}</div>
+}
+
+function HarnessWithPageFetcher({
+  fetchPage,
+}: {
+  fetchPage: ManagedPaginatedListFetcher<Item, string>
+}) {
+  const { data } = usePaginatedList<Item>({
+    queryKey: 'domain-items',
+    sourceKey: 'domain-items-source',
+    parseCursor: parseTestCursor,
+    fetchPage,
+  })
+
+  return <div data-testid="items">{data.map((item) => item.name).join(',')}</div>
+}
+
+function HarnessWithExplicitScope({
+  fetchPage,
+}: {
+  fetchPage: ManagedPaginatedListFetcher<Item, string>
+}) {
+  const { data } = usePaginatedList<Item>({
+    queryKey: 'organization-members',
+    sourceKey: 'organization-member-list',
+    paginationScopeKey: 'org-a',
+    requiresManagedScope: false,
+    parseCursor: parseTestCursor,
+    fetchPage,
   })
 
   return <div data-testid="items">{data.map((item) => item.name).join(',')}</div>
@@ -180,6 +222,38 @@ describe('usePaginatedList managed context isolation', () => {
     expect(managedGetMock).not.toHaveBeenCalled()
   })
 
+  it('supports explicit non-project list identity without managed context', async () => {
+    const fetchPage = vi
+      .fn()
+      .mockResolvedValueOnce({
+        items: [{ id: 'member-a', name: 'Member A' }],
+        hasMore: true,
+        firstId: 'member-a',
+        lastId: 'member-a',
+      })
+      .mockResolvedValueOnce({
+        items: [{ id: 'member-b', name: 'Member B' }],
+        hasMore: false,
+        firstId: 'member-b',
+        lastId: 'member-b',
+      })
+    const { getByTestId, queryClient } = renderWithQueryClient(
+      <HarnessWithExplicitScope fetchPage={fetchPage} />,
+    )
+
+    await waitFor(() => expect(getByTestId('items').textContent).toBe('Member A'))
+    await waitFor(() => expect(fetchPage).toHaveBeenCalledTimes(2))
+    expect(fetchPage).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ limit: 10 }),
+      expect.objectContaining({ orgId: null, projectId: null }),
+    )
+    expect(
+      queryClient.getQueriesData({ queryKey: ['organization-members', 'org-a'] }),
+    ).toHaveLength(2)
+    expect(queryClient.getQueriesData({ queryKey: ['organization-members', ':'] })).toHaveLength(0)
+  })
+
   it('binds list requests to the same managed scope as the query key', async () => {
     useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
     managedGetMock.mockResolvedValue({ data: [], has_more: false })
@@ -207,6 +281,36 @@ describe('usePaginatedList managed context isolation', () => {
     const { getByTestId } = renderWithQueryClient(<HarnessWithParser />)
 
     await waitFor(() => expect(getByTestId('items').textContent).toBe('RAW ITEM'))
+  })
+
+  it('rejects bare-array responses outside the canonical cursor page contract', async () => {
+    useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
+    managedGetMock.mockResolvedValue([{ id: 'item-a', name: 'Legacy item' }])
+
+    const { getByTestId } = renderWithQueryClient(<HarnessWithError />)
+
+    await waitFor(() => {
+      expect(getByTestId('error').textContent).toContain('managed cursor page response')
+    })
+  })
+
+  it('delegates transport to a domain page loader when provided', async () => {
+    useProjectStore.setState({ currentOrgId: 'org-a', currentProjectId: 'project-a' })
+    const fetchPage: ManagedPaginatedListFetcher<Item, string> = vi.fn().mockResolvedValue({
+      items: [{ id: 'item-a', name: 'Domain item' }],
+      hasMore: false,
+      firstId: 'item-a',
+      lastId: 'item-a',
+    })
+
+    const { getByTestId } = renderWithQueryClient(<HarnessWithPageFetcher fetchPage={fetchPage} />)
+
+    await waitFor(() => expect(getByTestId('items').textContent).toBe('Domain item'))
+    expect(managedGetMock).not.toHaveBeenCalled()
+    expect(fetchPage).toHaveBeenCalledWith(
+      { limit: 10, afterId: undefined, includeArchived: undefined },
+      expect.objectContaining({ key: 'org-a:project-a' }),
+    )
   })
 
   it('does not reuse a previous project page after managed project changes', async () => {

@@ -26,7 +26,7 @@ export interface ProjectInfo {
   slug: string
   is_default: boolean
   archived_at?: string | null
-  created_at?: string
+  created_at?: string | null
   triggers_paused?: boolean
   // Present on the active project returned by /auth/me and switch-context.
   capability?: string
@@ -51,7 +51,9 @@ interface ProjectState {
   clearContext: () => void
 }
 
-function parsePersistedContext(value: unknown):
+function parsePersistedContext(
+  value: unknown,
+):
   | Pick<ProjectState, 'currentOrgId' | 'currentProjectId'>
   | { currentOrgId: null; currentProjectId: null } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {

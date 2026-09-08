@@ -136,6 +136,33 @@ function managedOptions(projectId = 'project-a') {
   }
 }
 
+function agentPage(items: Array<Record<string, unknown>>) {
+  return {
+    data: items,
+    has_more: false,
+    first_id: (items[0]?.id as string | undefined) ?? null,
+    last_id: (items.at(-1)?.id as string | undefined) ?? null,
+  }
+}
+
+function credentialGroupPage(items: Array<Record<string, unknown>> = []) {
+  return {
+    data: items,
+    has_more: false,
+    first_id: (items[0]?.id as string | undefined) ?? null,
+    last_id: (items.at(-1)?.id as string | undefined) ?? null,
+  }
+}
+
+function resourcePage(items: Array<Record<string, unknown>> = []) {
+  return {
+    data: items,
+    has_more: false,
+    first_id: (items[0]?.id as string | undefined) ?? null,
+    last_id: (items.at(-1)?.id as string | undefined) ?? null,
+  }
+}
+
 function projectInfo(archivedAt: string | null = null) {
   return {
     id: 'project-a',
@@ -176,12 +203,15 @@ describe('CreateSessionDialog managed object lifecycle', () => {
 
   it('refetches selectable resources instead of reusing the previous project data', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
-      if (path === '/agents')
-        return { data: [{ id: AGENT_ID, name: 'Agent A', engine_kind: 'claude' }] }
-      if (path === '/environments') return { data: [] }
-      if (path === '/credential-groups') return { data: [] }
-      if (path === '/files?limit=100') return { data: [] }
-      if (path === '/memory_stores?limit=100') return { data: [] }
+      if (path.startsWith('/agents?')) {
+        return agentPage([{ id: AGENT_ID, name: 'Agent A', engine_kind: 'claude' }])
+      }
+      if (path.startsWith('/environments?')) {
+        return { data: [], has_more: false, first_id: null, last_id: null }
+      }
+      if (path.startsWith('/credential-groups?')) return credentialGroupPage()
+      if (path === '/files?limit=100') return resourcePage()
+      if (path === '/memory_stores?limit=100&include_archived=false') return resourcePage()
       return { data: [] }
     })
     const queryClient = new QueryClient({
@@ -199,9 +229,14 @@ describe('CreateSessionDialog managed object lifecycle', () => {
     )
 
     await waitFor(() => {
-      expect(managedGetMock).toHaveBeenCalledWith('/agents', managedOptions())
+      expect(managedGetMock).toHaveBeenCalledWith(
+        '/agents?limit=100&include_archived=false',
+        managedOptions(),
+      )
     })
-    const agentCallsBeforeSwitch = managedGetMock.mock.calls.filter(([path]) => path === '/agents')
+    const agentCallsBeforeSwitch = managedGetMock.mock.calls.filter(([path]) =>
+      path.startsWith('/agents?'),
+    )
     expect(agentCallsBeforeSwitch).toHaveLength(1)
 
     await act(async () => {
@@ -210,36 +245,36 @@ describe('CreateSessionDialog managed object lifecycle', () => {
     })
 
     await waitFor(() => {
-      const agentCalls = managedGetMock.mock.calls.filter(([path]) => path === '/agents')
+      const agentCalls = managedGetMock.mock.calls.filter(([path]) => path.startsWith('/agents?'))
       expect(agentCalls).toHaveLength(2)
     })
   })
 
   it('blocks creation when the selected agent is missing a required MCP credential', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
-      if (path === '/agents') {
-        return {
-          data: [
-            {
-              id: AGENT_ID,
-              name: 'Agent A',
-              engine_kind: 'claude',
-              mcp_servers: [
-                {
-                  type: 'streamable_http',
-                  name: 'required-tools',
-                  url: 'https://mcp.example.com/mcp',
-                  auth_requirement: 'required',
-                },
-              ],
-            },
-          ],
-        }
+      if (path.startsWith('/agents?')) {
+        return agentPage([
+          {
+            id: AGENT_ID,
+            name: 'Agent A',
+            engine_kind: 'claude',
+            mcp_servers: [
+              {
+                type: 'streamable_http',
+                name: 'required-tools',
+                url: 'https://mcp.example.com/mcp',
+                auth_requirement: 'required',
+              },
+            ],
+          },
+        ])
       }
-      if (path === '/environments') return { data: [] }
-      if (path === '/credential-groups') return { data: [] }
-      if (path === '/files?limit=100') return { data: [] }
-      if (path === '/memory_stores?limit=100') return { data: [] }
+      if (path.startsWith('/environments?')) {
+        return { data: [], has_more: false, first_id: null, last_id: null }
+      }
+      if (path.startsWith('/credential-groups?')) return credentialGroupPage()
+      if (path === '/files?limit=100') return resourcePage()
+      if (path === '/memory_stores?limit=100&include_archived=false') return resourcePage()
       return { data: [] }
     })
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -262,34 +297,36 @@ describe('CreateSessionDialog managed object lifecycle', () => {
 
   it('blocks creation when selected MCP credential members fail to load', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
-      if (path === '/agents') {
-        return {
-          data: [
-            {
-              id: AGENT_ID,
-              name: 'Agent A',
-              engine_kind: 'claude',
-              mcp_servers: [
-                {
-                  type: 'streamable_http',
-                  name: 'optional-tools',
-                  url: 'https://mcp.example.com/mcp',
-                  auth_requirement: 'optional',
-                },
-              ],
-            },
-          ],
-        }
+      if (path.startsWith('/agents?')) {
+        return agentPage([
+          {
+            id: AGENT_ID,
+            name: 'Agent A',
+            engine_kind: 'claude',
+            mcp_servers: [
+              {
+                type: 'streamable_http',
+                name: 'optional-tools',
+                url: 'https://mcp.example.com/mcp',
+                auth_requirement: 'optional',
+              },
+            ],
+          },
+        ])
       }
-      if (path === '/environments') return { data: [] }
-      if (path === '/credential-groups') {
-        return { data: [{ id: VAULT_ID, name: 'Credential Group A', archived_at: null }] }
+      if (path.startsWith('/environments?')) {
+        return { data: [], has_more: false, first_id: null, last_id: null }
       }
-      if (path === `/credential-groups/${VAULT_ID}/members?limit=100`) {
+      if (path.startsWith('/credential-groups?')) {
+        return credentialGroupPage([
+          { id: VAULT_ID, name: 'Credential Group A', archived_at: null },
+        ])
+      }
+      if (path === `/credential-groups/${VAULT_ID}/members?include_archived=false`) {
         throw new Error('member load failed')
       }
-      if (path === '/files?limit=100') return { data: [] }
-      if (path === '/memory_stores?limit=100') return { data: [] }
+      if (path === '/files?limit=100') return resourcePage()
+      if (path === '/memory_stores?limit=100&include_archived=false') return resourcePage()
       return { data: [] }
     })
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -316,11 +353,13 @@ describe('CreateSessionDialog managed object lifecycle', () => {
   it('does not submit an agent selected from the previous project after managed context data changes', async () => {
     let projectAgent = { id: AGENT_ID, name: 'Agent A', engine_kind: 'claude' }
     managedGetMock.mockImplementation(async (path: string) => {
-      if (path === '/agents') return { data: [projectAgent] }
-      if (path === '/environments') return { data: [] }
-      if (path === '/credential-groups') return { data: [] }
-      if (path === '/files?limit=100') return { data: [] }
-      if (path === '/memory_stores?limit=100') return { data: [] }
+      if (path.startsWith('/agents?')) return agentPage([projectAgent])
+      if (path.startsWith('/environments?')) {
+        return { data: [], has_more: false, first_id: null, last_id: null }
+      }
+      if (path.startsWith('/credential-groups?')) return credentialGroupPage()
+      if (path === '/files?limit=100') return resourcePage()
+      if (path === '/memory_stores?limit=100&include_archived=false') return resourcePage()
       return { data: [] }
     })
     managedPostMock.mockResolvedValue({ id: SESSION_ID })
@@ -370,12 +409,15 @@ describe('CreateSessionDialog managed object lifecycle', () => {
 
   it('does not submit an agent that leaves the current selectable agents in the same turn as submit', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
-      if (path === '/agents')
-        return { data: [{ id: AGENT_ID, name: 'Agent A', engine_kind: 'claude' }] }
-      if (path === '/environments') return { data: [] }
-      if (path === '/credential-groups') return { data: [] }
-      if (path === '/files?limit=100') return { data: [] }
-      if (path === '/memory_stores?limit=100') return { data: [] }
+      if (path.startsWith('/agents?')) {
+        return agentPage([{ id: AGENT_ID, name: 'Agent A', engine_kind: 'claude' }])
+      }
+      if (path.startsWith('/environments?')) {
+        return { data: [], has_more: false, first_id: null, last_id: null }
+      }
+      if (path.startsWith('/credential-groups?')) return credentialGroupPage()
+      if (path === '/files?limit=100') return resourcePage()
+      if (path === '/memory_stores?limit=100&include_archived=false') return resourcePage()
       return { data: [] }
     })
     managedPostMock.mockResolvedValue({ id: SESSION_ID })
@@ -407,7 +449,7 @@ describe('CreateSessionDialog managed object lifecycle', () => {
 
     await act(async () => {
       queryClient.setQueryData(
-        ['agents-for-session', 'org-a:project-a'],
+        ['agents', 'org-a:project-a', 'options', false],
         [{ id: OTHER_AGENT_ID, name: 'Agent B', engine_kind: 'claude' }],
       )
       fireEvent.click(getByText('managed.sessions.create.submit'))
@@ -419,40 +461,41 @@ describe('CreateSessionDialog managed object lifecycle', () => {
 
   it('does not submit selected resources from old dialog state in the same turn as a project switch', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
-      if (path === '/agents') {
-        return { data: [{ id: AGENT_ID, name: 'Agent A', engine_kind: 'claude' }] }
+      if (path.startsWith('/agents?')) {
+        return agentPage([{ id: AGENT_ID, name: 'Agent A', engine_kind: 'claude' }])
       }
-      if (path === '/environments') {
-        return { data: [{ id: ENVIRONMENT_ID, name: 'Env A', archived_at: null }] }
+      if (path.startsWith('/environments?')) {
+        return {
+          data: [{ id: ENVIRONMENT_ID, name: 'Env A', archived_at: null }],
+          has_more: false,
+          first_id: ENVIRONMENT_ID,
+          last_id: ENVIRONMENT_ID,
+        }
       }
-      if (path === '/credential-groups') {
-        return { data: [{ id: VAULT_ID, name: 'Vault A', archived_at: null }] }
+      if (path.startsWith('/credential-groups?')) {
+        return credentialGroupPage([{ id: VAULT_ID, name: 'Vault A', archived_at: null }])
       }
       if (path === '/files?limit=100') {
-        return {
-          data: [
-            {
-              id: FILE_ID,
-              filename: 'dataset.json',
-              purpose: 'assistants',
-              content_type: 'application/json',
-              size_bytes: 512,
-              downloadable: true,
-              created_at: '2026-07-10T00:00:00Z',
-            },
-          ],
-        }
+        return resourcePage([
+          {
+            id: FILE_ID,
+            filename: 'dataset.json',
+            purpose: 'assistants',
+            content_type: 'application/json',
+            size_bytes: 512,
+            downloadable: true,
+            created_at: '2026-07-10T00:00:00Z',
+          },
+        ])
       }
-      if (path === '/memory_stores?limit=100') {
-        return {
-          data: [
-            {
-              id: 'memstore_018f6f42-0a51-7cc4-98c8-4f6f0ca5f040',
-              name: 'Memory A',
-              archived_at: null,
-            },
-          ],
-        }
+      if (path === '/memory_stores?limit=100&include_archived=false') {
+        return resourcePage([
+          {
+            id: 'memstore_018f6f42-0a51-7cc4-98c8-4f6f0ca5f040',
+            name: 'Memory A',
+            archived_at: null,
+          },
+        ])
       }
       return { data: [] }
     })
@@ -536,40 +579,41 @@ describe('CreateSessionDialog managed object lifecycle', () => {
 
   it('does not submit selected resources from old dialog state after the current project is archived', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
-      if (path === '/agents') {
-        return { data: [{ id: AGENT_ID, name: 'Agent A', engine_kind: 'claude' }] }
+      if (path.startsWith('/agents?')) {
+        return agentPage([{ id: AGENT_ID, name: 'Agent A', engine_kind: 'claude' }])
       }
-      if (path === '/environments') {
-        return { data: [{ id: ENVIRONMENT_ID, name: 'Env A', archived_at: null }] }
+      if (path.startsWith('/environments?')) {
+        return {
+          data: [{ id: ENVIRONMENT_ID, name: 'Env A', archived_at: null }],
+          has_more: false,
+          first_id: ENVIRONMENT_ID,
+          last_id: ENVIRONMENT_ID,
+        }
       }
-      if (path === '/credential-groups') {
-        return { data: [{ id: VAULT_ID, name: 'Vault A', archived_at: null }] }
+      if (path.startsWith('/credential-groups?')) {
+        return credentialGroupPage([{ id: VAULT_ID, name: 'Vault A', archived_at: null }])
       }
       if (path === '/files?limit=100') {
-        return {
-          data: [
-            {
-              id: FILE_ID,
-              filename: 'dataset.json',
-              purpose: 'assistants',
-              content_type: 'application/json',
-              size_bytes: 512,
-              downloadable: true,
-              created_at: '2026-07-10T00:00:00Z',
-            },
-          ],
-        }
+        return resourcePage([
+          {
+            id: FILE_ID,
+            filename: 'dataset.json',
+            purpose: 'assistants',
+            content_type: 'application/json',
+            size_bytes: 512,
+            downloadable: true,
+            created_at: '2026-07-10T00:00:00Z',
+          },
+        ])
       }
-      if (path === '/memory_stores?limit=100') {
-        return {
-          data: [
-            {
-              id: 'memstore_018f6f42-0a51-7cc4-98c8-4f6f0ca5f040',
-              name: 'Memory A',
-              archived_at: null,
-            },
-          ],
-        }
+      if (path === '/memory_stores?limit=100&include_archived=false') {
+        return resourcePage([
+          {
+            id: 'memstore_018f6f42-0a51-7cc4-98c8-4f6f0ca5f040',
+            name: 'Memory A',
+            archived_at: null,
+          },
+        ])
       }
       return { data: [] }
     })
@@ -655,12 +699,15 @@ describe('CreateSessionDialog managed object lifecycle', () => {
 
   it('ignores a stale create completion after the managed project changes', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
-      if (path === '/agents')
-        return { data: [{ id: AGENT_ID, name: 'Agent A', engine_kind: 'claude' }] }
-      if (path === '/environments') return { data: [] }
-      if (path === '/credential-groups') return { data: [] }
-      if (path === '/files?limit=100') return { data: [] }
-      if (path === '/memory_stores?limit=100') return { data: [] }
+      if (path.startsWith('/agents?')) {
+        return agentPage([{ id: AGENT_ID, name: 'Agent A', engine_kind: 'claude' }])
+      }
+      if (path.startsWith('/environments?')) {
+        return { data: [], has_more: false, first_id: null, last_id: null }
+      }
+      if (path.startsWith('/credential-groups?')) return credentialGroupPage()
+      if (path === '/files?limit=100') return resourcePage()
+      if (path === '/memory_stores?limit=100&include_archived=false') return resourcePage()
       return { data: [] }
     })
     let resolveCreate: (value: { id: string }) => void = () => {}
@@ -716,12 +763,15 @@ describe('CreateSessionDialog managed object lifecycle', () => {
 
   it('ignores a stale create completion after the current project is archived', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
-      if (path === '/agents')
-        return { data: [{ id: AGENT_ID, name: 'Agent A', engine_kind: 'claude' }] }
-      if (path === '/environments') return { data: [] }
-      if (path === '/credential-groups') return { data: [] }
-      if (path === '/files?limit=100') return { data: [] }
-      if (path === '/memory_stores?limit=100') return { data: [] }
+      if (path.startsWith('/agents?')) {
+        return agentPage([{ id: AGENT_ID, name: 'Agent A', engine_kind: 'claude' }])
+      }
+      if (path.startsWith('/environments?')) {
+        return { data: [], has_more: false, first_id: null, last_id: null }
+      }
+      if (path.startsWith('/credential-groups?')) return credentialGroupPage()
+      if (path === '/files?limit=100') return resourcePage()
+      if (path === '/memory_stores?limit=100&include_archived=false') return resourcePage()
       return { data: [] }
     })
     let resolveCreate: (value: { id: string }) => void = () => {}
@@ -779,12 +829,15 @@ describe('CreateSessionDialog managed object lifecycle', () => {
 
   it('ignores a stale create completion after the dialog unmounts', async () => {
     managedGetMock.mockImplementation(async (path: string) => {
-      if (path === '/agents')
-        return { data: [{ id: AGENT_ID, name: 'Agent A', engine_kind: 'claude' }] }
-      if (path === '/environments') return { data: [] }
-      if (path === '/credential-groups') return { data: [] }
-      if (path === '/files?limit=100') return { data: [] }
-      if (path === '/memory_stores?limit=100') return { data: [] }
+      if (path.startsWith('/agents?')) {
+        return agentPage([{ id: AGENT_ID, name: 'Agent A', engine_kind: 'claude' }])
+      }
+      if (path.startsWith('/environments?')) {
+        return { data: [], has_more: false, first_id: null, last_id: null }
+      }
+      if (path.startsWith('/credential-groups?')) return credentialGroupPage()
+      if (path === '/files?limit=100') return resourcePage()
+      if (path === '/memory_stores?limit=100&include_archived=false') return resourcePage()
       return { data: [] }
     })
     let resolveCreate: (value: { id: string }) => void = () => {}

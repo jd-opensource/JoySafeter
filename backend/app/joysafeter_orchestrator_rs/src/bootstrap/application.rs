@@ -49,6 +49,7 @@ impl OrchestratorApplication {
         dependencies: BootstrapDependencies,
     ) -> anyhow::Result<Self> {
         config.validate()?;
+        kernel::llm_catalog::validate_catalog_configuration()?;
         Ok(Self {
             config,
             dependencies,

@@ -7,11 +7,7 @@ import {
   CREDENTIAL_REFERENCE_NORMALIZATION,
   CREDENTIAL_SNAPSHOT_SCHEMAS,
 } from './credential-reference-contract'
-import {
-  CredentialReferenceCodec,
-  parseEnvironmentListResponse,
-  parseEnvironmentResponse,
-} from './environment-response-parsers'
+import { CredentialReferenceCodec, parseEnvironmentResponse } from './environment-response-parsers'
 
 const UUID = '018f6f42-0a51-7cc4-98c8-4f6f0ca5f010'
 const referenceCodec = new CredentialReferenceCodec()
@@ -79,7 +75,6 @@ describe('environment response parsers', () => {
 
     expect(environment.id).toBe(`env_${UUID}`)
     expect(environment.config?.storage_volumes?.[0].volume_id).toBe(`vol_${UUID}`)
-    expect(parseEnvironmentListResponse([rawEnvironment()])[0].id).toBe(`env_${UUID}`)
   })
 
   it('rejects bare and cross-entity ids', () => {
@@ -157,28 +152,32 @@ describe('environment response parsers', () => {
     })
   })
 
-  it('normalizes null static credential fields on Agent Identity routes', () => {
+  it('accepts null static credential fields from Agent Identity API responses', () => {
     const environment = parseEnvironmentResponse({
       ...rawEnvironment(),
       config: {
         egress_services: [
           {
-            name: 'secocean',
-            base_url: 'https://secocean.example.com',
+            name: 'icc-dataagent-api',
+            kind: 'external',
+            exposure: 'placeholder',
+            base_url: 'http://icc-dataagent-api.jd.com',
             auth_source: 'agent_identity',
             credential_ref: null,
             inject: null,
-            allowed_paths: ['/api/customer/detail'],
+            allowed_paths: ['/api/controller/tools/search_table_schema/invoke'],
           },
         ],
       },
     })
 
     expect(environment.config?.egress_services?.[0]).toEqual({
-      name: 'secocean',
-      base_url: 'https://secocean.example.com',
+      name: 'icc-dataagent-api',
+      kind: 'external',
+      exposure: 'placeholder',
+      base_url: 'http://icc-dataagent-api.jd.com',
       auth_source: 'agent_identity',
-      allowed_paths: ['/api/customer/detail'],
+      allowed_paths: ['/api/controller/tools/search_table_schema/invoke'],
     })
   })
 

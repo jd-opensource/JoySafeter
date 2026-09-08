@@ -356,8 +356,11 @@ def _validate_model_catalog_context(
         raise CredentialPolicyError(CredentialPolicyErrorCode.CATALOG_MISMATCH, "Catalog identity mismatch")
     if catalog_context.provider_id != identity.provider_id or catalog_context.protocol_id != identity.protocol_id:
         raise CredentialPolicyError(CredentialPolicyErrorCode.CATALOG_MISMATCH, "Catalog provider/protocol mismatch")
-    if catalog_context.engine_kind is not binding.engine_kind:
-        raise CredentialPolicyError(CredentialPolicyErrorCode.CATALOG_MISMATCH, "Catalog engine mismatch")
+    if (
+        catalog_context.engine_kind is not binding.engine_kind
+        or catalog_context.model_consumer_id != binding.model_consumer_id
+    ):
+        raise CredentialPolicyError(CredentialPolicyErrorCode.CATALOG_MISMATCH, "Catalog target mismatch")
     if (
         binding.model_id is not None
         and catalog_context.model_ids is not None

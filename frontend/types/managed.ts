@@ -208,10 +208,16 @@ export interface NetworkPolicyStatus {
   networking_policy_hash?: string | null
   networking_policy_version: number
   networking_last_error?: string | null
+  networking_last_error_code?: string | null
+  networking_retryable: boolean
+  networking_retry_count: number
+  networking_next_retry_at?: string | null
   networking_ready_at?: string | null
   sandbox_updated_at: string
   latest_policy_status?: string | null
   latest_policy_error?: string | null
+  latest_policy_error_code?: string | null
+  latest_policy_retryable?: boolean | null
   latest_policy_nack_reason?: string | null
   latest_policy_updated_at?: string | null
   rendered_summary?: Record<string, unknown>
@@ -527,21 +533,6 @@ export interface SessionStorageMount {
 }
 
 export type SessionResource = SessionFileResource | SessionRepoResource
-
-export interface AddFileResourceRequest {
-  type: 'file'
-  file_id: FileId
-  mount_path?: string
-}
-
-export interface AddRepoResourceRequest {
-  type: 'github_repository'
-  url: string
-  branch?: string
-  mount_path?: string
-  authorization_token?: string
-  token_expires_at?: string
-}
 
 export interface SkillSecurityScanSummary {
   status: 'passed' | 'warning' | 'blocked' | 'failed' | 'not_scanned' | string

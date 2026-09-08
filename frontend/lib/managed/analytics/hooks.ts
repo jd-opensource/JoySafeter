@@ -6,7 +6,7 @@
 import { useQuery } from '@tanstack/react-query'
 
 import { managedGet } from '@/lib/api-client'
-import { parseAgentId, type AgentId } from '@/types/entity-id'
+import type { AgentId } from '@/types/entity-id'
 
 import {
   parseAgentMetricsResponse,
@@ -150,23 +150,6 @@ export function useAgentTrend(filters: AnalyticsFilters, agentIds: AgentId[], me
       parseAgentTrendResponse(await managedGet(`/analytics/agent-trend${toQueryString(params)}`)),
     enabled: agentIds.length > 0,
     staleTime: 60_000,
-  })
-}
-
-// --- Agents for filter dropdowns ---
-
-export function useAgentsForFilters() {
-  return useQuery<{ id: AgentId; name: string; engine_kind: string }[]>({
-    queryKey: ['analytics', 'agents-for-filters'],
-    queryFn: async () => {
-      const result = await managedGet<
-        | { id: string; name: string; engine_kind: string }[]
-        | { data: { id: string; name: string; engine_kind: string }[] }
-      >('/agents?limit=100')
-      const agents = Array.isArray(result) ? result : result.data
-      return agents.map((agent) => ({ ...agent, id: parseAgentId(agent.id) }))
-    },
-    staleTime: 120_000,
   })
 }
 

@@ -253,7 +253,12 @@ describe('AgentEditPage LLM compatibility', () => {
           updated_at: '2026-08-07T00:00:00Z',
         }
       }
-      if (path === '/skills' || path === '/environments') return { data: [] }
+      if (path.startsWith('/skills?')) {
+        return { data: [], has_more: false, first_id: null, last_id: null }
+      }
+      if (path.startsWith('/environments?')) {
+        return { data: [], has_more: false, first_id: null, last_id: null }
+      }
       return { data: [] }
     })
     managedPostMock.mockResolvedValue({})

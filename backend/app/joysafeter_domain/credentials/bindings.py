@@ -63,8 +63,9 @@ class McpEndpointRequirement:
 class ModelCatalogContext:
     provider_id: str
     protocol_id: str
-    engine_kind: EngineKind
+    engine_kind: EngineKind | None
     model_ids: frozenset[str] | None
+    model_consumer_id: str | None = None
 
     def __post_init__(self) -> None:
         provider_id = self.provider_id.strip() if isinstance(self.provider_id, str) else self.provider_id
@@ -73,8 +74,17 @@ class ModelCatalogContext:
             raise ValueError("Catalog provider id must not be blank")
         if not protocol_id or not isinstance(protocol_id, str):
             raise ValueError("Catalog protocol id must not be blank")
-        if not isinstance(self.engine_kind, EngineKind):
+        if (self.engine_kind is None) == (self.model_consumer_id is None):
+            raise ValueError("Catalog context requires exactly one model inference target")
+        if self.engine_kind is not None and not isinstance(self.engine_kind, EngineKind):
             raise TypeError("Catalog engine kind must be an EngineKind")
+        if self.model_consumer_id is not None:
+            if not isinstance(self.model_consumer_id, str):
+                raise TypeError("Catalog model consumer id must be a string")
+            normalized_consumer_id = self.model_consumer_id.strip()
+            if not normalized_consumer_id:
+                raise ValueError("Catalog model consumer id must not be blank")
+            object.__setattr__(self, "model_consumer_id", normalized_consumer_id)
         model_ids = self.model_ids
         if model_ids is not None:
             if isinstance(model_ids, (str, bytes, bytearray)) or not isinstance(model_ids, Iterable):
@@ -145,14 +155,24 @@ class ModelInferenceBinding:
     usage: ClassVar[CredentialUsage] = CredentialUsage.MODEL_INFERENCE
     project_id: ProjectId
     credential_id: CredentialId
-    engine_kind: EngineKind
+    engine_kind: EngineKind | None
     model_id: str | None
+    model_consumer_id: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "project_id", require_project_id(self.project_id))
         require_credential_id(self.credential_id)
-        if not isinstance(self.engine_kind, EngineKind):
+        if (self.engine_kind is None) == (self.model_consumer_id is None):
+            raise ValueError("model inference binding requires exactly one target")
+        if self.engine_kind is not None and not isinstance(self.engine_kind, EngineKind):
             raise TypeError("model inference engine kind must be an EngineKind")
+        if self.model_consumer_id is not None:
+            if not isinstance(self.model_consumer_id, str):
+                raise TypeError("model inference consumer id must be a string")
+            normalized_consumer_id = self.model_consumer_id.strip()
+            if not normalized_consumer_id:
+                raise ValueError("model inference consumer id must not be blank")
+            object.__setattr__(self, "model_consumer_id", normalized_consumer_id)
         if self.model_id is not None:
             normalized = self.model_id.strip()
             if not normalized:

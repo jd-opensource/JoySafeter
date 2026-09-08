@@ -111,6 +111,13 @@ curl -X POST http://localhost:8000/api/v1/credentials \
 
 Agent 与 Quickstart 不拉取全部 Credential 后在浏览器猜测，而是调用服务端过滤：
 
+- Agent 创建、Agent 编辑与 Quickstart 按运行引擎使用 `compatible_engine`。
+- AI Skill 创作按平台消费者使用 `compatible_consumer=skill_ai_authoring`，不等同于 Codex。
+- 四个入口均可在当前流程内创建模型连接；创建成功后会自动选中，无需跳转页面再返回刷新。
+
+AI Skill 本身不保存模型连接。发布后的同一个 Skill 可以被多个 Agent 复用，并由各 Agent
+自己的运行引擎和模型连接执行；创作页选择的连接只负责本次 AI 辅助编写。
+
 ```bash
 curl 'http://localhost:8000/api/v1/credentials?kind=model&compatible_engine=codex&limit=100' \
   -H "Authorization: Bearer <platform-token>"

@@ -15,7 +15,8 @@ import type { CredentialId } from '@/types/entity-id'
 import type { Credential } from '@/types/managed'
 
 interface CompatibleCredentialPickerProps {
-  engineId: string
+  engineId?: string
+  modelConsumerId?: string
   value: CredentialId | ''
   onChange: (value: CredentialId | '') => void
   onCreateRequested: () => void
@@ -28,6 +29,7 @@ interface CompatibleCredentialPickerProps {
 
 export function CompatibleCredentialPicker({
   engineId,
+  modelConsumerId,
   value,
   onChange,
   onCreateRequested,
@@ -38,10 +40,14 @@ export function CompatibleCredentialPicker({
   conflictMessage,
 }: CompatibleCredentialPickerProps) {
   const { t } = useTranslation()
-  const query = useCompatibleCredentials({ engineId, enabled: Boolean(engineId) })
+  const query = useCompatibleCredentials({
+    engineId,
+    modelConsumerId,
+    enabled: Boolean(engineId || modelConsumerId),
+  })
   const catalogQuery = useLlmCatalog()
 
-  if (!engineId) {
+  if (!engineId && !modelConsumerId) {
     return <p className="text-sm text-muted-foreground">{t('managed.llm.chooseEngineFirst')}</p>
   }
   if (query.isLoading || catalogQuery.isLoading) {

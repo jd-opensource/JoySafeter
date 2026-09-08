@@ -41,23 +41,15 @@ import remarkGfm from 'remark-gfm'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select'
 import { useToast } from '@/hooks/use-toast'
 import { useTranslation } from '@/lib/i18n'
-import { managedGet } from '@/lib/api-client'
-import { useProtocolCredentials } from '@/hooks/managed/use-compatible-credentials'
+import { useCompatibleCredentials } from '@/hooks/managed/use-compatible-credentials'
 import {
   useSkillAuthoring,
   type SkillDraft,
   type SkillDraftFile,
 } from '@/hooks/managed/use-skill-authoring'
-import { useQuery } from '@tanstack/react-query'
+import { useQueryClient } from '@tanstack/react-query'
 import {
   FileTreeNode,
   buildFileTree,
@@ -66,7 +58,9 @@ import {
   type SkillWorkspaceFile,
 } from '@/components/managed/skills/skill-workspace'
 import { SkillCodeEditor } from '@/components/managed/skills/skill-code-editor'
+import { RequiredModelConnectionControl } from '@/components/managed/llm/required-model-connection-control'
 import { downloadDraftZip } from '@/lib/managed/skill-draft-zip'
+import { recordCreatedModelConnection } from '@/lib/managed/model-connection-cache'
 import { severityLabelKey } from '@/lib/managed/skill-severity'
 import {
   hasManagedRequestScope,
@@ -78,12 +72,14 @@ import {
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
 import type { CredentialId } from '@/types/entity-id'
+import type { Credential, CredentialDetail } from '@/types/managed'
 
 // Sentinel ids used by the tab bar. Preview / Editor / Metadata are pinned
 // pseudo-files; everything else is keyed by its draft path.
 const TAB_PREVIEW = '__preview__'
 const TAB_EDITOR = '__editor__'
 const TAB_METADATA = '__metadata__'
+const AUTHORING_MODEL_CONSUMER_ID = 'skill_ai_authoring'
 
 // ── adapters ────────────────────────────────────────────────────────────
 // The Projects tree was written for the detail page which has fully-formed
@@ -126,6 +122,7 @@ function inferFileType(name: string): string {
 export default function SkillAiAuthoringPage() {
   const { t } = useTranslation()
   const router = useRouter()
+  const queryClient = useQueryClient()
   const searchParams = useSearchParams()
   const { toast } = useToast()
   const projectReadOnly = useCurrentProjectReadOnly()
@@ -167,7 +164,10 @@ export default function SkillAiAuthoringPage() {
   const [activeTab, setActiveTab] = useState<string>(TAB_EDITOR)
   const [activeFilePath, setActiveFilePath] = useState<string>('SKILL.md')
 
-  const { data: credentials = [] } = useProtocolCredentials({ protocolId: 'openai_responses' })
+  const credentialsQuery = useCompatibleCredentials({
+    modelConsumerId: AUTHORING_MODEL_CONSUMER_ID,
+  })
+  const credentials = credentialsQuery.data ?? []
 
   const effectiveModelCredentialId = useMemo(() => {
     if (!credentials.length) return ''
@@ -180,6 +180,17 @@ export default function SkillAiAuthoringPage() {
     if (modelCredentialId === effectiveModelCredentialId) return
     setModelCredentialId(effectiveModelCredentialId)
   }, [effectiveModelCredentialId, modelCredentialId])
+
+  const handleModelConnectionCreated = (created: CredentialDetail) => {
+    recordCreatedModelConnection(
+      queryClient,
+      managedScope.key,
+      AUTHORING_MODEL_CONSUMER_ID,
+      created as Credential,
+      'consumer',
+    )
+    setModelCredentialId(created.id)
+  }
 
   useEffect(() => {
     setModelCredentialId('')
@@ -457,11 +468,6 @@ export default function SkillAiAuthoringPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {credentials.length === 0 && (
-            <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive">
-              {t('managed.skills.aiAuthor.noModelConnections')}
-            </span>
-          )}
           {/* Wrapped in a span so the tooltip still shows while the button
               is disabled (disabled buttons don't emit hover events). */}
           <span title={!draftSkillId ? t('managed.skills.aiAuthor.scan.saveFirst') : undefined}>
@@ -502,6 +508,19 @@ export default function SkillAiAuthoringPage() {
       <div className="flex flex-1 overflow-hidden">
         {/* Left: chat */}
         <div className="flex w-[420px] shrink-0 flex-col">
+          <RequiredModelConnectionControl
+            modelConsumerId={AUTHORING_MODEL_CONSUMER_ID}
+            value={effectiveModelCredentialId}
+            credentials={credentials}
+            loading={credentialsQuery.isPending || credentialsQuery.isFetching}
+            loadError={credentialsQuery.isError}
+            disabled={projectReadOnly || streaming}
+            onChange={setModelCredentialId}
+            onCreated={handleModelConnectionCreated}
+            onRetry={() => {
+              void credentialsQuery.refetch()
+            }}
+          />
           <div className="flex-1 space-y-3 overflow-y-auto px-5 py-4">
             {hydrated && messages.length === 0 && <Greeting />}
             {messages.map((m, i) => (

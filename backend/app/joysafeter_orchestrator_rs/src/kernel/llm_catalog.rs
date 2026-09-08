@@ -22,6 +22,8 @@ pub(crate) struct LlmCatalog {
     pub(crate) version: String,
     pub(crate) protocols: Vec<Protocol>,
     pub(crate) engines: Vec<Engine>,
+    #[serde(default)]
+    pub(crate) model_consumers: Vec<ModelConsumer>,
     pub(crate) credential_profiles: Vec<CredentialProfile>,
     pub(crate) providers: Vec<Provider>,
 }
@@ -37,6 +39,18 @@ pub(crate) struct Protocol {
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Engine {
+    pub(crate) id: String,
+    pub(crate) display_name: String,
+    #[serde(default = "default_true")]
+    pub(crate) enabled: bool,
+    pub(crate) supported_protocol_ids: Vec<String>,
+    #[serde(default)]
+    pub(crate) preferred_protocol_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ModelConsumer {
     pub(crate) id: String,
     pub(crate) display_name: String,
     #[serde(default = "default_true")]
@@ -194,6 +208,10 @@ impl LlmCatalog {
     fn validate(&self) -> Result<(), LlmCatalogError> {
         ensure_unique("engine", self.engines.iter().map(|item| item.id.as_str()))?;
         ensure_unique(
+            "model consumer",
+            self.model_consumers.iter().map(|item| item.id.as_str()),
+        )?;
+        ensure_unique(
             "protocol",
             self.protocols.iter().map(|item| item.id.as_str()),
         )?;
@@ -247,6 +265,25 @@ impl LlmCatalog {
                     return Err(catalog_invalid(format!(
                         "engine '{}' preferred protocol is not supported: {protocol_id}",
                         engine.id
+                    )));
+                }
+            }
+        }
+
+        for consumer in &self.model_consumers {
+            for protocol_id in &consumer.supported_protocol_ids {
+                if !protocol_ids.contains(protocol_id.as_str()) {
+                    return Err(catalog_invalid(format!(
+                        "model consumer '{}' references unknown protocol: {protocol_id}",
+                        consumer.id
+                    )));
+                }
+            }
+            for protocol_id in &consumer.preferred_protocol_ids {
+                if !consumer.supported_protocol_ids.contains(protocol_id) {
+                    return Err(catalog_invalid(format!(
+                        "model consumer '{}' preferred protocol is not supported: {protocol_id}",
+                        consumer.id
                     )));
                 }
             }
@@ -327,6 +364,10 @@ fn parse_catalog(raw: &str) -> Result<LlmCatalog, LlmCatalogError> {
 
 pub(crate) fn catalog() -> Result<&'static LlmCatalog, LlmCatalogError> {
     CATALOG.as_ref().map_err(Clone::clone)
+}
+
+pub fn validate_catalog_configuration() -> Result<(), LlmCatalogError> {
+    catalog().map(|_| ())
 }
 
 fn validate_runtime_secret_with_catalog(
@@ -485,6 +526,76 @@ mod tests {
                 ),
             ]
         );
+
+        let consumer_matrix = catalog
+            .model_consumers
+            .iter()
+            .map(|consumer| {
+                (
+                    consumer.id.as_str(),
+                    consumer.enabled,
+                    consumer.display_name.as_str(),
+                    consumer
+                        .supported_protocol_ids
+                        .iter()
+                        .map(String::as_str)
+                        .collect::<Vec<_>>(),
+                    consumer
+                        .preferred_protocol_ids
+                        .iter()
+                        .map(String::as_str)
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            consumer_matrix,
+            vec![(
+                "skill_ai_authoring",
+                true,
+                "AI Skill Authoring",
+                vec!["anthropic_messages", "openai_responses", "chat_completions"],
+                vec!["openai_responses", "anthropic_messages", "chat_completions"],
+            )]
+        );
+    }
+
+    #[test]
+    fn catalog_validation_rejects_invalid_model_consumer_protocols() {
+        let unknown_protocol = include_str!("../../../../config/llm_catalog.yaml").replace(
+            "supported_protocol_ids: [anthropic_messages, openai_responses, chat_completions]\n    preferred_protocol_ids: [openai_responses, anthropic_messages, chat_completions]\n\ncredential_profiles:",
+            "supported_protocol_ids: [anthropic_messages, unknown_protocol]\n    preferred_protocol_ids: [anthropic_messages]\n\ncredential_profiles:",
+        );
+        let error = parse_catalog(&unknown_protocol)
+            .expect_err("model consumer protocols must reference the shared protocol catalog");
+        assert!(error
+            .to_string()
+            .contains("model consumer 'skill_ai_authoring' references unknown protocol"));
+
+        let unsupported_preferred = include_str!("../../../../config/llm_catalog.yaml").replace(
+            "supported_protocol_ids: [anthropic_messages, openai_responses, chat_completions]\n    preferred_protocol_ids: [openai_responses, anthropic_messages, chat_completions]\n\ncredential_profiles:",
+            "supported_protocol_ids: [anthropic_messages]\n    preferred_protocol_ids: [openai_responses]\n\ncredential_profiles:",
+        );
+        let error = parse_catalog(&unsupported_preferred)
+            .expect_err("preferred model consumer protocols must also be supported");
+        assert!(error
+            .to_string()
+            .contains("model consumer 'skill_ai_authoring' preferred protocol is not supported"));
+    }
+
+    #[test]
+    fn catalog_validation_rejects_duplicate_model_consumer_ids() {
+        let duplicate_consumer = include_str!("../../../../config/llm_catalog.yaml").replace(
+            "credential_profiles:",
+            "  - id: skill_ai_authoring\n    display_name: Duplicate AI Skill Authoring\n    supported_protocol_ids: [anthropic_messages]\n\ncredential_profiles:",
+        );
+
+        let error = parse_catalog(&duplicate_consumer)
+            .expect_err("model consumer ids must be unique within their namespace");
+        assert!(error
+            .to_string()
+            .contains("duplicate model consumer id: skill_ai_authoring"));
     }
 
     #[test]

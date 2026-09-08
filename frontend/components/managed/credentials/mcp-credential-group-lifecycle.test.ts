@@ -21,7 +21,8 @@ describe('MCP credential member lifecycle', () => {
       'utf8',
     )
 
-    expect(source).toContain("apiResourcePath('credentials', credId!, 'restore')")
+    expect(source).toContain("changeManagedCredentialLifecycle(credId!, 'restore', requestScope)")
+    expect(source).not.toContain("apiResourcePath('credentials', credId!, 'restore')")
     expect(source).toContain(
       "apiResourcePath('credential-groups', credentialGroupId, 'members', credId!)",
     )

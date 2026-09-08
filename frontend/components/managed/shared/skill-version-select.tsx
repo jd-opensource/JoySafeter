@@ -1,16 +1,7 @@
 'use client'
 
-import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import { managedGet } from '@/lib/api-client'
-import { apiResourceSubpath } from '@/lib/managed/api-paths'
-import { parseSkillVersionListResponse } from '@/lib/managed/skill-response-parsers'
+import { useManagedSkillVersions } from '@/hooks/managed/use-managed-skill-versions'
 import { useTranslation } from '@/lib/i18n'
-import {
-  hasManagedRequestScope,
-  managedRequestOptions,
-  useManagedRequestScope,
-} from '@/lib/managed/request-scope'
 import {
   Select,
   SelectContent,
@@ -49,20 +40,10 @@ export function SkillVersionSelect({
   className,
 }: SkillVersionSelectProps) {
   const { t } = useTranslation()
-  const managedScope = useManagedRequestScope()
-
-  const { data } = useQuery({
-    queryKey: ['skill-versions', managedScope.key, skillId],
-    queryFn: () =>
-      managedGet<unknown>(
-        apiResourceSubpath('skills', skillId, ['versions'], { limit: 50 }),
-        managedRequestOptions(managedScope),
-      ).then((response) => ({ data: parseSkillVersionListResponse(response) })),
-    enabled: enabled && !!skillId && hasManagedRequestScope(managedScope),
+  const { data: versions = [] } = useManagedSkillVersions(skillId, {
+    enabled,
     staleTime: 30_000,
   })
-
-  const versions = useMemo(() => data?.data || [], [data])
 
   return (
     <Select value={value || 'latest'} onValueChange={onChange}>

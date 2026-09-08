@@ -21,6 +21,7 @@ import {
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
+import { useManagedMemoryDirectory } from '@/hooks/managed/use-managed-memory-directory'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import {
   hasManagedRequestScope,
@@ -29,12 +30,9 @@ import {
   useManagedRequestScope,
   type ManagedRequestScope,
 } from '@/lib/managed/request-scope'
-import { apiResourceId, apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
-import {
-  parseMemoryListResponse,
-  parseMemoryStoreResponse,
-  type MemoryRecord,
-} from '@/lib/managed/memory-response-parsers'
+import { apiResourceId, apiResourcePath } from '@/lib/managed/api-paths'
+import { managedMemoryDirectoryQueryKey } from '@/lib/managed/memory-store-client'
+import { parseMemoryStoreResponse, type MemoryRecord } from '@/lib/managed/memory-response-parsers'
 import { parseMemoryStoreId, type MemoryId, type MemoryStoreId } from '@/types/entity-id'
 import type { MemoryStore } from '@/types/managed'
 import { Button } from '@/components/ui/button'
@@ -490,18 +488,7 @@ function MemoryStoreDetailPageInner({ params }: { params: Promise<{ storeId: str
   })
 
   // Fetch memories
-  const { data: memoriesRes, isLoading: memLoading } = useQuery({
-    queryKey: ['memory-store-memories', managedScope.key, rawId],
-    queryFn: () =>
-      managedGet<unknown>(
-        apiResourceSubpath('memory_stores', storeId, ['memories'], {
-          limit: 100,
-          view: 'full',
-        }),
-        managedRequestOptions(managedScope),
-      ).then(parseMemoryListResponse),
-    enabled: !!rawId && hasManagedRequestScope(managedScope),
-  })
+  const { data: memoriesRes, isLoading: memLoading } = useManagedMemoryDirectory(storeId)
 
   const memories = memoriesRes ?? []
 
@@ -593,7 +580,7 @@ function MemoryStoreDetailPageInner({ params }: { params: Promise<{ storeId: str
   const findCurrentMemory = (memId: MemoryId) =>
     currentOperationScopeIsActive()
       ? queryClient
-          .getQueryData<Memory[]>(['memory-store-memories', managedScope.key, rawId])
+          .getQueryData<Memory[]>(managedMemoryDirectoryQueryKey(managedScope.key, storeId))
           ?.find((mem) => mem.id === memId)
       : undefined
 
@@ -677,10 +664,10 @@ function MemoryStoreDetailPageInner({ params }: { params: Promise<{ storeId: str
         managedRequestOptions(requestScope),
       )
     },
-    onSuccess: (_data, { memId, rawId, runId, scope, scopeKey }) => {
+    onSuccess: (_data, { memId, storeId, runId, scope, scopeKey }) => {
       if (!isCurrentAction(runId, scope)) return
       queryClient.invalidateQueries({
-        queryKey: ['memory-store-memories', scopeKey, rawId],
+        queryKey: managedMemoryDirectoryQueryKey(scopeKey, storeId),
       })
       setConfirmDialog((prev) => ({ ...prev, open: false }))
       if (selectedMemory && memId === selectedMemory.id) {
@@ -763,7 +750,7 @@ function MemoryStoreDetailPageInner({ params }: { params: Promise<{ storeId: str
       )
       if (!isCurrentAction(runId, scope)) return
       queryClient.invalidateQueries({
-        queryKey: ['memory-store-memories', requestScope.key, rawId],
+        queryKey: managedMemoryDirectoryQueryKey(requestScope.key, storeId),
       })
       // Update the selected memory content in place
       setSelectedMemory((prev) => (prev && prev.id === memId ? { ...prev, content } : prev))
@@ -833,7 +820,7 @@ function MemoryStoreDetailPageInner({ params }: { params: Promise<{ storeId: str
       setNewMemContent('')
       setCreateMemOpen(false)
       queryClient.invalidateQueries({
-        queryKey: ['memory-store-memories', requestScope.key, rawId],
+        queryKey: managedMemoryDirectoryQueryKey(requestScope.key, storeId),
       })
     } catch (error) {
       if (!isCurrentAction(runId, scope)) return

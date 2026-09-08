@@ -10,7 +10,6 @@ import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useLlmCatalog } from '@/hooks/managed/use-llm-catalog'
 import { useScopedActions } from '@/hooks/managed/use-scoped-actions'
-import { managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import {
   ANTHROPIC_AUTH_SCHEME,
@@ -19,19 +18,20 @@ import {
   inferSchemeFromValues,
   resolveAnthropicScheme,
 } from '@/lib/managed/anthropic-auth'
+import { createManagedCredential, testManagedCredential } from '@/lib/managed/credential-client'
 import {
   getAllProviderProtocolOptions,
+  getConsumerProviderProtocolOptions,
   getProviderProtocolOptions,
   stableConnectionFingerprint,
 } from '@/lib/managed/llm-catalog'
-import { managedRequestOptions } from '@/lib/managed/request-scope'
-import { parseCredentialDetailResponse } from '@/lib/managed/credential-response-parsers'
 import { cn } from '@/lib/utils'
-import type { LlmCredentialField } from '@/types/llm'
+import type { LlmCredentialField, LlmCredentialProfile } from '@/types/llm'
 import type { CredentialDetail } from '@/types/managed'
 
 interface ModelConnectionConfiguratorProps {
   initialEngineId?: string
+  initialModelConsumerId?: string
   onCreated: (credential: CredentialDetail) => void
   onCancel?: () => void
   className?: string
@@ -66,8 +66,28 @@ function fieldInputType(field: LlmCredentialField) {
   return 'text'
 }
 
+function isPrimaryConnectionField(
+  field: LlmCredentialField,
+  profile: LlmCredentialProfile,
+): boolean {
+  return (
+    field.required ||
+    field.key === profile.base_url_key ||
+    field.key === profile.model_key ||
+    (field.type === 'secret' && /(^|_)API_KEY$/.test(field.key))
+  )
+}
+
+function isAdvancedConnectionField(
+  field: LlmCredentialField,
+  profile: LlmCredentialProfile,
+): boolean {
+  return field.advanced && !isPrimaryConnectionField(field, profile)
+}
+
 export function ModelConnectionConfigurator({
   initialEngineId,
+  initialModelConsumerId,
   onCreated,
   onCancel,
   className,
@@ -101,10 +121,12 @@ export function ModelConnectionConfigurator({
 
   const options = useMemo(() => {
     if (!catalogQuery.data) return []
-    return engineId
-      ? getProviderProtocolOptions(catalogQuery.data, engineId)
-      : getAllProviderProtocolOptions(catalogQuery.data)
-  }, [catalogQuery.data, engineId])
+    if (engineId) return getProviderProtocolOptions(catalogQuery.data, engineId)
+    if (initialModelConsumerId) {
+      return getConsumerProviderProtocolOptions(catalogQuery.data, initialModelConsumerId)
+    }
+    return getAllProviderProtocolOptions(catalogQuery.data)
+  }, [catalogQuery.data, engineId, initialModelConsumerId])
   const providerOptions = useMemo(() => {
     const seen = new Set<string>()
     return options.filter((option) => {
@@ -132,11 +154,15 @@ export function ModelConnectionConfigurator({
       ) ?? null,
     [options, protocolId, providerId],
   )
-  const currentFingerprint = stableConnectionFingerprint({ providerId, protocolId, values })
+  const isAnthropic = selectedOption?.credentialProfile.id === 'anthropic_standard'
+  const currentFingerprint = stableConnectionFingerprint({
+    providerId,
+    protocolId,
+    values: isAnthropic ? { ...values, __auth_scheme: authScheme } : values,
+  })
   const connectionTestIsFresh =
     testedFingerprint !== null && testedFingerprint === currentFingerprint
   const connectionTestIsStale = testedFingerprint !== null && !connectionTestIsFresh
-  const isAnthropic = selectedOption?.credentialProfile.id === 'anthropic_standard'
   const engineDisplayName =
     catalogQuery.data?.engines.find((engine) => engine.id === engineId)?.display_name ?? engineId
 
@@ -200,15 +226,18 @@ export function ModelConnectionConfigurator({
     )
   }
 
+  const credentialProfile = selectedOption?.credentialProfile
   const visibleFields =
-    selectedOption?.credentialProfile.fields.filter(
+    credentialProfile?.fields.filter(
       (field) =>
-        (!field.advanced || showAdvanced) &&
+        (!isAdvancedConnectionField(field, credentialProfile) || showAdvanced) &&
         !(isAnthropic && field.key === ANTHROPIC_ENV.authToken),
     ) ?? []
   const advancedFieldCount =
-    selectedOption?.credentialProfile.fields.filter(
-      (field) => field.advanced && !(isAnthropic && field.key === ANTHROPIC_ENV.authToken),
+    credentialProfile?.fields.filter(
+      (field) =>
+        isAdvancedConnectionField(field, credentialProfile) &&
+        !(isAnthropic && field.key === ANTHROPIC_ENV.authToken),
     ).length ?? 0
 
   const runValidation = () => {
@@ -237,15 +266,14 @@ export function ModelConnectionConfigurator({
     setRequestError(null)
     setTestMessage(null)
     try {
-      const result = await managedPost<{ ok: boolean; message: string }>(
-        '/credentials/test',
+      const result = await testManagedCredential(
         {
           provider: providerId,
           protocol: protocolId,
           data: values,
-          auth_scheme: isAnthropic ? authScheme : undefined,
+          authScheme: isAnthropic ? authScheme : undefined,
         },
-        managedRequestOptions(action.requestScope),
+        action.requestScope,
       )
       if (!isCurrentAction(action.runId, action.scope)) return
       if (!result.ok) {
@@ -275,22 +303,40 @@ export function ModelConnectionConfigurator({
     }
     setCreating(true)
     setRequestError(null)
+    setTestMessage(null)
     try {
-      const response = await managedPost<unknown>(
-        '/credentials',
+      if (!connectionTestIsFresh) {
+        const testResult = await testManagedCredential(
+          {
+            provider: providerId,
+            protocol: protocolId,
+            data: values,
+            authScheme: isAnthropic ? authScheme : undefined,
+          },
+          action.requestScope,
+        )
+        if (!isCurrentAction(action.runId, action.scope)) return
+        if (!testResult.ok) {
+          setRequestError(testResult.message || t('managed.llm.connectionFailed'))
+          return
+        }
+        setTestedFingerprint(currentFingerprint)
+        setTestMessage(testResult.message)
+      }
+      const credential = await createManagedCredential(
         {
           kind: 'model',
           name: name.trim(),
           provider: providerId,
           protocol: protocolId,
           data: values,
-          is_default: isDefault,
-          auth_scheme: isAnthropic ? authScheme : undefined,
+          isDefault,
+          authScheme: isAnthropic ? authScheme : undefined,
         },
-        managedRequestOptions(action.requestScope),
+        action.requestScope,
       )
       if (!isCurrentAction(action.runId, action.scope)) return
-      onCreated(parseCredentialDetailResponse(response))
+      onCreated(credential)
     } catch (error) {
       if (!isCurrentAction(action.runId, action.scope)) return
       setRequestError(error instanceof Error ? error.message : t('managed.llm.createFailed'))

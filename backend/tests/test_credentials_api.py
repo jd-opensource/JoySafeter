@@ -462,6 +462,32 @@ def test_credential_list_filters_and_compat_fields(client) -> None:
     assert b_body["id"] in claude_ids
     assert a_body["id"] not in claude_ids
 
+    authoring_ids = {
+        i["id"]
+        for i in api.get(
+            "/credentials",
+            params={"compatible_consumer": "skill_ai_authoring"},
+        ).json()["data"]
+    }
+    assert {a_body["id"], b_body["id"]} <= authoring_ids
+
+    conflict = api.get(
+        "/credentials",
+        params={
+            "compatible_engine": "codex",
+            "compatible_consumer": "skill_ai_authoring",
+        },
+    )
+    assert conflict.status_code == 400
+    assert conflict.json()["code"] == "LLM_COMPATIBILITY_FILTER_CONFLICT"
+
+    unknown_consumer = api.get(
+        "/credentials",
+        params={"compatible_consumer": "missing"},
+    )
+    assert unknown_consumer.status_code == 400
+    assert unknown_consumer.json()["code"] == "LLM_MODEL_CONSUMER_UNKNOWN"
+
     # provider filter.
     prov = api.get("/credentials", params={"provider": "openai"}).json()["data"]
     assert all(i["provider"] == "openai" for i in prov)

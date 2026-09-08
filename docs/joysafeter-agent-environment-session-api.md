@@ -8,13 +8,13 @@
 
 不同环境只需要替换 `BASE` 地址，接口路径保持一致：
 
-| 环境 | BASE 地址 | 说明 |
-|---|---|---|
-| 本地开发 | `http://127.0.0.1:8000/api/v1` | 本地启动 API 服务时使用 |
-| K8s 集群内 pre | `http://joysafeter-api.joysafeter-pre.svc.cluster.local:8000/api/v1` | 集群内 Pod 调用 pre 环境 |
+| 环境            | BASE 地址                                                             | 说明                                             |
+| --------------- | --------------------------------------------------------------------- | ------------------------------------------------ |
+| 本地开发        | `http://127.0.0.1:8000/api/v1`                                        | 本地启动 API 服务时使用                          |
+| K8s 集群内 pre  | `http://joysafeter-api.joysafeter-pre.svc.cluster.local:8000/api/v1`  | 集群内 Pod 调用 pre 环境                         |
 | K8s 集群内 prod | `http://joysafeter-api.joysafeter-prod.svc.cluster.local:8000/api/v1` | 集群内 Pod 调用 prod 环境，按实际 namespace 调整 |
-| 外部网关 pre | `https://<pre-api-domain>/api/v1` | 第三方系统从集群外调用 pre 环境 |
-| 外部网关 prod | `https://<prod-api-domain>/api/v1` | 第三方系统从集群外调用 prod 环境 |
+| 外部网关 pre    | `https://<pre-api-domain>/api/v1`                                     | 第三方系统从集群外调用 pre 环境                  |
+| 外部网关 prod   | `https://<prod-api-domain>/api/v1`                                    | 第三方系统从集群外调用 prod 环境                 |
 
 > 上表中的外部域名、namespace、端口以实际部署为准。第三方系统接入时，先确认使用的是 pre 还是 prod 的 `BASE` 地址。
 
@@ -89,13 +89,13 @@ SSE 流接口不包装，直接返回 `text/event-stream`。
 
 返回 ID 通常带前缀：
 
-| 对象 | 示例 |
-|---|---|
-| Agent | `agent_<uuid>` |
-| Environment | `env_<uuid>` |
-| Session | `sess_<uuid>` |
-| Event | `evt_<uuid>` |
-| Task | `task_<uuid>` |
+| 对象        | 示例           |
+| ----------- | -------------- |
+| Agent       | `agent_<uuid>` |
+| Environment | `env_<uuid>`   |
+| Session     | `sess_<uuid>`  |
+| Event       | `evt_<uuid>`   |
+| Task        | `task_<uuid>`  |
 
 路径参数一般支持带前缀的 ID，例如：
 
@@ -207,23 +207,23 @@ Agent 是 JoySafeter 中可执行的智能体配置，包含模型、系统提�
 
 字段说明：
 
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---:|---|
-| `name` | string | 是 | Agent 名称，同 project 下应唯一 |
-| `engine_kind` | string | 否 | `claude` / `codex` / `native` / `pi`，默认 `claude` |
-| `model` | string/object/null | 否 | 模型配置，也可直接传字符串 |
-| `system_prompt` | string | 否 | 系统提示词，返回字段为 `system` |
-| `description` | string | 否 | 描述 |
-| `metadata` | object | 否 | 自定义元数据 |
-| `env` | object | 否 | 注入到运行环境的环境变量 |
-| `mcp_servers` | array | 否 | Agent 的 MCP 连接声明。`streamable_http` 支持 `required` / `optional` / `none`；`sse` 仅支持 `none`；`local_stdio` 不使用凭据组 |
-| `skills` | array | 否 | Skill 引用或内联包 |
-| `agents` | array | 否 | 子 Agent 包 |
-| `commands` | array | 否 | 自定义命令包 |
-| `tools` | array | 否 | 工具配置 |
-| `multiagent` | object/null | 否 | 多 Agent 配置 |
-| `environment_id` | string | 否 | 绑定的 canonical `env_<uuid>` Environment ID；名称与裸 UUID 均不接受 |
-| `model_credential_id` | string | 否 | canonical `cred_<uuid>` 模型连接 ID |
+| 字段                  | 类型               | 必填 | 说明                                                                                                                            |
+| --------------------- | ------------------ | ---: | ------------------------------------------------------------------------------------------------------------------------------- |
+| `name`                | string             |   是 | Agent 名称，同 project 下应唯一                                                                                                 |
+| `engine_kind`         | string             |   否 | `claude` / `codex` / `native` / `pi`，默认 `claude`                                                                             |
+| `model`               | string/object/null |   否 | 模型配置，也可直接传字符串                                                                                                      |
+| `system_prompt`       | string             |   否 | 系统提示词，返回字段为 `system`                                                                                                 |
+| `description`         | string             |   否 | 描述                                                                                                                            |
+| `metadata`            | object             |   否 | 自定义元数据                                                                                                                    |
+| `env`                 | object             |   否 | 注入到运行环境的环境变量                                                                                                        |
+| `mcp_servers`         | array              |   否 | Agent 的 MCP 连接声明。`streamable_http` 支持 `required` / `optional` / `none`；`sse` 仅支持 `none`；`local_stdio` 不使用凭据组 |
+| `skills`              | array              |   否 | Skill 引用或内联包                                                                                                              |
+| `agents`              | array              |   否 | 子 Agent 包                                                                                                                     |
+| `commands`            | array              |   否 | 自定义命令包                                                                                                                    |
+| `tools`               | array              |   否 | 工具配置                                                                                                                        |
+| `multiagent`          | object/null        |   否 | 多 Agent 配置                                                                                                                   |
+| `environment_id`      | string             |   否 | 绑定的 canonical `env_<uuid>` Environment ID；名称与裸 UUID 均不接受                                                            |
+| `model_credential_id` | string             |   否 | canonical `cred_<uuid>` 模型连接 ID                                                                                             |
 
 `engine_kind` 和 `model_credential_id` 要兼容：
 
@@ -312,11 +312,11 @@ GET /api/v1/agents?limit=20&after_id=agent_<uuid>&include_archived=false
 
 参数：
 
-| 参数 | 类型 | 默认 | 说明 |
-|---|---|---:|---|
-| `limit` | int | 20 | 每页数量，1-100 |
-| `after_id` | string | - | canonical `agent_<uuid>` 游标，从该 ID 后继续 |
-| `include_archived` | bool | false | 是否包含已归档 Agent |
+| 参数               | 类型   |  默认 | 说明                                          |
+| ------------------ | ------ | ----: | --------------------------------------------- |
+| `limit`            | int    |    20 | 每页数量，1-100                               |
+| `after_id`         | string |     - | canonical `agent_<uuid>` 游标，从该 ID 后继续 |
+| `include_archived` | bool   | false | 是否包含已归档 Agent                          |
 
 示例：
 
@@ -371,11 +371,11 @@ curl -sS -X POST "$BASE/agents/$AGENT_ID" \
 
 常见错误：
 
-| code | 说明 |
-|---|---|
+| code                     | 说明                       |
+| ------------------------ | -------------------------- |
 | `AGENT_VERSION_CONFLICT` | version 不一致，刷新后重试 |
-| `AGENT_ARCHIVED` | Agent 已归档，不能更新 |
-| `AGENT_NOT_FOUND` | Agent 不存在 |
+| `AGENT_ARCHIVED`         | Agent 已归档，不能更新     |
+| `AGENT_NOT_FOUND`        | Agent 不存在               |
 
 ---
 
@@ -387,8 +387,8 @@ DELETE /api/v1/agents/{agent_id}?force=false
 
 参数：
 
-| 参数 | 类型 | 默认 | 说明 |
-|---|---|---:|---|
+| 参数    | 类型 |  默认 | 说明                                   |
+| ------- | ---- | ----: | -------------------------------------- |
 | `force` | bool | false | 是否强制清理关联 active task / sandbox |
 
 示例：
@@ -516,25 +516,25 @@ Environment 定义 Agent 运行时环境，包括包安装、网络策略、环�
 
 字段说明：
 
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---:|---|
-| `name` | string | 是 | Environment 名称 |
-| `description` | string | 否 | 描述 |
-| `metadata` | object | 否 | 元数据 |
-| `config.type` | string | 否 | 默认 `cloud` |
-| `config.packages.apt` | array | 否 | apt 包列表 |
-| `config.packages.pip` | array | 否 | pip 包列表 |
-| `config.packages.npm` | array | 否 | npm 全局包列表 |
-| `config.packages.cargo` | array | 否 | cargo 安装列表 |
-| `config.packages.gem` | array | 否 | gem 包列表 |
-| `config.packages.go` | array | 否 | go install 包列表 |
-| `config.networking.type` | string | 否 | 默认 `limited` |
-| `config.networking.allowed_hosts` | array | 否 | 允许访问的域名 |
-| `config.networking.allow_package_managers` | bool | 否 | 是否允许包管理器联网 |
-| `config.env_vars` | object | 否 | 环境变量 |
-| `config.environment_credential_ids` | array | 否 | canonical `cred_<uuid>` 环境凭据 ID |
-| `config.egress_services` | array | 否 | 外部服务凭证注入配置 |
-| `config.mount_resources` | array | 否 | 存储挂载配置 |
+| 字段                                       | 类型   | 必填 | 说明                                |
+| ------------------------------------------ | ------ | ---: | ----------------------------------- |
+| `name`                                     | string |   是 | Environment 名称                    |
+| `description`                              | string |   否 | 描述                                |
+| `metadata`                                 | object |   否 | 元数据                              |
+| `config.type`                              | string |   否 | 默认 `cloud`                        |
+| `config.packages.apt`                      | array  |   否 | apt 包列表                          |
+| `config.packages.pip`                      | array  |   否 | pip 包列表                          |
+| `config.packages.npm`                      | array  |   否 | npm 全局包列表                      |
+| `config.packages.cargo`                    | array  |   否 | cargo 安装列表                      |
+| `config.packages.gem`                      | array  |   否 | gem 包列表                          |
+| `config.packages.go`                       | array  |   否 | go install 包列表                   |
+| `config.networking.type`                   | string |   否 | 默认 `limited`                      |
+| `config.networking.allowed_hosts`          | array  |   否 | 允许访问的域名                      |
+| `config.networking.allow_package_managers` | bool   |   否 | 是否允许包管理器联网                |
+| `config.env_vars`                          | object |   否 | 环境变量                            |
+| `config.environment_credential_ids`        | array  |   否 | canonical `cred_<uuid>` 环境凭据 ID |
+| `config.egress_services`                   | array  |   否 | 外部服务凭证注入配置                |
+| `config.mount_resources`                   | array  |   否 | 存储挂载配置                        |
 
 #### mount_resources 结构
 
@@ -577,19 +577,19 @@ Environment 定义 Agent 运行时环境，包括包安装、网络策略、环�
 
 `inject.type` 支持：
 
-| 类型 | 说明 |
-|---|---|
-| `bearer` | 注入 Bearer Token |
-| `api_key` | 注入 API Key header |
-| `raw_header` | 注入原始 header |
-| `cookie` | 注入 Cookie header |
+| 类型         | 说明                |
+| ------------ | ------------------- |
+| `bearer`     | 注入 Bearer Token   |
+| `api_key`    | 注入 API Key header |
+| `raw_header` | 注入原始 header     |
+| `cookie`     | 注入 Cookie header  |
 
 ---
 
 ### 2.2 查询存储挂载目录
 
 ```http
-GET /api/v1/environments/mount-catalog/storage
+GET /api/v1/storage-volumes/catalog
 ```
 
 用于查看当前 project 可挂载的 storage volume。
@@ -597,7 +597,7 @@ GET /api/v1/environments/mount-catalog/storage
 示例：
 
 ```bash
-curl -sS "$BASE/environments/mount-catalog/storage" \
+curl -sS "$BASE/storage-volumes/catalog" \
   -H "X-Api-Key: $API_KEY" | jq
 ```
 
@@ -656,7 +656,7 @@ curl -sS -X POST "$BASE/environments" \
     "type": "environment",
     "name": "ubuntu24-dev",
     "description": "Ubuntu 24 开发环境",
-    "metadata": {"team": "platform"},
+    "metadata": { "team": "platform" },
     "config": {
       "type": "cloud",
       "packages": {
@@ -672,8 +672,10 @@ curl -sS -X POST "$BASE/environments" \
         "allowed_hosts": ["github.com", "api.github.com"],
         "allow_package_managers": true
       },
-      "env_vars": {"TZ": "Asia/Shanghai"},
-      "environment_credential_ids": ["cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020"],
+      "env_vars": { "TZ": "Asia/Shanghai" },
+      "environment_credential_ids": [
+        "cred_018f6f42-0a51-7cc4-98c8-4f6f0ca5f020"
+      ],
       "egress_services": [],
       "mount_resources": []
     },
@@ -843,17 +845,17 @@ Session 是一次或多轮 Agent 对话/执行上下文。一个 Session 绑定�
 Agent 指定方式任选一种，其中第三方系统推荐只用 `agent` 字符串：
 
 ```json
-{"agent": "agent_4a8d0d69-3b8b-4ad1-ae3d-0f6d50a1a111"}
+{ "agent": "agent_4a8d0d69-3b8b-4ad1-ae3d-0f6d50a1a111" }
 ```
 
 其它兼容写法：
 
 ```json
-{"agent_id": "4a8d0d69-3b8b-4ad1-ae3d-0f6d50a1a111"}
+{ "agent_id": "4a8d0d69-3b8b-4ad1-ae3d-0f6d50a1a111" }
 ```
 
 ```json
-{"agent_name": "claude-code"}
+{ "agent_name": "claude-code" }
 ```
 
 ```json
@@ -870,19 +872,19 @@ Agent 指定方式任选一种，其中第三方系统推荐只用 `agent` 字�
 
 字段说明：
 
-| 字段 | 类型 | 必填 | 说明 |
-|---|---|---:|---|
-| `agent` | string/object | 条件必填 | Agent 引用，第三方系统推荐使用；可指定版本 |
-| `agent_id` | string | 条件必填 | canonical `agent_<uuid>`，和 `agent` / `agent_name` 三选一 |
-| `agent_name` | string | 条件必填 | Agent 名称，和 `agent` / `agent_id` 三选一 |
-| `title` | string | 否 | Session 标题 |
-| `metadata` | object | 否 | 元数据 |
-| `credential_group_ids` | array | 否 | 本次 Session 授权使用的 canonical `credgrp_<uuid>` MCP Credential Group；按 Agent MCP URL 规范化匹配，不会永久绑定到 Agent |
-| `environment_id` | string | 否 | canonical `env_<uuid>`；覆盖 Agent 默认 environment |
-| `resources` | array | 否 | memory store 资源 |
-| `file_resources` | array | 否 | 文件资源 |
-| `repo_resources` | array | 否 | Git 仓库资源 |
-| `storage_mounts` | array | 否 | 存储挂载资源 |
+| 字段                   | 类型          |     必填 | 说明                                                                                                                       |
+| ---------------------- | ------------- | -------: | -------------------------------------------------------------------------------------------------------------------------- |
+| `agent`                | string/object | 条件必填 | Agent 引用，第三方系统推荐使用；可指定版本                                                                                 |
+| `agent_id`             | string        | 条件必填 | canonical `agent_<uuid>`，和 `agent` / `agent_name` 三选一                                                                 |
+| `agent_name`           | string        | 条件必填 | Agent 名称，和 `agent` / `agent_id` 三选一                                                                                 |
+| `title`                | string        |       否 | Session 标题                                                                                                               |
+| `metadata`             | object        |       否 | 元数据                                                                                                                     |
+| `credential_group_ids` | array         |       否 | 本次 Session 授权使用的 canonical `credgrp_<uuid>` MCP Credential Group；按 Agent MCP URL 规范化匹配，不会永久绑定到 Agent |
+| `environment_id`       | string        |       否 | canonical `env_<uuid>`；覆盖 Agent 默认 environment                                                                        |
+| `resources`            | array         |       否 | memory store 资源                                                                                                          |
+| `file_resources`       | array         |       否 | 文件资源                                                                                                                   |
+| `repo_resources`       | array         |       否 | Git 仓库资源                                                                                                               |
+| `storage_mounts`       | array         |       否 | 存储挂载资源                                                                                                               |
 
 ---
 
@@ -931,13 +933,12 @@ echo "$SESSION_ID"
 
 Agent 其它兼容写法：
 
-| 写法 | 是否推荐 | 说明 |
-|---|---:|---|
-| `{"agent":"agent_xxx"}` | 推荐 | 第三方系统首选 |
-| `{"agent_id":"uuid"}` | 可用 | 传纯 UUID |
-| `{"agent_name":"claude-code"}` | 可用 | 名称变化会影响调用 |
-| `{"agent":{"type":"agent","id":"uuid","version":2}}` | 特殊场景 | 固定 Agent 版本 |
-
+| 写法                                                 | 是否推荐 | 说明               |
+| ---------------------------------------------------- | -------: | ------------------ |
+| `{"agent":"agent_xxx"}`                              |     推荐 | 第三方系统首选     |
+| `{"agent_id":"uuid"}`                                |     可用 | 传纯 UUID          |
+| `{"agent_name":"claude-code"}`                       |     可用 | 名称变化会影响调用 |
+| `{"agent":{"type":"agent","id":"uuid","version":2}}` | 特殊场景 | 固定 Agent 版本    |
 
 响应示例：
 
@@ -960,7 +961,7 @@ Agent 其它兼容写法：
     "status": "idle",
     "stop_reason": null,
     "title": "API 调用测试",
-    "metadata": {"source": "api"},
+    "metadata": { "source": "api" },
     "credential_group_ids": [],
     "resources": [],
     "repo_resources": [],
@@ -993,12 +994,12 @@ GET /api/v1/sessions?limit=20&after_id=sess_<uuid>&agent_id=agent_<uuid>&include
 
 参数：
 
-| 参数 | 类型 | 默认 | 说明 |
-|---|---|---:|---|
-| `limit` | int | 20 | 每页数量，1-100 |
-| `after_id` | string | - | canonical `sess_<uuid>` 游标 |
-| `agent_id` | string | - | canonical `agent_<uuid>`，只查该 Agent 的 sessions |
-| `include_archived` | bool | false | 是否包含归档 session |
+| 参数               | 类型   |  默认 | 说明                                               |
+| ------------------ | ------ | ----: | -------------------------------------------------- |
+| `limit`            | int    |    20 | 每页数量，1-100                                    |
+| `after_id`         | string |     - | canonical `sess_<uuid>` 游标                       |
+| `agent_id`         | string |     - | canonical `agent_<uuid>`，只查该 Agent 的 sessions |
+| `include_archived` | bool   | false | 是否包含归档 session                               |
 
 示例：
 
@@ -1167,12 +1168,12 @@ GET /api/v1/sessions/{session_id}/events?limit=50&after_seq=<seq>&before_seq=<se
 
 参数：
 
-| 参数 | 类型 | 默认 | 说明 |
-|---|---|---:|---|
-| `limit` | int | 50 | 每页数量，1-200 |
-| `after_seq` | int | - | 查询 seq 大于该值的事件 |
-| `before_seq` | int | - | 查询 seq 小于该值的事件 |
-| `order` | string | `asc` | `asc` / `desc` |
+| 参数         | 类型   |  默认 | 说明                    |
+| ------------ | ------ | ----: | ----------------------- |
+| `limit`      | int    |    50 | 每页数量，1-200         |
+| `after_seq`  | int    |     - | 查询 seq 大于该值的事件 |
+| `before_seq` | int    |     - | 查询 seq 小于该值的事件 |
+| `order`      | string | `asc` | `asc` / `desc`          |
 
 `after_seq` 和 `before_seq` 不能同时传。
 
@@ -1467,10 +1468,10 @@ curl -sS "$BASE/sessions/$SESSION_ID/events?after_seq=$LAST_SEQ&limit=100&order=
 
 仓库中提供了两个第三方系统调用示例脚本：
 
-| 脚本 | 获取结果方式 | 适用场景 |
-|---|---|---|
-| `docs/examples/joysafeter_run_agent_sse.py` | SSE 流式 | 推荐，适合支持长连接的系统 |
-| `docs/examples/joysafeter_run_agent_polling.py` | HTTP 轮询 | 适合不能使用 SSE 的系统 |
+| 脚本                                            | 获取结果方式 | 适用场景                   |
+| ----------------------------------------------- | ------------ | -------------------------- |
+| `docs/examples/joysafeter_run_agent_sse.py`     | SSE 流式     | 推荐，适合支持长连接的系统 |
+| `docs/examples/joysafeter_run_agent_polling.py` | HTTP 轮询    | 适合不能使用 SSE 的系统    |
 
 两个脚本的流程都是：
 
@@ -1564,12 +1565,12 @@ export JOYSAFETER_DEBUG_EVENTS=1
 
 ### 5.3 两种脚本如何选择
 
-| 场景 | 推荐脚本 |
-|---|---|
-| 需要实时输出 | `joysafeter_run_agent_sse.py` |
-| Web 后端、网关支持长连接 | `joysafeter_run_agent_sse.py` |
+| 场景                           | 推荐脚本                          |
+| ------------------------------ | --------------------------------- |
+| 需要实时输出                   | `joysafeter_run_agent_sse.py`     |
+| Web 后端、网关支持长连接       | `joysafeter_run_agent_sse.py`     |
 | 第三方系统只能发普通 HTTP 请求 | `joysafeter_run_agent_polling.py` |
-| 对实时性要求不高 | `joysafeter_run_agent_polling.py` |
+| 对实时性要求不高               | `joysafeter_run_agent_polling.py` |
 
 ---
 
@@ -1577,37 +1578,37 @@ export JOYSAFETER_DEBUG_EVENTS=1
 
 ### 6.1 Session 状态
 
-| 状态 | 说明 |
-|---|---|
-| `idle` | 空闲，可发送新 `user.message` |
-| `running` | Agent 正在运行 |
-| `rescheduling` | 正在重新调度 |
-| `terminated` | 已终止 |
+| 状态           | 说明                          |
+| -------------- | ----------------------------- |
+| `idle`         | 空闲，可发送新 `user.message` |
+| `running`      | Agent 正在运行                |
+| `rescheduling` | 正在重新调度                  |
+| `terminated`   | 已终止                        |
 
 ### 6.2 常见 Event 类型
 
-| Event 类型 | 方向 | 说明 |
-|---|---|---|
-| `user.message` | client -> server | 用户消息，触发 task |
-| `user.interrupt` | client -> server | 中断当前运行 |
-| `user.custom_tool_result` | client -> server | 工具审批/工具结果 |
-| `session.status_running` | server -> client | session 进入 running |
-| `session.status_idle` | server -> client | session 回到 idle，本轮结束 |
-| `session.status_rescheduling` | server -> client | 正在重调度 runner/sandbox |
-| `session.status_terminated` | server -> client | session 已终止 |
-| `session.error` | server -> client | 运行失败，错误信息在 `error.message` |
-| `agent.message` | server -> client | Agent 输出消息，第三方主要读取这个事件；文本在 `content[].text` |
-| `agent.thinking` | server -> client | Agent 思考中 |
-| `agent.tool_use` | server -> client | 普通工具调用，工具名在 `name`，参数在 `input` |
-| `agent.mcp_tool_use` | server -> client | MCP 工具调用 |
-| `agent.custom_tool_use` | server -> client | 自定义/HITL 工具调用，可能需要第三方回传结果 |
-| `agent.tool_result` | server -> client | 普通工具结果 |
-| `agent.mcp_tool_result` | server -> client | MCP 工具结果 |
-| `span.model_request_start` | server -> client | 模型请求开始 |
-| `span.model_request_end` | server -> client | 模型请求结束，token 用量在 `usage` |
-| `agent.bg_task_started` | server -> client | 后台子任务开始 |
-| `agent.bg_task_progress` | server -> client | 后台子任务进度 |
-| `agent.bg_task_finished` | server -> client | 后台子任务结束 |
+| Event 类型                    | 方向             | 说明                                                            |
+| ----------------------------- | ---------------- | --------------------------------------------------------------- |
+| `user.message`                | client -> server | 用户消息，触发 task                                             |
+| `user.interrupt`              | client -> server | 中断当前运行                                                    |
+| `user.custom_tool_result`     | client -> server | 工具审批/工具结果                                               |
+| `session.status_running`      | server -> client | session 进入 running                                            |
+| `session.status_idle`         | server -> client | session 回到 idle，本轮结束                                     |
+| `session.status_rescheduling` | server -> client | 正在重调度 runner/sandbox                                       |
+| `session.status_terminated`   | server -> client | session 已终止                                                  |
+| `session.error`               | server -> client | 运行失败，错误信息在 `error.message`                            |
+| `agent.message`               | server -> client | Agent 输出消息，第三方主要读取这个事件；文本在 `content[].text` |
+| `agent.thinking`              | server -> client | Agent 思考中                                                    |
+| `agent.tool_use`              | server -> client | 普通工具调用，工具名在 `name`，参数在 `input`                   |
+| `agent.mcp_tool_use`          | server -> client | MCP 工具调用                                                    |
+| `agent.custom_tool_use`       | server -> client | 自定义/HITL 工具调用，可能需要第三方回传结果                    |
+| `agent.tool_result`           | server -> client | 普通工具结果                                                    |
+| `agent.mcp_tool_result`       | server -> client | MCP 工具结果                                                    |
+| `span.model_request_start`    | server -> client | 模型请求开始                                                    |
+| `span.model_request_end`      | server -> client | 模型请求结束，token 用量在 `usage`                              |
+| `agent.bg_task_started`       | server -> client | 后台子任务开始                                                  |
+| `agent.bg_task_progress`      | server -> client | 后台子任务进度                                                  |
+| `agent.bg_task_finished`      | server -> client | 后台子任务结束                                                  |
 
 ---
 

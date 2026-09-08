@@ -25,6 +25,7 @@ from app.joysafeter_shared.common.joysafeter_auth import (
     require_joysafeter_admin,
     require_joysafeter_platform_admin,
     require_joysafeter_project_admin,
+    require_joysafeter_read,
     require_joysafeter_user_admin,
     require_joysafeter_user_context,
     require_joysafeter_user_write,
@@ -97,6 +98,9 @@ def test_all_project_resource_write_routes_require_project_write_context():
     # Public ingress routes authed by request signature/secret rather than a
     # project-write principal (deliberately not require_joysafeter_write).
     public_write_routes = {"fire_webhook_trigger"}
+    read_only_post_routes = {
+        "quickstart_recommendations": require_joysafeter_read,
+    }
 
     offenders = []
     for module in project_resource_modules:
@@ -104,6 +108,14 @@ def test_all_project_resource_write_routes_require_project_write_context():
             if route.endpoint.__name__ in public_write_routes:
                 continue
             dependencies = _dependencies_for(route.endpoint)
+            read_dependency = read_only_post_routes.get(route.endpoint.__name__)
+            if read_dependency is not None:
+                if read_dependency not in dependencies or require_joysafeter_write in dependencies:
+                    methods = ",".join(sorted(route.methods or []))
+                    offenders.append(
+                        f"{module.__name__}.{route.endpoint.__name__} [{methods}] {route.path} must remain read-only"
+                    )
+                continue
             if require_joysafeter_write not in dependencies:
                 methods = ",".join(sorted(route.methods or []))
                 offenders.append(f"{module.__name__}.{route.endpoint.__name__} [{methods}] {route.path}")

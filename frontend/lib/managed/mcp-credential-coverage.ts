@@ -21,7 +21,7 @@ export interface McpCredentialCoverageSummary {
   blocking: boolean
 }
 
-interface McpCredentialMemberLike {
+export interface McpCredentialMemberLike {
   mcp_server_url?: string | null
   archived_at?: string | null
 }

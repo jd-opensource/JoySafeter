@@ -115,7 +115,8 @@ class RemoteMcpServerBase(McpServerBase):
         return validated
 
 
-class RemoteMcpServerConfig(RemoteMcpServerBase):
+class StreamableHttpMcpServerConfig(RemoteMcpServerBase):
+    type: Literal[McpTransport.STREAMABLE_HTTP] = McpTransport.STREAMABLE_HTTP
     auth_requirement: McpAuthRequirement = McpAuthRequirement.REQUIRED
 
     def to_persisted(self) -> dict[str, Any]:
@@ -127,8 +128,27 @@ class RemoteMcpServerConfig(RemoteMcpServerBase):
         }
 
 
-class PersistedRemoteMcpServerConfig(RemoteMcpServerBase):
+class SseMcpServerConfig(RemoteMcpServerBase):
+    type: Literal[McpTransport.SSE] = McpTransport.SSE
+    auth_requirement: Literal[McpAuthRequirement.NONE] = McpAuthRequirement.NONE
+
+    def to_persisted(self) -> dict[str, Any]:
+        return {
+            "type": self.type.value,
+            "name": self.name,
+            "url": self.url,
+            "auth_requirement": self.auth_requirement.value,
+        }
+
+
+class PersistedStreamableHttpMcpServerConfig(RemoteMcpServerBase):
+    type: Literal[McpTransport.STREAMABLE_HTTP]
     auth_requirement: McpAuthRequirement
+
+
+class PersistedSseMcpServerConfig(RemoteMcpServerBase):
+    type: Literal[McpTransport.SSE]
+    auth_requirement: Literal[McpAuthRequirement.NONE]
 
 
 class LocalMcpServerConfig(McpServerBase):
@@ -156,11 +176,11 @@ class LocalMcpServerConfig(McpServerBase):
 
 
 McpServerConfig = Annotated[
-    Union[RemoteMcpServerConfig, LocalMcpServerConfig],
+    Union[StreamableHttpMcpServerConfig, SseMcpServerConfig, LocalMcpServerConfig],
     Field(discriminator="type"),
 ]
 McpServerResponseConfig = Annotated[
-    Union[PersistedRemoteMcpServerConfig, LocalMcpServerConfig],
+    Union[PersistedStreamableHttpMcpServerConfig, PersistedSseMcpServerConfig, LocalMcpServerConfig],
     Field(discriminator="type"),
 ]
 

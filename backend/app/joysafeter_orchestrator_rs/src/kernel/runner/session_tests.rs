@@ -6,6 +6,7 @@ use sqlx::postgres::PgPoolOptions;
 use super::*;
 use crate::ids::EventId;
 use crate::kernel::runner::execution::{handle_task_message, replay_pending_control_inputs};
+use crate::kernel::runner::task_lifecycle::emit_session_running_status;
 use crate::kernel::sandbox_bridge::BridgeRegistry;
 
 fn database_url() -> Option<String> {
@@ -146,6 +147,46 @@ fn initial_setup_is_deferred_only_for_an_unclaimed_pool_sandbox() {
     assert!(!should_defer_initial_setup(Some("pooled"), true));
     assert!(!should_defer_initial_setup(Some("creating"), false));
     assert!(!should_defer_initial_setup(None, false));
+}
+
+#[tokio::test]
+async fn duplicate_task_scoped_running_transition_is_successful() {
+    let Some(pool) = test_pool().await else {
+        return;
+    };
+    let (agent_id, session_id) = create_agent_and_session(&pool).await;
+    let task_id = TaskId::from_uuid(Uuid::now_v7());
+    sqlx::query(
+        r#"
+        INSERT INTO joysafeter_tasks (
+            id, agent_id, chat_session_id, status, prompt, output,
+            timeout_sec, retry_count, max_retries
+        )
+        VALUES ($1, $2, $3, 'running', 'test prompt', '', 7200, 0, 2)
+        "#,
+    )
+    .bind(task_id)
+    .bind(agent_id)
+    .bind(session_id)
+    .execute(&pool)
+    .await
+    .expect("insert running task");
+
+    let accepted = emit_session_running_status(
+        &pool,
+        &test_event_bus(pool.clone()),
+        task_id,
+        Some(session_id),
+        SandboxId::from_uuid(Uuid::now_v7()),
+        "multi_task_start",
+    )
+    .await;
+
+    cleanup(&pool, agent_id, session_id).await;
+    assert!(
+        accepted,
+        "an already-running session is an idempotent success"
+    );
 }
 
 async fn create_mounted_memory_store(pool: &PgPool, session_id: SessionId) -> MemoryStoreId {

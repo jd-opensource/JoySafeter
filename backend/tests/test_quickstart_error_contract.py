@@ -11,25 +11,18 @@ call the route function directly).
 
 import uuid
 
-import httpx
 import pytest
 import pytest_asyncio
 from error_contract_helpers import handled_app_error_payload
+from pydantic import ValidationError
 from sqlalchemy import select
 from starlette.requests import Request
 
 from app.joysafeter_api.api.v1.credential_groups import create_credential_group
 from app.joysafeter_api.api.v1.quickstart import (
-    QuickstartAgentContext,
     QuickstartAvailableSkill,
     QuickstartChatRequest,
     QuickstartMessage,
-    _build_system_prompt,
-    _build_tools,
-    _generate_curl,
-    _upstream_connection_error_event,
-    _upstream_error_event,
-    _upstream_stream_error_event,
     quickstart_chat,
 )
 from app.joysafeter_application.credentials.application_service import (
@@ -37,6 +30,7 @@ from app.joysafeter_application.credentials.application_service import (
     CredentialService,
 )
 from app.joysafeter_application.credentials.ports import CredentialAuditActor
+from app.joysafeter_application.quickstart import QuickstartDesignService
 from app.joysafeter_domain.models.joysafeter_credential import JoySafeterCredentialGroup
 from app.joysafeter_domain.models.joysafeter_organization import Organization
 from app.joysafeter_domain.models.joysafeter_project import Project
@@ -51,6 +45,7 @@ from app.joysafeter_shared.ids import CredentialId, OrganizationId, ProjectId, U
 
 TEST_USER_ID = UserId.new()
 TEST_ORGANIZATION_ID = OrganizationId.new()
+DESIGN_SERVICE = QuickstartDesignService()
 
 
 async def _make_project(db_session) -> ProjectId:
@@ -117,6 +112,8 @@ async def _make_model_credential(db_session, project_id: ProjectId, data: dict[s
 def test_quickstart_schema_uses_model_credential_id_not_secret_ref():
     fields = QuickstartChatRequest.model_fields
     assert "model_credential_id" in fields
+    assert "phase" in fields
+    assert "current_step" not in fields
     assert "secret_ref" not in fields
 
 
@@ -130,12 +127,9 @@ def test_quickstart_schema_accepts_claude_code_engine():
     assert req.engine_kind == "claude_code"
 
 
-def test_quickstart_agent_context_accepts_mcp_server_map():
-    ctx = QuickstartAgentContext(
-        name="MCP Agent",
-        mcp_servers={"github": {"url": "https://api.github.com/mcp"}},
-    )
-    assert ctx.mcp_servers == {"github": {"url": "https://api.github.com/mcp"}}
+def test_quickstart_message_rejects_unknown_fields():
+    with pytest.raises(ValidationError):
+        QuickstartMessage.model_validate({"role": "user", "content": "build an agent", "unexpected": True})
 
 
 def test_quickstart_request_accepts_bounded_available_skill_catalog():
@@ -159,7 +153,7 @@ def test_quickstart_request_accepts_bounded_available_skill_catalog():
 
 
 def test_agent_generation_tool_requires_professional_blueprint_contract():
-    tool = _build_tools(2)[0]
+    tool = DESIGN_SERVICE.build_tools()[0]
     schema = tool["input_schema"]
     blueprint = schema["properties"]["blueprint"]
 
@@ -182,9 +176,21 @@ def test_agent_generation_tool_requires_professional_blueprint_contract():
     assert "mcp_servers" in schema["properties"]
 
 
+def test_agent_generation_tool_reuses_canonical_mcp_server_contract():
+    schema = DESIGN_SERVICE.build_tools()[0]["input_schema"]
+
+    streamable_http = schema["$defs"]["StreamableHttpMcpServerConfig"]
+    sse = schema["$defs"]["SseMcpServerConfig"]
+    local = schema["$defs"]["LocalMcpServerConfig"]
+    assert streamable_http["properties"]["type"]["const"] == "streamable_http"
+    assert streamable_http["properties"]["auth_requirement"]["default"] == "required"
+    assert sse["properties"]["type"]["const"] == "sse"
+    assert sse["properties"]["auth_requirement"]["const"] == "none"
+    assert local["properties"]["type"]["const"] == "local_stdio"
+
+
 def test_agent_generation_prompt_limits_skill_ids_to_available_catalog():
-    prompt = _build_system_prompt(
-        2,
+    prompt = DESIGN_SERVICE.build_system_prompt(
         available_skills=[
             QuickstartAvailableSkill(
                 id="skill_018f6f42-0a51-7cc4-98c8-4f6f0ca5f111",
@@ -192,7 +198,7 @@ def test_agent_generation_prompt_limits_skill_ids_to_available_catalog():
                 display_title="Secure Review",
                 description="Review code safely",
                 latest_version="1.2.0",
-            )
+            ).model_dump()
         ],
     )
 
@@ -201,7 +207,7 @@ def test_agent_generation_prompt_limits_skill_ids_to_available_catalog():
 
 
 def test_agent_generation_prompt_requires_professional_review_and_focused_clarification():
-    prompt = _build_system_prompt(2)
+    prompt = DESIGN_SERVICE.build_system_prompt()
 
     assert "ask ONE focused clarifying question" in prompt
     assert "professional Agent Blueprint" in prompt
@@ -209,28 +215,13 @@ def test_agent_generation_prompt_requires_professional_review_and_focused_clarif
     assert "escalation conditions" in prompt
 
 
-def test_quickstart_old_vault_tool_is_not_a_supported_creation_endpoint():
-    curl = _generate_curl("generate_vault_config", {"name": "mcp credentials"})
-    assert "/v1/unknown" in curl
-    assert "/v1/vaults" not in curl
-
-
-def test_quickstart_mcp_credential_group_tool_replaces_vault_language():
-    prompt = _build_system_prompt(4)
-    tools = _build_tools(4)
-    assert "MCP credential group" in prompt
-    assert "generate_mcp_credential_group_config" in prompt
-    assert "A vault stores" not in prompt
-    assert tools[0]["name"] == "generate_mcp_credential_group_config"
-    properties = tools[0]["input_schema"]["properties"]
-    assert "mcp_server_url" in properties
-    assert "credential_name" in properties
-
-
-def test_quickstart_mcp_credential_group_curl_uses_credential_group_endpoint():
-    curl = _generate_curl("generate_mcp_credential_group_config", {"name": "mcp credentials"})
-    assert "/v1/credential-groups" in curl
-    assert "/v1/vaults" not in curl
+def test_quickstart_design_stream_owns_only_agent_blueprint_generation():
+    prompt = DESIGN_SERVICE.build_system_prompt()
+    tools = DESIGN_SERVICE.build_tools()
+    assert "Current phase: Design" in prompt
+    assert "generate_environment_config" not in prompt
+    assert "generate_mcp_credential_group_config" not in prompt
+    assert [tool["name"] for tool in tools] == ["generate_agent_config"]
 
 
 @pytest.mark.asyncio
@@ -298,40 +289,6 @@ async def test_credential_group_create_initial_member_failure_rolls_back_group(d
     )
     assert exc.value.code == "CREDENTIAL_FIELD_MISSING"
     assert rows == []
-
-
-def test_quickstart_upstream_status_error_event_is_structured():
-    assert _upstream_error_event(429) == {
-        "type": "error",
-        "code": "UPSTREAM_RATE_LIMITED",
-        "message": "Rate limited by upstream API. Please try again later.",
-        "data": None,
-        "source": "upstream",
-        "retryable": True,
-        "status": 429,
-    }
-
-
-def test_quickstart_upstream_connection_error_event_is_retryable():
-    assert _upstream_connection_error_event(httpx.ConnectError("connection refused")) == {
-        "type": "error",
-        "code": "UPSTREAM_CONNECTION_FAILED",
-        "message": "Failed to connect to upstream API (ConnectError).",
-        "data": None,
-        "source": "upstream",
-        "retryable": True,
-    }
-
-
-def test_quickstart_upstream_stream_error_event_is_structured():
-    assert _upstream_stream_error_event("model refused the request") == {
-        "type": "error",
-        "code": "UPSTREAM_STREAM_ERROR",
-        "message": "model refused the request",
-        "data": None,
-        "source": "upstream",
-        "retryable": False,
-    }
 
 
 @pytest.mark.asyncio

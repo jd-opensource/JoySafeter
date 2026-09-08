@@ -126,17 +126,87 @@ def test_quickstart_context_uses_system_field() -> None:
         QuickstartAgentContext(name="Agent", system_prompt="old field")
 
 
-@pytest.mark.parametrize("transport", [McpTransport.STREAMABLE_HTTP, McpTransport.SSE])
-def test_remote_mcp_config_persists_only_canonical_transport_and_required_auth(
-    transport: McpTransport,
-) -> None:
-    config = _mcp_server_config(type=transport, name=" docs ", url=" https://example.com/mcp?tenant=a ")
+def test_quickstart_context_accepts_canonical_model_config() -> None:
+    context = QuickstartAgentContext(
+        name="Agent",
+        model={"id": "claude-sonnet-4-5", "speed": "standard"},
+    )
+
+    assert context.model_dump(mode="json")["model"] == {
+        "id": "claude-sonnet-4-5",
+        "speed": "standard",
+    }
+    assert context.model_id == "claude-sonnet-4-5"
+
+
+def test_quickstart_context_projects_string_model_id() -> None:
+    context = QuickstartAgentContext(name="Agent", model="gpt-5")
+
+    assert context.model_id == "gpt-5"
+
+
+def test_quickstart_context_reuses_canonical_mcp_server_contract() -> None:
+    context = QuickstartAgentContext(
+        name="MCP Agent",
+        mcp_servers=[
+            {
+                "type": "streamable_http",
+                "name": " docs ",
+                "url": " https://example.com/mcp ",
+                "auth_requirement": "required",
+            }
+        ],
+    )
+
+    assert context.model_dump(mode="json")["mcp_servers"] == [
+        {
+            "type": "streamable_http",
+            "name": "docs",
+            "url": "https://example.com/mcp",
+            "auth_requirement": "required",
+        }
+    ]
+
+    with pytest.raises(ValidationError):
+        QuickstartAgentContext(
+            name="MCP Agent",
+            mcp_servers={"github": {"url": "https://api.github.com/mcp"}},
+        )
+
+    with pytest.raises(ValidationError):
+        QuickstartAgentContext(
+            name="MCP Agent",
+            mcp_servers=[{"type": "url", "name": "github", "url": "https://api.github.com/mcp"}],
+        )
+
+
+def test_streamable_http_mcp_config_defaults_to_required_auth() -> None:
+    config = _mcp_server_config(
+        type=McpTransport.STREAMABLE_HTTP,
+        name=" docs ",
+        url=" https://example.com/mcp?tenant=a ",
+    )
 
     assert config.to_persisted() == {
-        "type": transport.value,
+        "type": McpTransport.STREAMABLE_HTTP.value,
         "name": "docs",
         "url": "https://example.com/mcp?tenant=a",
         "auth_requirement": McpAuthRequirement.REQUIRED.value,
+    }
+
+
+def test_sse_mcp_config_defaults_to_no_managed_auth() -> None:
+    config = _mcp_server_config(
+        type=McpTransport.SSE,
+        name=" events ",
+        url=" https://example.com/sse ",
+    )
+
+    assert config.to_persisted() == {
+        "type": McpTransport.SSE.value,
+        "name": "events",
+        "url": "https://example.com/sse",
+        "auth_requirement": McpAuthRequirement.NONE.value,
     }
 
 
@@ -155,12 +225,23 @@ def test_mcp_config_requires_explicit_transport() -> None:
         _mcp_server_config(name="implicit", url="https://example.com/mcp")
 
 
+@pytest.mark.parametrize("requirement", ["required", "optional"])
+def test_sse_mcp_config_rejects_managed_auth(requirement: str) -> None:
+    with pytest.raises(ValidationError):
+        _mcp_server_config(
+            type="sse",
+            name="events",
+            url="https://example.com/sse",
+            auth_requirement=requirement,
+        )
+
+
 @pytest.mark.parametrize("requirement", ["required", "optional", "none"])
-def test_remote_mcp_config_preserves_explicit_auth_requirement(requirement: str) -> None:
+def test_streamable_http_mcp_config_preserves_explicit_auth_requirement(requirement: str) -> None:
     config = _mcp_server_config(
-        type="sse",
-        name="events",
-        url="https://example.com/sse",
+        type="streamable_http",
+        name="tools",
+        url="https://example.com/mcp",
         auth_requirement=requirement,
     )
 

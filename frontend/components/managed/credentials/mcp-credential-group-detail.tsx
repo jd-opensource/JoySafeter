@@ -22,13 +22,20 @@ import {
   currentProjectAllowsWrite,
   useCurrentProjectReadOnly,
 } from '@/hooks/managed/use-current-project-read-only'
-import { managedGet, managedPost, managedDelete } from '@/lib/api-client'
+import { managedPost, managedDelete } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
-import { apiResourcePath, apiResourceSubpath } from '@/lib/managed/api-paths'
+import { apiResourcePath } from '@/lib/managed/api-paths'
 import {
-  parseCredentialGroupCredentialListResponse,
-  parseCredentialGroupResponse,
-} from '@/lib/managed/credential-group-response-parsers'
+  changeManagedCredentialLifecycle,
+  managedCredentialsQueryPrefix,
+} from '@/lib/managed/credential-client'
+import {
+  fetchManagedCredentialGroup,
+  fetchManagedCredentialGroupMembers,
+  managedCredentialGroupMembersQueryPrefix,
+  managedCredentialGroupMembersQueryKey,
+  managedCredentialGroupQueryKey,
+} from '@/lib/managed/credential-group-client'
 import { shouldRetryManagedResourceError, toastOperationError } from '@/lib/managed/errors'
 import {
   hasManagedRequestScope,
@@ -120,33 +127,24 @@ export function McpCredentialGroupDetail({
     isError,
     error,
   } = useQuery({
-    queryKey: ['credential-group', managedScope.key, id],
-    queryFn: () =>
-      managedGet<unknown>(
-        apiResourcePath('credential-groups', credentialGroupId),
-        managedRequestOptions(managedScope),
-      ).then(parseCredentialGroupResponse),
+    queryKey: managedCredentialGroupQueryKey(managedScope.key, credentialGroupId),
+    queryFn: () => fetchManagedCredentialGroup(credentialGroupId, managedScope),
     enabled: !!id && hasManagedRequestScope(managedScope),
     retry: shouldRetryManagedResourceError,
   })
 
   const {
-    data: credsRes,
+    data: credentialMembers = [],
     isLoading: credsLoading,
     isFetching: credsFetching,
   } = useQuery({
-    queryKey: ['credential-group-members', managedScope.key, id, showArchivedCredentials],
+    queryKey: managedCredentialGroupMembersQueryKey(
+      managedScope.key,
+      credentialGroupId,
+      showArchivedCredentials,
+    ),
     queryFn: () =>
-      managedGet<{ data: unknown[]; has_more: boolean }>(
-        apiResourceSubpath('credential-groups', credentialGroupId, ['members'], {
-          limit: 100,
-          include_archived: showArchivedCredentials,
-        }),
-        managedRequestOptions(managedScope),
-      ).then((response) => ({
-        ...response,
-        data: parseCredentialGroupCredentialListResponse(response.data),
-      })),
+      fetchManagedCredentialGroupMembers(credentialGroupId, showArchivedCredentials, managedScope),
     enabled: !!id && hasManagedRequestScope(managedScope),
   })
 
@@ -164,9 +162,7 @@ export function McpCredentialGroupDetail({
     })
   }, [projectReadOnly, credentialGroup?.archived_at])
 
-  const credentials = (credsRes?.data || []).filter(
-    (c) => showArchivedCredentials || !c.archived_at,
-  )
+  const credentials = credentialMembers.filter((c) => showArchivedCredentials || !c.archived_at)
   const credentialsRef = useRef(credentials)
   credentialsRef.current = credentials
 
@@ -301,7 +297,9 @@ export function McpCredentialGroupDetail({
     },
     onSuccess: (_data, { id, runId, scope, scopeKey }) => {
       if (!isCurrentAction(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['credential-group-members', scopeKey, id] })
+      queryClient.invalidateQueries({
+        queryKey: managedCredentialGroupMembersQueryPrefix(scopeKey, id),
+      })
       setConfirmDialog((prev) => ({ ...prev, open: false }))
     },
     onError: (error, { runId, scope }) => {
@@ -318,15 +316,14 @@ export function McpCredentialGroupDetail({
       if (!currentProjectAllowsWrite()) {
         throw new Error('Archived project credential group member restore ignored')
       }
-      return managedPost(
-        apiResourcePath('credentials', credId!, 'restore'),
-        {},
-        managedRequestOptions(requestScope),
-      )
+      return changeManagedCredentialLifecycle(credId!, 'restore', requestScope)
     },
     onSuccess: (_data, { id, runId, scope, scopeKey }) => {
       if (!isCurrentAction(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['credential-group-members', scopeKey, id] })
+      queryClient.invalidateQueries({
+        queryKey: managedCredentialGroupMembersQueryPrefix(scopeKey, id),
+      })
+      queryClient.invalidateQueries({ queryKey: managedCredentialsQueryPrefix(scopeKey) })
       setConfirmDialog((prev) => ({ ...prev, open: false }))
     },
     onError: (error, { runId, scope }) => {
@@ -356,7 +353,9 @@ export function McpCredentialGroupDetail({
     },
     onSuccess: (_data, { id, runId, scope, scopeKey }) => {
       if (!isCurrentAction(runId, scope)) return
-      queryClient.invalidateQueries({ queryKey: ['credential-group-members', scopeKey, id] })
+      queryClient.invalidateQueries({
+        queryKey: managedCredentialGroupMembersQueryPrefix(scopeKey, id),
+      })
       setConfirmDialog((prev) => ({ ...prev, open: false }))
     },
     onError: (error, { runId, scope }) => {
@@ -384,11 +383,9 @@ export function McpCredentialGroupDetail({
   const currentCredentialGroupMatchesState = (archived: boolean) => {
     if (!currentProjectAllowsWrite()) return false
     if (!currentOperationScopeIsActive()) return false
-    const currentCredentialGroup = queryClient.getQueryData<CredentialGroup>([
-      'credential-group',
-      managedScope.key,
-      id,
-    ])
+    const currentCredentialGroup = queryClient.getQueryData<CredentialGroup>(
+      managedCredentialGroupQueryKey(managedScope.key, credentialGroupId),
+    )
     return (
       !!currentCredentialGroup &&
       currentCredentialGroup.id === credentialGroup?.id &&
@@ -398,11 +395,9 @@ export function McpCredentialGroupDetail({
 
   const currentCredentialGroupExists = () => {
     if (!currentProjectAllowsWrite() || !currentOperationScopeIsActive()) return false
-    const currentCredentialGroup = queryClient.getQueryData<CredentialGroup>([
-      'credential-group',
-      managedScope.key,
-      id,
-    ])
+    const currentCredentialGroup = queryClient.getQueryData<CredentialGroup>(
+      managedCredentialGroupQueryKey(managedScope.key, credentialGroupId),
+    )
     return !!currentCredentialGroup && currentCredentialGroup.id === credentialGroup?.id
   }
 
@@ -703,7 +698,9 @@ export function McpCredentialGroupDetail({
             setCreateCredOpen(open)
           }}
           credentialGroupId={credentialGroupId}
-          queryKey={['credential-group-members', managedScope.key, id]}
+          queryKey={[
+            ...managedCredentialGroupMembersQueryPrefix(managedScope.key, credentialGroupId),
+          ]}
           canSubmit={() => currentCredentialGroupMatchesState(false)}
         />
       ) : null}
