@@ -4,7 +4,7 @@ use crate::domain::egress_policy::{
     validate_egress_policy, ListenerKind, ListenerSpec, SandboxEgressPolicy,
 };
 use crate::ids::SandboxId;
-use crate::render::{encode_cluster_any, encode_listener_any};
+use crate::render::{encode_cluster_any, encode_listener_any, DEFAULT_DNS_CACHE_MAX_HOSTS};
 use crate::xds::control_plane::XdsControlPlane;
 use crate::xds::delivery::{DeliveryAttempt, DeliveryOutcome, DeliveryRequest};
 use crate::xds::delta::RemovalDelivery;
@@ -25,11 +25,26 @@ pub enum RemoveOutcome {
 #[derive(Clone)]
 pub struct PolicyPublisher {
     control_plane: XdsControlPlane,
+    dns_cache_max_hosts: u32,
 }
 
 impl PolicyPublisher {
     pub fn new(control_plane: XdsControlPlane) -> Self {
-        Self { control_plane }
+        Self::with_dns_cache_max_hosts(control_plane, DEFAULT_DNS_CACHE_MAX_HOSTS)
+    }
+
+    pub fn with_dns_cache_max_hosts(
+        control_plane: XdsControlPlane,
+        dns_cache_max_hosts: u32,
+    ) -> Self {
+        assert!(
+            dns_cache_max_hosts > 0,
+            "DNS cache max hosts must be positive"
+        );
+        Self {
+            control_plane,
+            dns_cache_max_hosts,
+        }
     }
 
     pub async fn publish(
@@ -95,7 +110,7 @@ impl PolicyPublisher {
             name: listener.resource_name(),
             resource_type: ResourceType::Listener,
             owner: ResourceOwner::Sandbox(sandbox_id),
-            payload: std::sync::Arc::new(encode_listener_any(&listener)?),
+            payload: std::sync::Arc::new(encode_listener_any(&listener, self.dns_cache_max_hosts)?),
         });
 
         Ok(resources)

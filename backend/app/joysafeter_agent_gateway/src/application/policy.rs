@@ -18,6 +18,10 @@ const MAX_HEADER_VALUE_BYTES: usize = 16 * 1024;
 /// render time so not an injection vector, but an unbounded value should not be
 /// accepted from the management plane. (E4)
 const MAX_PROXY_AUTH_TOKEN_BYTES: usize = 4 * 1024;
+/// Keep one sandbox policy comfortably below the management and replication
+/// transport ceilings. This is evaluated before the request is projected or
+/// retained in the in-memory replication log.
+pub(crate) const MAX_SERIALIZED_POLICY_BYTES: usize = 1024 * 1024;
 
 #[derive(Debug)]
 pub struct ValidatedPolicy {
@@ -30,6 +34,15 @@ impl ValidatedPolicy {
         sandbox_id: SandboxId,
         request: ApplySandboxPolicyRequest,
     ) -> Result<Self, String> {
+        let serialized_size = serde_json::to_vec(&request)
+            .map_err(|_| "policy could not be size-validated".to_string())?
+            .len();
+        if serialized_size > MAX_SERIALIZED_POLICY_BYTES {
+            return Err(format!(
+                "policy exceeds the {} byte limit",
+                MAX_SERIALIZED_POLICY_BYTES
+            ));
+        }
         validate_generation(&request)?;
         if request.allowlist_hosts.len() > MAX_ALLOWLIST_HOSTS {
             return Err("allowlist contains too many hosts".to_string());

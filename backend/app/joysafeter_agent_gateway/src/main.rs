@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
 use anyhow::Context;
-use joysafeter_agent_gateway::adapters::management_api::ManagementAuthenticator;
-use joysafeter_agent_gateway::adapters::policy_stream_subscriber::PolicyStreamSubscriber;
 use joysafeter_agent_gateway::adapters::server::{start_http_server, HttpServerDependencies};
 use joysafeter_agent_gateway::application::policy_publisher::PolicyPublisher;
 use joysafeter_agent_gateway::application::PolicyProjectionRegistry;
@@ -33,7 +31,10 @@ async fn main() -> anyhow::Result<()> {
     let control_plane = XdsControlPlane::new(authority.clone(), config.node_visibility);
     let projections = PolicyProjectionRegistry::default();
     let boot_id = uuid::Uuid::now_v7();
-    let publisher = PolicyPublisher::new(control_plane.clone());
+    let publisher = PolicyPublisher::with_dns_cache_max_hosts(
+        control_plane.clone(),
+        config.dns_cache_max_hosts,
+    );
     let mutation_gate = Arc::new(Mutex::new(()));
     let replication = ReplicationCoordinator::new(
         config.instance_id.clone(),
@@ -73,62 +74,52 @@ async fn main() -> anyhow::Result<()> {
     .await?;
     let (mut http_handle, application) = start_http_server(HttpServerDependencies {
         addr: config.http_addr,
-        instance_id: config.instance_id.clone(),
-        boot_id: boot_id.to_string(),
         authority: authority.clone(),
         control_plane: control_plane.clone(),
-        management_authenticator: config.management_authenticator.clone(),
         publisher: publisher.clone(),
         projections: projections.clone(),
         delivery_timeout: config.delivery_timeout,
         mutation_gate,
         replication: replication.clone(),
-        replication_authenticator: config
-            .replication_token
-            .as_ref()
-            .map(|token| ManagementAuthenticator::new(token.expose()))
-            .transpose()?,
         replication_enabled: config.leader_election_enabled,
         shutdown: shutdown.signal(),
     })
     .await?;
 
-    // Management gRPC server: replaces the HTTP management API for policy
-    // apply/remove. Orchestrator calls this for type-safe, high-performance ops.
-    let mut management_grpc_handle = joysafeter_agent_gateway::adapters::management_grpc::start_management_grpc_server(
-        config.management_grpc_addr,
-        application.clone(),
-        config.management_token.expose(),
-        config.instance_id.clone(),
-        boot_id.to_string(),
-        authority.clone(),
-        shutdown.signal(),
-    )
-    .await?;
+    // The gRPC server is the sole Orchestrator-facing management plane.
+    let mut management_grpc_handle =
+        joysafeter_agent_gateway::adapters::management_grpc::start_management_grpc_server(
+            joysafeter_agent_gateway::adapters::management_grpc::ManagementGrpcServerDependencies {
+                addr: config.management_grpc_addr,
+                application: application.clone(),
+                management_token: config.management_token.expose().to_string(),
+                instance_id: config.instance_id.clone(),
+                boot_id: boot_id.to_string(),
+                authority: authority.clone(),
+                replication: replication.clone(),
+                replication_token: config
+                    .replication_token
+                    .as_ref()
+                    .map(|token| token.expose().to_string()),
+                limits: joysafeter_agent_gateway::adapters::management_grpc::ManagementGrpcLimits {
+                    policy_lane_queue_capacity: config.policy_lane_queue_capacity,
+                    max_concurrent_policy_commands: config.policy_stream_max_concurrency,
+                    max_outstanding_policy_commands: config.policy_stream_max_outstanding,
+                    max_policy_streams: config.max_policy_streams,
+                    max_replication_streams: config.max_replication_streams,
+                },
+                shutdown: shutdown.signal(),
+            },
+        )
+        .await?;
     info!(addr = %config.management_grpc_addr, "Agent Gateway management gRPC server started");
 
-    // Policy stream subscriber: when configured, subscribe to the orchestrator's
-    // policy stream and apply events through the shared GatewayApplication (same
-    // per-sandbox lanes as the HTTP path).
-    if let Some(endpoint) = config.policy_stream_endpoint.clone() {
-        let subscriber = Arc::new(PolicyStreamSubscriber::new(
-            endpoint,
-            config.instance_id.clone(),
-            Arc::new(application),
-        ));
-        tokio::spawn(async move {
-            if let Err(error) = subscriber.run().await {
-                warn!(%error, "Agent Gateway policy stream subscriber exited");
-            }
-        });
-        info!("Agent Gateway policy stream subscriber started");
-    }
     let follower_handle = if config.leader_election_enabled {
         Some(replication::follower::spawn(
             config
-                .replication_url
+                .replication_endpoint
                 .clone()
-                .expect("validated replication URL"),
+                .expect("validated replication endpoint"),
             config
                 .replication_token
                 .as_ref()
@@ -139,6 +130,12 @@ async fn main() -> anyhow::Result<()> {
             replication.clone(),
             replica_projector.clone(),
             shutdown.signal(),
+            replication::follower::FollowerTransportConfig {
+                keepalive_interval: config.replication_keepalive_interval,
+                keepalive_timeout: config.replication_keepalive_timeout,
+                reconnect_base_delay: config.replication_reconnect_base_delay,
+                reconnect_max_delay: config.replication_reconnect_max_delay,
+            },
         )?)
     } else {
         None
@@ -202,8 +199,11 @@ async fn main() -> anyhow::Result<()> {
             "Agent Gateway marked not-ready; draining network requests"
         );
         match tokio::time::timeout(config.shutdown_grace, async {
-            let (xds_result, http_result, grpc_result) =
-                tokio::join!(&mut xds_handle, &mut http_handle, &mut management_grpc_handle);
+            let (xds_result, http_result, grpc_result) = tokio::join!(
+                &mut xds_handle,
+                &mut http_handle,
+                &mut management_grpc_handle
+            );
             server_shutdown("xDS", xds_result)?;
             server_shutdown("HTTP", http_result)?;
             server_shutdown("management gRPC", grpc_result)

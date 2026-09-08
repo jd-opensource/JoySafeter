@@ -43,9 +43,6 @@ pub struct RuntimeFactoryContext {
     pub xds_authority: XdsAuthority,
     pub xds_control_plane: Option<XdsControlPlane>,
     pub agent_gateway: Option<Arc<dyn AgentGatewayApi>>,
-    /// When set, the agent-gateway network-policy runtime publishes policy
-    /// events to the Redis Stream-backed policy stream.
-    pub policy_event_publisher: Option<Arc<crate::grpc::policy_stream::RedisEventPublisher>>,
 }
 
 pub struct RuntimeComponents {

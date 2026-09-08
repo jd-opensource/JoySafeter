@@ -28,13 +28,6 @@ pub struct ApplySandboxPolicyRequest {
     pub proxy_auth_token: Option<String>,
 }
 
-/// Conditional policy deletion. The generation fences delayed cleanup from
-/// deleting a newer policy installed for the same sandbox runtime.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub struct RemoveSandboxPolicyRequest {
-    pub generation: PolicyGeneration,
-}
-
 impl std::fmt::Debug for ApplySandboxPolicyRequest {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter

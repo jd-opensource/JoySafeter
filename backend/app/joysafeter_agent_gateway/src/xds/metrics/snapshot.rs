@@ -474,6 +474,36 @@ impl XdsMetricsSnapshot {
                 );
             }
         }
+
+        for (name, help, value, metric_type) in [
+            (
+                "joysafeter_agent_gateway_policy_stream_active_connections",
+                "Currently active authenticated policy command streams.",
+                self.policy_stream_active_connections,
+                "gauge",
+            ),
+            (
+                "joysafeter_agent_gateway_policy_stream_connections_total",
+                "Authenticated policy command streams accepted by this replica.",
+                self.policy_stream_connections,
+                "counter",
+            ),
+            (
+                "joysafeter_agent_gateway_policy_stream_commands_in_flight",
+                "Policy commands accepted and not yet completed.",
+                self.policy_stream_commands_in_flight,
+                "gauge",
+            ),
+            (
+                "joysafeter_agent_gateway_policy_stream_queue_saturation_total",
+                "Policy commands that encountered a full bounded shard queue.",
+                self.policy_stream_queue_saturation,
+                "counter",
+            ),
+        ] {
+            write_metric_header(&mut output, name, help, metric_type);
+            let _ = writeln!(output, "{name} {value}");
+        }
         output
     }
 }
@@ -489,6 +519,7 @@ fn render_duration_histogram(
         .map(|(key, value)| match key {
             'o' => format!("operation=\"{value}\""),
             'r' => format!("outcome=\"{value}\""),
+            'e' => format!("event_type=\"{value}\""),
             _ => unreachable!("fixed histogram label key"),
         })
         .collect::<Vec<_>>()

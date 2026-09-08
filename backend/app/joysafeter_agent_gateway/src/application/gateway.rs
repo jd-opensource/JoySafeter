@@ -17,7 +17,7 @@ use crate::replication::ReplicationCoordinator;
 use crate::xds::authority::XdsAuthority;
 use crate::xds::control_plane::{DeliveryWaitError, XdsControlPlane};
 use crate::xds::delivery::DeliveryError;
-use crate::xds::metrics::{DeliveryResult, PolicyOperation, PolicyOperationResult};
+use crate::xds::metrics::{DeliveryResult, PolicyOperation, PolicyOperationResult, XdsMetrics};
 use crate::xds::model::DeliveryGeneration;
 
 use super::mutation_coordinator::MutationCoordinator;
@@ -88,6 +88,10 @@ pub struct GatewayApplication {
 }
 
 impl GatewayApplication {
+    pub(crate) fn metrics(&self) -> XdsMetrics {
+        self.control_plane.metrics()
+    }
+
     pub fn new(
         authority: XdsAuthority,
         publisher: PolicyPublisher,
@@ -159,6 +163,23 @@ impl GatewayApplication {
         };
         let validated = ValidatedPolicy::from_request(sandbox_id, request)
             .map_err(GatewayApplicationError::InvalidPolicy)?;
+        let generation = validated.generation.clone();
+        // A response can be lost after the mutation committed. The caller then
+        // replays the same durable generation with the same command id. Detect
+        // that case while holding the sandbox lane and avoid a second xDS publish
+        // and hot-standby replication round.
+        {
+            let _sandbox_lane = self.mutations.lock_sandbox(sandbox_id).await;
+            if self
+                .projections
+                .has_active_generation(sandbox_id, &generation)
+            {
+                return Ok(PolicyGeneration {
+                    policy_hash: generation.policy_hash,
+                    policy_version: generation.policy_version,
+                });
+            }
+        }
         // Wait before taking the sandbox lane so the corresponding placement
         // operation can make progress. The assignment is revalidated after the
         // lane is acquired to close the wait/remove race.
@@ -175,12 +196,20 @@ impl GatewayApplication {
         // Serialize the complete transaction only with operations for this
         // sandbox. Envoy ACK waits must not block unrelated sandboxes.
         let _sandbox_lane = self.mutations.lock_sandbox(sandbox_id).await;
+        if self
+            .projections
+            .has_active_generation(sandbox_id, &generation)
+        {
+            return Ok(PolicyGeneration {
+                policy_hash: generation.policy_hash,
+                policy_version: generation.policy_version,
+            });
+        }
         if self.control_plane.requires_node_assignment()
             && self.control_plane.owner_node(sandbox_id).is_none()
         {
             return Err(GatewayApplicationError::NodeNotReady);
         }
-        let generation = validated.generation.clone();
         let (guard, staged, outcome) = {
             let _recovery = self.mutations.lock_recovery().await;
             let guard = self.guard()?;

@@ -67,3 +67,42 @@ fn policy_delivery_and_ha_metrics_are_exported_with_bounded_labels() {
         "joysafeter_agent_gateway_kubernetes_operations_total{operation=\"renew_lease\",result=\"error\"} 1"
     ));
 }
+
+#[test]
+fn policy_stream_connection_backpressure_and_inflight_metrics_are_exported() {
+    let metrics = XdsMetrics::default();
+    metrics.begin_policy_stream();
+    metrics.begin_policy_stream_command();
+    metrics.record_policy_stream_queue_saturation();
+
+    let rendered = metrics
+        .snapshot(
+            XdsAuthority::standalone().metrics_snapshot(),
+            DeliveryMetricsSnapshot {
+                pending_delivery_count: 0,
+                oldest_pending_delivery_age: Duration::ZERO,
+            },
+            Vec::new(),
+        )
+        .render_prometheus();
+
+    assert!(rendered.contains("joysafeter_agent_gateway_policy_stream_active_connections 1"));
+    assert!(rendered.contains("joysafeter_agent_gateway_policy_stream_connections_total 1"));
+    assert!(rendered.contains("joysafeter_agent_gateway_policy_stream_commands_in_flight 1"));
+    assert!(rendered.contains("joysafeter_agent_gateway_policy_stream_queue_saturation_total 1"));
+
+    metrics.end_policy_stream_command();
+    metrics.end_policy_stream();
+    let rendered = metrics
+        .snapshot(
+            XdsAuthority::standalone().metrics_snapshot(),
+            DeliveryMetricsSnapshot {
+                pending_delivery_count: 0,
+                oldest_pending_delivery_age: Duration::ZERO,
+            },
+            Vec::new(),
+        )
+        .render_prometheus();
+    assert!(rendered.contains("joysafeter_agent_gateway_policy_stream_active_connections 0"));
+    assert!(rendered.contains("joysafeter_agent_gateway_policy_stream_commands_in_flight 0"));
+}

@@ -12,16 +12,7 @@ use crate::replication::model::{ReplicaMutation, ReplicatedPolicy, WatchReplicaQ
 use crate::xds::authority::XdsAuthority;
 use crate::xds::control_plane::{NodeVisibility, XdsControlPlane};
 
-/// A follower runner wired to inert, in-memory collaborators. The error paths
-/// exercised here bail before any coordinator/projector/HTTP interaction, so the
-/// collaborators are never actually driven.
 fn test_runner() -> FollowerRunner {
-    runner_with_ack(Url::parse("http://127.0.0.1/internal/v1/replication/ack").expect("ack url"))
-}
-
-/// A follower runner whose ack endpoint points at `ack_url` (a real test server),
-/// used by the happy-path integration tests that drive `apply_event` end to end.
-fn runner_with_ack(ack_url: Url) -> FollowerRunner {
     let authority = XdsAuthority::standalone();
     let control_plane = XdsControlPlane::new(authority, NodeVisibility::Unscoped);
     let projections = PolicyProjectionRegistry::default();
@@ -34,15 +25,14 @@ fn runner_with_ack(ack_url: Url) -> FollowerRunner {
     );
     let coordinator = ReplicationCoordinator::new("follower", 0, Duration::from_secs(1));
     FollowerRunner {
-        client: Client::builder().build().expect("client"),
-        watch_url: Url::parse("http://127.0.0.1/internal/v1/replication/watch").expect("watch url"),
-        ack_url,
+        channel: Endpoint::from_static("http://127.0.0.1:1").connect_lazy(),
         token: "replica-token".to_string(),
         replica_id: "replica-1".to_string(),
         coordinator,
         projector,
         cursor: ReplicaCursor::default(),
         staging: None,
+        transport: FollowerTransportConfig::default(),
     }
 }
 
@@ -115,12 +105,29 @@ fn ensure_identity_matches_only_when_all_fields_agree() {
     }
 }
 
+#[test]
+fn reconnect_delay_is_jittered_and_strictly_bounded() {
+    for (attempt, lower_ms, upper_ms) in [
+        (1, 75, 100),
+        (2, 150, 200),
+        (3, 300, 400),
+        (7, 3_750, 5_000),
+        (100, 3_750, 5_000),
+    ] {
+        for _ in 0..32 {
+            let delay = reconnect_delay(attempt);
+            assert!(delay >= Duration::from_millis(lower_ms));
+            assert!(delay <= Duration::from_millis(upper_ms));
+        }
+    }
+}
+
 #[tokio::test]
 async fn an_unsupported_protocol_version_is_rejected() {
     let mut runner = test_runner();
     let mut event = event(1, ReplicaEventPayload::SnapshotEnd);
     event.protocol_version = REPLICATION_PROTOCOL_VERSION + 1;
-    assert!(runner.apply_event("session-1", event).await.is_err());
+    assert!(runner.apply_event(event).await.is_err());
 }
 
 #[tokio::test]
@@ -133,24 +140,24 @@ async fn a_chunk_before_begin_is_rejected() {
             snapshot: ReplicatedSnapshot::default(),
         },
     );
-    assert!(runner.apply_event("session-1", event).await.is_err());
+    assert!(runner.apply_event(event).await.is_err());
 }
 
 #[tokio::test]
 async fn a_snapshot_end_before_begin_is_rejected() {
     let mut runner = test_runner();
     let event = event(1, ReplicaEventPayload::SnapshotEnd);
-    assert!(runner.apply_event("session-1", event).await.is_err());
+    assert!(runner.apply_event(event).await.is_err());
 }
 
 #[tokio::test]
 async fn out_of_order_chunks_are_rejected() {
     let mut runner = test_runner();
     runner
-        .apply_event(
-            "session-1",
-            event(1, ReplicaEventPayload::SnapshotBegin { chunk_count: 2 }),
-        )
+        .apply_event(event(
+            1,
+            ReplicaEventPayload::SnapshotBegin { chunk_count: 2 },
+        ))
         .await
         .expect("begin");
     // Chunk 0 is skipped; chunk 1 must be rejected.
@@ -161,35 +168,32 @@ async fn out_of_order_chunks_are_rejected() {
             snapshot: ReplicatedSnapshot::default(),
         },
     );
-    assert!(runner.apply_event("session-1", event).await.is_err());
+    assert!(runner.apply_event(event).await.is_err());
 }
 
 #[tokio::test]
 async fn a_snapshot_end_before_all_chunks_arrive_is_rejected() {
     let mut runner = test_runner();
     runner
-        .apply_event(
-            "session-1",
-            event(1, ReplicaEventPayload::SnapshotBegin { chunk_count: 2 }),
-        )
+        .apply_event(event(
+            1,
+            ReplicaEventPayload::SnapshotBegin { chunk_count: 2 },
+        ))
         .await
         .expect("begin");
     runner
-        .apply_event(
-            "session-1",
-            event(
-                1,
-                ReplicaEventPayload::SnapshotChunk {
-                    chunk_index: 0,
-                    snapshot: ReplicatedSnapshot::default(),
-                },
-            ),
-        )
+        .apply_event(event(
+            1,
+            ReplicaEventPayload::SnapshotChunk {
+                chunk_index: 0,
+                snapshot: ReplicatedSnapshot::default(),
+            },
+        ))
         .await
         .expect("chunk 0");
     // Only 1 of 2 chunks delivered.
     assert!(runner
-        .apply_event("session-1", event(1, ReplicaEventPayload::SnapshotEnd))
+        .apply_event(event(1, ReplicaEventPayload::SnapshotEnd))
         .await
         .is_err());
 }
@@ -198,10 +202,10 @@ async fn a_snapshot_end_before_all_chunks_arrive_is_rejected() {
 async fn a_chunk_with_changed_identity_is_rejected() {
     let mut runner = test_runner();
     runner
-        .apply_event(
-            "session-1",
-            event(1, ReplicaEventPayload::SnapshotBegin { chunk_count: 2 }),
-        )
+        .apply_event(event(
+            1,
+            ReplicaEventPayload::SnapshotBegin { chunk_count: 2 },
+        ))
         .await
         .expect("begin");
     let mut event = event(
@@ -212,7 +216,7 @@ async fn a_chunk_with_changed_identity_is_rejected() {
         },
     );
     event.term = "a-different-term".to_string();
-    assert!(runner.apply_event("session-1", event).await.is_err());
+    assert!(runner.apply_event(event).await.is_err());
 }
 
 #[tokio::test]
@@ -221,73 +225,36 @@ async fn chunks_reassemble_in_order_into_staging() {
     let first = SandboxId::new();
     let second = SandboxId::new();
     runner
-        .apply_event(
-            "session-1",
-            event(3, ReplicaEventPayload::SnapshotBegin { chunk_count: 2 }),
-        )
+        .apply_event(event(
+            3,
+            ReplicaEventPayload::SnapshotBegin { chunk_count: 2 },
+        ))
         .await
         .expect("begin");
     runner
-        .apply_event(
-            "session-1",
-            event(
-                3,
-                ReplicaEventPayload::SnapshotChunk {
-                    chunk_index: 0,
-                    snapshot: snapshot_with(&first),
-                },
-            ),
-        )
+        .apply_event(event(
+            3,
+            ReplicaEventPayload::SnapshotChunk {
+                chunk_index: 0,
+                snapshot: snapshot_with(&first),
+            },
+        ))
         .await
         .expect("chunk 0");
     runner
-        .apply_event(
-            "session-1",
-            event(
-                3,
-                ReplicaEventPayload::SnapshotChunk {
-                    chunk_index: 1,
-                    snapshot: snapshot_with(&second),
-                },
-            ),
-        )
+        .apply_event(event(
+            3,
+            ReplicaEventPayload::SnapshotChunk {
+                chunk_index: 1,
+                snapshot: snapshot_with(&second),
+            },
+        ))
         .await
         .expect("chunk 1");
 
     let staging = runner.staging.as_ref().expect("staging retained");
     assert_eq!(staging.next_chunk, 2);
     assert_eq!(staging.snapshot.policies.len(), 2);
-}
-
-/// Stand up a minimal in-process leader that only serves the ack endpoint, and
-/// return its base URL plus a receiver of the acks it observes.
-async fn spawn_ack_server() -> (Url, tokio::sync::mpsc::UnboundedReceiver<AckReplicaRequest>) {
-    use axum::extract::State;
-    use axum::routing::post;
-    use axum::{Json, Router};
-    use tokio::net::TcpListener;
-    use tokio::sync::mpsc::UnboundedSender;
-
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<AckReplicaRequest>();
-    let app = Router::new()
-        .route(
-            "/internal/v1/replication/ack",
-            post(
-                |State(tx): State<UnboundedSender<AckReplicaRequest>>,
-                 Json(request): Json<AckReplicaRequest>| async move {
-                    let _ = tx.send(request);
-                    Json(AckReplicaResponse { accepted: true })
-                },
-            ),
-        )
-        .with_state(tx);
-    let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
-    let addr = listener.local_addr().expect("addr");
-    tokio::spawn(async move {
-        let _ = axum::serve(listener, app).await;
-    });
-    let base = Url::parse(&format!("http://{addr}")).expect("base url");
-    (base, rx)
 }
 
 fn fresh_watch_query() -> WatchReplicaQuery {
@@ -302,10 +269,7 @@ fn fresh_watch_query() -> WatchReplicaQuery {
 }
 
 #[tokio::test]
-async fn happy_path_installs_a_snapshot_and_acknowledges_over_http() {
-    let (base, mut acks) = spawn_ack_server().await;
-    let ack_url = base.join("/internal/v1/replication/ack").expect("ack url");
-
+async fn happy_path_installs_a_snapshot_and_produces_ack_metadata() {
     // A real leader produces correctly-digested snapshot events.
     let leader = ReplicationCoordinator::new("leader-1", 0, Duration::from_secs(1));
     leader.begin_leader_term(1).await.expect("leader term");
@@ -324,36 +288,27 @@ async fn happy_path_installs_a_snapshot_and_acknowledges_over_http() {
         .expect("watch");
     assert!(response.events.len() >= 3, "begin + chunk(s) + end");
 
-    // The follower applies them end to end: install + HTTP ack.
-    let mut runner = runner_with_ack(ack_url);
+    let mut runner = test_runner();
+    let mut installed = None;
     for event in response.events {
-        runner
-            .apply_event(&response.session_id, event)
+        installed = runner
+            .apply_event(event)
             .await
-            .expect("apply event");
+            .expect("apply event")
+            .or(installed);
     }
-
-    // Cursor advanced to the installed revision, and the leader saw the ack.
+    let installed = installed.expect("snapshot end produces acknowledgement metadata");
+    runner.set_cursor(&response.session_id, installed);
     assert_eq!(runner.cursor.revision, Some(1));
     assert!(runner.cursor.digest.is_some());
     assert_eq!(
         runner.cursor.session_id.as_deref(),
         Some(response.session_id.as_str())
     );
-
-    let ack = tokio::time::timeout(Duration::from_secs(1), acks.recv())
-        .await
-        .expect("ack delivered promptly")
-        .expect("ack sent");
-    assert_eq!(ack.replica_id, "replica-1");
-    assert_eq!(ack.revision, 1);
 }
 
 #[tokio::test]
 async fn happy_path_applies_a_delta_after_a_snapshot() {
-    let (base, mut acks) = spawn_ack_server().await;
-    let ack_url = base.join("/internal/v1/replication/ack").expect("ack url");
-
     let leader = ReplicationCoordinator::new("leader-1", 0, Duration::from_secs(1));
     leader.begin_leader_term(1).await.expect("leader term");
     leader
@@ -366,18 +321,23 @@ async fn happy_path_applies_a_delta_after_a_snapshot() {
         .await
         .expect("publish snapshot policy");
 
-    let mut runner = runner_with_ack(ack_url);
+    let mut runner = test_runner();
     let snapshot = leader
         .watch(fresh_watch_query(), Duration::from_millis(200))
         .await
         .expect("snapshot watch");
+    let mut installed = None;
     for event in snapshot.events {
-        runner
-            .apply_event(&snapshot.session_id, event)
+        installed = runner
+            .apply_event(event)
             .await
-            .expect("apply snapshot");
+            .expect("apply snapshot")
+            .or(installed);
     }
-    let _snapshot_ack = acks.recv().await.expect("snapshot ack");
+    runner.set_cursor(
+        &snapshot.session_id,
+        installed.expect("snapshot acknowledgement metadata"),
+    );
     assert_eq!(runner.cursor.revision, Some(1));
 
     // A follow-up placement delta.
@@ -408,17 +368,17 @@ async fn happy_path_applies_a_delta_after_a_snapshot() {
         .await
         .expect("delta watch");
     assert!(!delta.events.is_empty());
+    let mut applied = None;
     for event in delta.events {
-        runner
-            .apply_event(&delta.session_id, event)
+        applied = runner
+            .apply_event(event)
             .await
-            .expect("apply delta");
+            .expect("apply delta")
+            .or(applied);
     }
-
+    runner.set_cursor(
+        &delta.session_id,
+        applied.expect("delta acknowledgement metadata"),
+    );
     assert_eq!(runner.cursor.revision, Some(2));
-    let ack = tokio::time::timeout(Duration::from_secs(1), acks.recv())
-        .await
-        .expect("delta ack delivered promptly")
-        .expect("delta ack sent");
-    assert_eq!(ack.revision, 2);
 }

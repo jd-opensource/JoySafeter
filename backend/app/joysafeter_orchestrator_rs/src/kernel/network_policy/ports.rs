@@ -49,7 +49,7 @@ pub trait NetworkPolicyRuntime: Send + Sync {
     async fn initialize(&self) -> anyhow::Result<()>;
 
     /// Whether this runtime can receive task-scoped credential values without
-    /// persisting them in the durable policy source.
+    /// persisting them outside the authoritative policy record.
     fn supports_ephemeral_credentials(&self) -> bool {
         true
     }

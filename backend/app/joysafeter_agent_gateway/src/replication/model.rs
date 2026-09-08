@@ -79,11 +79,6 @@ pub struct AckReplicaRequest {
     pub snapshot_digest: String,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct AckReplicaResponse {
-    pub accepted: bool,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HotSnapshotMetadata {
     pub source_instance: String,

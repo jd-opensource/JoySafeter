@@ -92,6 +92,7 @@ pub(crate) async fn spawn_health_server(
                             .to_string(),
                         };
                         body.push_str(&runner_metrics.snapshot().render_prometheus());
+                        body.push_str(&crate::agent_gateway::metrics::render_prometheus());
                         ("200 OK", "text/plain; version=0.0.4", body)
                     }
                     _ => (

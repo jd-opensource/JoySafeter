@@ -11,6 +11,7 @@ mod listener;
 
 pub const CLUSTER_TYPE_URL: &str = "type.googleapis.com/envoy.config.cluster.v3.Cluster";
 pub const LISTENER_TYPE_URL: &str = "type.googleapis.com/envoy.config.listener.v3.Listener";
+pub const DEFAULT_DNS_CACHE_MAX_HOSTS: u32 = 4_096;
 
 pub use cluster::encode_cluster_any;
 pub use listener::encode_listener_any;

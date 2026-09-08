@@ -6,7 +6,12 @@ use crate::domain::egress_policy::{
 };
 use crate::ids::SandboxId;
 use envoy_types::pb::envoy::config::cluster::v3::{cluster, Cluster};
+use envoy_types::pb::envoy::config::listener::v3::{filter, Listener};
 use envoy_types::pb::envoy::config::route::v3::{header_matcher, route, route_action};
+use envoy_types::pb::envoy::extensions::filters::http::dynamic_forward_proxy::v3::FilterConfig;
+use envoy_types::pb::envoy::extensions::filters::network::http_connection_manager::v3::{
+    http_filter, HttpConnectionManager,
+};
 use envoy_types::pb::envoy::extensions::transport_sockets::tls::v3::UpstreamTlsContext;
 use envoy_types::pb::envoy::r#type::matcher::v3::string_matcher;
 
@@ -24,6 +29,46 @@ fn route(path_mapping: EgressPathMapping) -> EgressRouteSpec {
         inject_headers: Vec::new(),
         remove_headers: Vec::new(),
     }
+}
+
+#[test]
+fn listener_uses_configured_dynamic_forward_proxy_cache_capacity() {
+    let sandbox_id = SandboxId::new();
+    let spec = crate::domain::egress_policy::ListenerSpec {
+        sandbox_id,
+        kind: crate::domain::egress_policy::ListenerKind::Http,
+        allowed_hosts: vec!["docs.example.com".to_string()],
+        credentials: Vec::new(),
+        proxy_auth_token: None,
+    };
+    let encoded = encode_listener_any(&spec, 4_096).expect("encode listener");
+    let listener = Listener::decode(encoded.value.as_slice()).expect("decode listener");
+    let hcm_any = match listener.filter_chains[0].filters[0]
+        .config_type
+        .as_ref()
+        .expect("typed HCM")
+    {
+        filter::ConfigType::TypedConfig(any) => any,
+        _ => panic!("expected typed HTTP connection manager"),
+    };
+    let hcm = HttpConnectionManager::decode(hcm_any.value.as_slice()).expect("decode HCM");
+    let filter_any = match hcm.http_filters[0]
+        .config_type
+        .as_ref()
+        .expect("typed dynamic forward proxy filter")
+    {
+        http_filter::ConfigType::TypedConfig(any) => any,
+        _ => panic!("expected typed dynamic forward proxy filter"),
+    };
+    let filter = FilterConfig::decode(filter_any.value.as_slice()).expect("decode DFP filter");
+    let cache = match filter
+        .implementation_specifier
+        .expect("DNS cache implementation")
+    {
+        envoy_types::pb::envoy::extensions::filters::http::dynamic_forward_proxy::v3::filter_config::ImplementationSpecifier::DnsCacheConfig(cache) => cache,
+        _ => panic!("expected inline DNS cache config"),
+    };
+    assert_eq!(cache.max_hosts.expect("max_hosts").value, 4_096);
 }
 
 #[test]

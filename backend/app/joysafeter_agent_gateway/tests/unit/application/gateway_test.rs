@@ -93,6 +93,35 @@ async fn apply_policy_rejects_an_invalid_policy_before_touching_the_authority() 
 }
 
 #[tokio::test]
+async fn replaying_the_active_generation_is_an_idempotent_noop() {
+    let (app, _authority, _control_plane) = build_app(Duration::from_millis(50));
+    let sandbox_id = SandboxId::new();
+    let request = valid_request();
+    let staged = app
+        .projections()
+        .stage_sandbox(
+            sandbox_id,
+            crate::xds::model::DeliveryGeneration {
+                policy_hash: request.generation.policy_hash.clone(),
+                policy_version: request.generation.policy_version,
+            },
+        )
+        .expect("stage active generation");
+    app.projections()
+        .commit(&staged)
+        .expect("commit projection");
+
+    // The authority deliberately remains Standby. Success proves this replay
+    // returned from the committed projection without publishing xDS again.
+    assert_eq!(
+        app.apply_policy(sandbox_id, request.clone())
+            .await
+            .expect("same generation is already complete"),
+        request.generation
+    );
+}
+
+#[tokio::test]
 async fn mutations_require_a_serving_authority() {
     // Authority left in Standby: no mutation guard is available.
     let (app, _authority, _control_plane) = build_app(Duration::from_millis(50));

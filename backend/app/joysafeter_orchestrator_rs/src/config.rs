@@ -93,13 +93,19 @@ pub struct JoySafeterConfig {
     // Independent Agent Gateway management plane. When configured, Envoy ADS
     // and network-policy delivery are owned by that service rather than this
     // orchestrator process.
-    pub agent_gateway_url: Option<String>,
     pub agent_gateway_management_token: Option<String>,
-    /// gRPC endpoint for the gateway management service (apply/remove policy).
-    /// When set, the orchestrator uses gRPC instead of the HTTP management API.
+    /// gRPC endpoint for the Gateway management service and bidirectional
+    /// policy command stream.
     pub agent_gateway_grpc_endpoint: Option<String>,
     pub agent_gateway_xds_port: u16,
     pub agent_gateway_request_timeout_seconds: u64,
+    pub agent_gateway_max_inflight_commands: usize,
+    pub agent_gateway_circuit_failure_threshold: u32,
+    pub agent_gateway_circuit_open_duration_ms: u64,
+    pub agent_gateway_reconnect_base_delay_ms: u64,
+    pub agent_gateway_reconnect_max_delay_ms: u64,
+    pub agent_gateway_keepalive_interval_seconds: u64,
+    pub agent_gateway_keepalive_timeout_seconds: u64,
 
     // gRPC server capacity
     pub grpc_max_connections: usize,
@@ -279,9 +285,6 @@ impl JoySafeterConfig {
             xds_auth_token: env::var("JOYSAFETER_XDS_AUTH_TOKEN")
                 .ok()
                 .filter(|value| !value.trim().is_empty()),
-            agent_gateway_url: env::var("JOYSAFETER_AGENT_GATEWAY_URL")
-                .ok()
-                .filter(|value| !value.trim().is_empty()),
             agent_gateway_management_token: env::var("JOYSAFETER_AGENT_GATEWAY_MANAGEMENT_TOKEN")
                 .ok()
                 .filter(|value| !value.trim().is_empty()),
@@ -292,6 +295,34 @@ impl JoySafeterConfig {
             agent_gateway_request_timeout_seconds: env_u64(
                 "JOYSAFETER_AGENT_GATEWAY_REQUEST_TIMEOUT_SECS",
                 25,
+            ),
+            agent_gateway_max_inflight_commands: env_usize(
+                "JOYSAFETER_AGENT_GATEWAY_MAX_INFLIGHT_COMMANDS",
+                512,
+            ),
+            agent_gateway_circuit_failure_threshold: env_u32(
+                "JOYSAFETER_AGENT_GATEWAY_CIRCUIT_FAILURE_THRESHOLD",
+                5,
+            ),
+            agent_gateway_circuit_open_duration_ms: env_u64(
+                "JOYSAFETER_AGENT_GATEWAY_CIRCUIT_OPEN_DURATION_MS",
+                5_000,
+            ),
+            agent_gateway_reconnect_base_delay_ms: env_u64(
+                "JOYSAFETER_AGENT_GATEWAY_RECONNECT_BASE_DELAY_MS",
+                100,
+            ),
+            agent_gateway_reconnect_max_delay_ms: env_u64(
+                "JOYSAFETER_AGENT_GATEWAY_RECONNECT_MAX_DELAY_MS",
+                5_000,
+            ),
+            agent_gateway_keepalive_interval_seconds: env_u64(
+                "JOYSAFETER_AGENT_GATEWAY_KEEPALIVE_INTERVAL_SECS",
+                15,
+            ),
+            agent_gateway_keepalive_timeout_seconds: env_u64(
+                "JOYSAFETER_AGENT_GATEWAY_KEEPALIVE_TIMEOUT_SECS",
+                5,
             ),
 
             grpc_max_connections: env_usize("JOYSAFETER_GRPC_MAX_CONNECTIONS", 2000),
@@ -406,7 +437,7 @@ impl JoySafeterConfig {
     }
 
     pub fn agent_gateway_enabled(&self) -> bool {
-        self.agent_gateway_url.is_some()
+        self.agent_gateway_grpc_endpoint.is_some()
     }
 
     pub fn embedded_xds_enabled(&self) -> bool {
@@ -490,20 +521,55 @@ impl JoySafeterConfig {
                     "JOYSAFETER_AGENT_GATEWAY_REQUEST_TIMEOUT_SECS must be between 1 and 600"
                 );
             }
+            if self.agent_gateway_max_inflight_commands == 0
+                || self.agent_gateway_max_inflight_commands > 65_536
+            {
+                anyhow::bail!(
+                    "JOYSAFETER_AGENT_GATEWAY_MAX_INFLIGHT_COMMANDS must be between 1 and 65536"
+                );
+            }
+            if self.agent_gateway_circuit_failure_threshold == 0
+                || self.agent_gateway_circuit_failure_threshold > 1_000
+            {
+                anyhow::bail!(
+                    "JOYSAFETER_AGENT_GATEWAY_CIRCUIT_FAILURE_THRESHOLD must be between 1 and 1000"
+                );
+            }
+            if !(100..=300_000).contains(&self.agent_gateway_circuit_open_duration_ms) {
+                anyhow::bail!(
+                    "JOYSAFETER_AGENT_GATEWAY_CIRCUIT_OPEN_DURATION_MS must be between 100 and 300000"
+                );
+            }
+            if self.agent_gateway_reconnect_base_delay_ms == 0
+                || self.agent_gateway_reconnect_base_delay_ms
+                    > self.agent_gateway_reconnect_max_delay_ms
+                || self.agent_gateway_reconnect_max_delay_ms > 60_000
+            {
+                anyhow::bail!(
+                    "Agent Gateway reconnect delays must satisfy 1 <= base <= max <= 60000 ms"
+                );
+            }
+            if self.agent_gateway_keepalive_interval_seconds == 0
+                || self.agent_gateway_keepalive_timeout_seconds == 0
+                || self.agent_gateway_keepalive_timeout_seconds
+                    > self.agent_gateway_keepalive_interval_seconds
+            {
+                anyhow::bail!("Agent Gateway keepalive must satisfy 1 <= timeout <= interval");
+            }
             if !self.grpc_xds_enabled() {
                 anyhow::bail!(
-                    "JOYSAFETER_AGENT_GATEWAY_URL requires JOYSAFETER_ENVOY_ENABLED=true and JOYSAFETER_ENVOY_XDS_MODE=grpc"
+                    "JOYSAFETER_AGENT_GATEWAY_GRPC_ENDPOINT requires JOYSAFETER_ENVOY_ENABLED=true and JOYSAFETER_ENVOY_XDS_MODE=grpc"
                 );
             }
             let token = self.agent_gateway_management_token.as_deref().ok_or_else(|| {
                 anyhow::anyhow!(
-                    "JOYSAFETER_AGENT_GATEWAY_MANAGEMENT_TOKEN is required when JOYSAFETER_AGENT_GATEWAY_URL is set"
+                    "JOYSAFETER_AGENT_GATEWAY_MANAGEMENT_TOKEN is required when JOYSAFETER_AGENT_GATEWAY_GRPC_ENDPOINT is set"
                 )
             })?;
             validate_agent_gateway_endpoint(
-                self.agent_gateway_url
+                self.agent_gateway_grpc_endpoint
                     .as_deref()
-                    .expect("URL checked above"),
+                    .expect("gRPC endpoint checked above"),
                 token,
             )?;
             if self.xds_auth_token.is_none() {
@@ -513,7 +579,7 @@ impl JoySafeterConfig {
             }
         } else if self.agent_gateway_management_token.is_some() {
             anyhow::bail!(
-                "JOYSAFETER_AGENT_GATEWAY_MANAGEMENT_TOKEN requires JOYSAFETER_AGENT_GATEWAY_URL"
+                "JOYSAFETER_AGENT_GATEWAY_MANAGEMENT_TOKEN requires JOYSAFETER_AGENT_GATEWAY_GRPC_ENDPOINT"
             );
         }
         if self.embedded_xds_enabled() {
@@ -580,9 +646,10 @@ impl JoySafeterConfig {
     }
 }
 
-fn validate_agent_gateway_endpoint(base_url: &str, token: &str) -> anyhow::Result<()> {
-    let url = url::Url::parse(base_url)
-        .map_err(|error| anyhow::anyhow!("invalid JOYSAFETER_AGENT_GATEWAY_URL: {error}"))?;
+fn validate_agent_gateway_endpoint(endpoint: &str, token: &str) -> anyhow::Result<()> {
+    let url = url::Url::parse(endpoint).map_err(|error| {
+        anyhow::anyhow!("invalid JOYSAFETER_AGENT_GATEWAY_GRPC_ENDPOINT: {error}")
+    })?;
     if !matches!(url.scheme(), "http" | "https")
         || url.host_str().is_none()
         || !url.username().is_empty()
@@ -591,7 +658,7 @@ fn validate_agent_gateway_endpoint(base_url: &str, token: &str) -> anyhow::Resul
         || url.fragment().is_some()
     {
         anyhow::bail!(
-            "JOYSAFETER_AGENT_GATEWAY_URL must be an http(s) origin or path without credentials, query, or fragment"
+            "JOYSAFETER_AGENT_GATEWAY_GRPC_ENDPOINT must be an http(s) origin or path without credentials, query, or fragment"
         );
     }
     if !(32..=512).contains(&token.len())
@@ -1046,7 +1113,7 @@ mod tests {
         let mut cfg = JoySafeterConfig::from_env();
         cfg.envoy_enabled = true;
         cfg.envoy_xds_mode = "grpc".to_string();
-        cfg.agent_gateway_url = Some("http://agent-gateway:9093".to_string());
+        cfg.agent_gateway_grpc_endpoint = Some("http://agent-gateway:9094".to_string());
         cfg.agent_gateway_management_token = Some("a".repeat(32));
         cfg.xds_auth_token = Some("b".repeat(32));
         cfg.xds_auth_keyring = None;
@@ -1062,7 +1129,7 @@ mod tests {
         let mut cfg = JoySafeterConfig::from_env();
         cfg.envoy_enabled = true;
         cfg.envoy_xds_mode = "grpc".to_string();
-        cfg.agent_gateway_url = Some("http://agent-gateway:9093".to_string());
+        cfg.agent_gateway_grpc_endpoint = Some("http://agent-gateway:9094".to_string());
         cfg.agent_gateway_management_token = Some("a".repeat(32));
         cfg.xds_auth_token = Some("b".repeat(32));
 
@@ -1077,9 +1144,30 @@ mod tests {
     }
 
     #[test]
-    fn agent_gateway_management_token_without_url_is_rejected() {
+    fn external_agent_gateway_flow_control_and_transport_are_bounded() {
         let mut cfg = JoySafeterConfig::from_env();
-        cfg.agent_gateway_url = None;
+        cfg.envoy_enabled = true;
+        cfg.envoy_xds_mode = "grpc".to_string();
+        cfg.agent_gateway_grpc_endpoint = Some("http://agent-gateway:9094".to_string());
+        cfg.agent_gateway_management_token = Some("a".repeat(32));
+        cfg.xds_auth_token = Some("b".repeat(32));
+
+        cfg.agent_gateway_max_inflight_commands = 0;
+        assert!(cfg.validate().is_err());
+        cfg.agent_gateway_max_inflight_commands = 512;
+        cfg.agent_gateway_reconnect_base_delay_ms = 10_000;
+        cfg.agent_gateway_reconnect_max_delay_ms = 1_000;
+        assert!(cfg.validate().is_err());
+        cfg.agent_gateway_reconnect_base_delay_ms = 100;
+        cfg.agent_gateway_keepalive_timeout_seconds = 20;
+        cfg.agent_gateway_keepalive_interval_seconds = 10;
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn agent_gateway_management_token_without_grpc_endpoint_is_rejected() {
+        let mut cfg = JoySafeterConfig::from_env();
+        cfg.agent_gateway_grpc_endpoint = None;
         cfg.agent_gateway_management_token = Some("a".repeat(32));
 
         let error = cfg
@@ -1087,7 +1175,7 @@ mod tests {
             .expect_err("orphaned management token must fail closed");
         assert!(error
             .to_string()
-            .contains("requires JOYSAFETER_AGENT_GATEWAY_URL"));
+            .contains("requires JOYSAFETER_AGENT_GATEWAY_GRPC_ENDPOINT"));
     }
 
     #[test]

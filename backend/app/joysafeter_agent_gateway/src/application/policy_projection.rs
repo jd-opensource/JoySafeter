@@ -25,6 +25,19 @@ pub struct PolicyProjectionRegistry {
 }
 
 impl PolicyProjectionRegistry {
+    pub fn has_active_generation(
+        &self,
+        sandbox_id: SandboxId,
+        generation: &DeliveryGeneration,
+    ) -> bool {
+        self.state
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(&sandbox_id)
+            .and_then(|sandbox| sandbox.active.as_ref())
+            == Some(generation)
+    }
+
     pub fn stage_sandbox(
         &self,
         sandbox_id: SandboxId,

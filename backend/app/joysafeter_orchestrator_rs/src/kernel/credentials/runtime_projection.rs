@@ -14,8 +14,7 @@ pub(crate) use environment::{resolve_agent_env_from, EnvironmentRow};
 pub(crate) use external_egress::build_external_egress;
 pub(crate) use git_egress::build_git_egress;
 pub(crate) use llm_egress::extract_llm_egress;
+pub(crate) use recovery::rebuild_sandbox_credentials;
+pub(crate) use recovery::rebuild_sandbox_credentials_with_identity_routes;
 #[cfg(test)]
 pub(crate) use recovery::remove_agent_identity_routes;
-pub(crate) use recovery::{
-    rebuild_sandbox_credentials, rebuild_sandbox_credentials_with_identity_routes,
-};

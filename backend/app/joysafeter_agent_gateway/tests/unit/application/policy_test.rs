@@ -73,3 +73,27 @@ fn rejects_header_values_with_control_characters_without_leaking_them() {
     assert!(error.contains("control characters"));
     assert!(!error.contains(secret));
 }
+
+#[test]
+fn rejects_policy_that_exceeds_the_transport_budget() {
+    let mut request = request_with_material("authorization");
+    let template = request.credential_routes[0].clone();
+    request.credential_routes = (0..128)
+        .map(|index| {
+            let mut route = template.clone();
+            route.id = format!("identity-{index}");
+            route.match_host = format!("host-{index}.example.com");
+            route.inject_headers = (0..32)
+                .map(|header| ResolvedHeader {
+                    name: format!("x-secret-{header}"),
+                    value: "x".repeat(16 * 1024),
+                })
+                .collect();
+            route
+        })
+        .collect();
+
+    let error = ValidatedPolicy::from_request(SandboxId::new(), request)
+        .expect_err("oversized policy must fail before projection");
+    assert!(error.contains("exceeds"));
+}

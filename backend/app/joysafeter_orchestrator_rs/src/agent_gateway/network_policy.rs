@@ -25,57 +25,17 @@ pub struct AgentGatewayNetworkPolicyRuntime {
     client: Arc<dyn AgentGatewayApi>,
     sockets: Arc<EgressSocketProvisioner>,
     last_recovered_gateway: Mutex<Option<joysafeter_agent_gateway_contract::GatewayStatusResponse>>,
-    event_publisher: Option<Arc<crate::grpc::policy_stream::RedisEventPublisher>>,
 }
 
 impl AgentGatewayNetworkPolicyRuntime {
     pub(crate) fn new(
         client: Arc<dyn AgentGatewayApi>,
         sockets: Arc<EgressSocketProvisioner>,
-        event_publisher: Option<Arc<crate::grpc::policy_stream::RedisEventPublisher>>,
     ) -> Self {
         Self {
             client,
             sockets,
             last_recovered_gateway: Mutex::new(None),
-            event_publisher,
-        }
-    }
-
-    /// Publish the policy to the policy stream. Best-effort: a publish failure
-    /// never fails the apply, since HTTP remains a fallback during migration.
-    async fn publish_apply_event(
-        &self,
-        sandbox_id: SandboxId,
-        request: &ApplySandboxPolicyRequest,
-    ) {
-        let Some(publisher) = &self.event_publisher else {
-            return;
-        };
-        let payload = match serde_json::to_vec(request) {
-            Ok(payload) => payload,
-            Err(error) => {
-                tracing::warn!(%sandbox_id, %error, "failed to serialize policy for stream");
-                return;
-            }
-        };
-        use crate::proto::policy_stream::{policy_event, ApplySandboxPolicy, PolicyEvent};
-        let event = PolicyEvent {
-            seq: 0,
-            timestamp: None,
-            trace_id: uuid::Uuid::now_v7().to_string(),
-            event: Some(policy_event::Event::Apply(ApplySandboxPolicy {
-                sandbox_id: sandbox_id.to_string(),
-                generation: Some(crate::proto::policy_stream::PolicyGeneration {
-                    policy_hash: request.generation.policy_hash.clone(),
-                    policy_version: request.generation.policy_version as u64,
-                }),
-                policy_payload: payload,
-                authority_epoch: 0,
-            })),
-        };
-        if let Err(error) = publisher.publish_event(event).await {
-            tracing::warn!(%sandbox_id, %error, "failed to publish policy event");
         }
     }
 
@@ -87,8 +47,6 @@ impl AgentGatewayNetworkPolicyRuntime {
     ) -> anyhow::Result<()> {
         self.sockets.prepare_socket_dir(sandbox_id).await?;
         let request = into_request(generation, policy);
-        // Dual-write to the policy stream (best-effort) alongside the HTTP call.
-        self.publish_apply_event(sandbox_id, &request).await;
         if let Err(error) = self.client.apply_policy(sandbox_id, request).await {
             let is_nack = error.chain().any(|cause| {
                 cause

@@ -1,20 +1,52 @@
 use std::time::Duration;
 
-use reqwest::{Client, StatusCode, Url};
+use rand::Rng;
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
+use tokio_stream::wrappers::ReceiverStream;
+use tonic::transport::{Channel, Endpoint};
+use tonic::Request;
 use tracing::{debug, info};
 
+use crate::adapters::management_grpc::MAX_REPLICATION_MESSAGE_BYTES;
 use crate::bootstrap::shutdown::ShutdownSignal;
+use crate::proto::gateway_management::{
+    gateway_replication_service_client::GatewayReplicationServiceClient,
+    replication_stream_request, replication_stream_response, ReplicaAck, ReplicaOpen,
+    ReplicationStreamRequest,
+};
 
 use super::coordinator::ReplicationCoordinator;
 use super::model::{
-    AckReplicaRequest, AckReplicaResponse, HotSnapshotMetadata, ReplicaEvent, ReplicaEventPayload,
-    ReplicatedSnapshot, WatchReplicaResponse, REPLICATION_PROTOCOL_VERSION,
+    HotSnapshotMetadata, ReplicaEvent, ReplicaEventPayload, ReplicatedSnapshot,
+    REPLICATION_PROTOCOL_VERSION,
 };
 use super::projector::ReplicaProjector;
 
-const RETRY_DELAY: Duration = Duration::from_millis(250);
-const WATCH_TIMEOUT: Duration = Duration::from_secs(25);
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(10);
+const KEEPALIVE_TIMEOUT: Duration = Duration::from_secs(5);
+const RECONNECT_BASE_DELAY: Duration = Duration::from_millis(100);
+const RECONNECT_MAX_DELAY: Duration = Duration::from_secs(5);
+
+#[derive(Clone, Copy)]
+pub struct FollowerTransportConfig {
+    pub keepalive_interval: Duration,
+    pub keepalive_timeout: Duration,
+    pub reconnect_base_delay: Duration,
+    pub reconnect_max_delay: Duration,
+}
+
+impl Default for FollowerTransportConfig {
+    fn default() -> Self {
+        Self {
+            keepalive_interval: KEEPALIVE_INTERVAL,
+            keepalive_timeout: KEEPALIVE_TIMEOUT,
+            reconnect_base_delay: RECONNECT_BASE_DELAY,
+            reconnect_max_delay: RECONNECT_MAX_DELAY,
+        }
+    }
+}
 
 pub struct FollowerHandle {
     task: JoinHandle<()>,
@@ -27,30 +59,31 @@ impl FollowerHandle {
 }
 
 pub fn spawn(
-    leader_url: Url,
+    leader_endpoint: String,
     token: String,
     replica_id: String,
     coordinator: ReplicationCoordinator,
     projector: ReplicaProjector,
     shutdown: ShutdownSignal,
+    transport: FollowerTransportConfig,
 ) -> anyhow::Result<FollowerHandle> {
-    let watch_url = leader_url.join("/internal/v1/replication/watch")?;
-    let ack_url = leader_url.join("/internal/v1/replication/ack")?;
-    let client = Client::builder()
-        .connect_timeout(Duration::from_secs(2))
-        .timeout(WATCH_TIMEOUT + Duration::from_secs(5))
-        .build()?;
+    let channel = Endpoint::from_shared(leader_endpoint)?
+        .connect_timeout(CONNECT_TIMEOUT)
+        .tcp_keepalive(Some(transport.keepalive_interval))
+        .http2_keep_alive_interval(transport.keepalive_interval)
+        .keep_alive_timeout(transport.keepalive_timeout)
+        .keep_alive_while_idle(true)
+        .connect_lazy();
     let task = tokio::spawn(async move {
         let mut runner = FollowerRunner {
-            client,
-            watch_url,
-            ack_url,
+            channel,
             token,
             replica_id,
             coordinator,
             projector,
             cursor: ReplicaCursor::default(),
             staging: None,
+            transport,
         };
         tokio::select! {
             () = runner.run() => {}
@@ -79,78 +112,139 @@ struct StagingSnapshot {
 }
 
 struct FollowerRunner {
-    client: Client,
-    watch_url: Url,
-    ack_url: Url,
+    channel: Channel,
     token: String,
     replica_id: String,
     coordinator: ReplicationCoordinator,
     projector: ReplicaProjector,
     cursor: ReplicaCursor,
     staging: Option<StagingSnapshot>,
+    transport: FollowerTransportConfig,
 }
 
 impl FollowerRunner {
     async fn run(&mut self) {
+        let mut reconnect_attempt = 0_u32;
         loop {
             if self.coordinator.is_leader_epoch_any().await {
-                tokio::time::sleep(RETRY_DELAY).await;
+                tokio::time::sleep(self.transport.reconnect_base_delay).await;
+                reconnect_attempt = 0;
                 continue;
             }
-            if let Err(error) = self.sync_once().await {
-                self.staging = None;
-                self.cursor = ReplicaCursor::default();
-                debug!(%error, "Agent Gateway hot-standby synchronization interrupted");
-                tokio::time::sleep(RETRY_DELAY).await;
+            match self.sync_stream().await {
+                Ok(()) => reconnect_attempt = 0,
+                Err(error) => {
+                    self.staging = None;
+                    reconnect_attempt = reconnect_attempt.saturating_add(1);
+                    debug!(%error, reconnect_attempt, "Agent Gateway hot-standby gRPC stream interrupted");
+                    tokio::time::sleep(reconnect_delay_with_bounds(
+                        reconnect_attempt,
+                        self.transport.reconnect_base_delay,
+                        self.transport.reconnect_max_delay,
+                    ))
+                    .await;
+                }
             }
         }
     }
 
-    async fn sync_once(&mut self) -> anyhow::Result<()> {
-        let mut query = vec![
-            ("protocol_version", REPLICATION_PROTOCOL_VERSION.to_string()),
-            ("replica_id", self.replica_id.clone()),
-        ];
-        if let Some(value) = &self.cursor.session_id {
-            query.push(("session_id", value.clone()));
-        }
-        if let Some(value) = &self.cursor.term {
-            query.push(("term", value.clone()));
-        }
-        if let Some(value) = self.cursor.revision {
-            query.push(("revision", value.to_string()));
-        }
-        if let Some(value) = &self.cursor.digest {
-            query.push(("snapshot_digest", value.clone()));
-        }
-        let response = self
-            .client
-            .get(self.watch_url.clone())
-            .bearer_auth(&self.token)
-            .query(&query)
-            .send()
+    async fn sync_stream(&mut self) -> anyhow::Result<()> {
+        let (outbound_tx, outbound_rx) = mpsc::channel(8);
+        outbound_tx
+            .send(ReplicationStreamRequest {
+                message: Some(replication_stream_request::Message::Open(ReplicaOpen {
+                    protocol_version: u32::from(REPLICATION_PROTOCOL_VERSION),
+                    replica_id: self.replica_id.clone(),
+                    session_id: self.cursor.session_id.clone(),
+                    term: self.cursor.term.clone(),
+                    revision: self.cursor.revision,
+                    snapshot_digest: self.cursor.digest.clone(),
+                })),
+            })
             .await?;
-        if response.status() == StatusCode::SERVICE_UNAVAILABLE {
-            anyhow::bail!("replication leader is unavailable");
-        }
-        let response = response
-            .error_for_status()?
-            .json::<WatchReplicaResponse>()
-            .await?;
-        if self.cursor.session_id.as_deref() != Some(response.session_id.as_str()) {
-            self.cursor = ReplicaCursor {
-                session_id: Some(response.session_id.clone()),
-                ..ReplicaCursor::default()
+        let mut request = Request::new(ReceiverStream::new(outbound_rx));
+        request
+            .metadata_mut()
+            .insert("authorization", format!("Bearer {}", self.token).parse()?);
+        let mut inbound = GatewayReplicationServiceClient::new(self.channel.clone())
+            .max_decoding_message_size(MAX_REPLICATION_MESSAGE_BYTES)
+            .max_encoding_message_size(MAX_REPLICATION_MESSAGE_BYTES)
+            .replicate(request)
+            .await?
+            .into_inner();
+        let mut pending_ack: Option<(String, HotSnapshotMetadata)> = None;
+        loop {
+            if self.coordinator.is_leader_epoch_any().await {
+                anyhow::bail!("replica was promoted while the follower stream was active");
+            }
+            let response = tokio::select! {
+                response = inbound.message() => response?
+                    .ok_or_else(|| anyhow::anyhow!("replication stream closed"))?,
+                () = tokio::time::sleep(Duration::from_millis(250)) => continue,
             };
-            self.staging = None;
+            match response.message {
+                Some(replication_stream_response::Message::Events(batch)) => {
+                    if pending_ack.is_some() {
+                        anyhow::bail!("leader sent events before acknowledging the previous batch");
+                    }
+                    if self.cursor.session_id.as_deref() != Some(batch.session_id.as_str()) {
+                        self.cursor = ReplicaCursor {
+                            session_id: Some(batch.session_id.clone()),
+                            ..ReplicaCursor::default()
+                        };
+                        self.staging = None;
+                    }
+                    let mut latest = None;
+                    for event in batch.events {
+                        let event =
+                            crate::adapters::proto_conversion::replica_event_from_proto(event)?;
+                        if let Some(metadata) = self.apply_event(event).await? {
+                            latest = Some(metadata);
+                        }
+                    }
+                    let Some(metadata) = latest else {
+                        // SnapshotBegin/Chunk frames may span multiple bounded
+                        // transport batches. ACK only after SnapshotEnd (or a
+                        // complete delta) has been durably applied.
+                        continue;
+                    };
+                    outbound_tx
+                        .send(ReplicationStreamRequest {
+                            message: Some(replication_stream_request::Message::Ack(ReplicaAck {
+                                protocol_version: u32::from(REPLICATION_PROTOCOL_VERSION),
+                                replica_id: self.replica_id.clone(),
+                                session_id: batch.session_id.clone(),
+                                source_instance: metadata.source_instance.clone(),
+                                term: metadata.term.clone(),
+                                revision: metadata.revision,
+                                snapshot_digest: metadata.snapshot_digest.clone(),
+                            })),
+                        })
+                        .await?;
+                    pending_ack = Some((batch.session_id, metadata));
+                }
+                Some(replication_stream_response::Message::Acknowledged(ack)) => {
+                    let (session_id, metadata) = pending_ack
+                        .take()
+                        .ok_or_else(|| anyhow::anyhow!("unexpected replication acknowledgement"))?;
+                    if session_id != ack.session_id
+                        || metadata.term != ack.term
+                        || metadata.revision != ack.revision
+                        || metadata.snapshot_digest != ack.snapshot_digest
+                    {
+                        anyhow::bail!("replication acknowledgement correlation failed");
+                    }
+                    self.set_cursor(&session_id, metadata);
+                }
+                None => anyhow::bail!("replication response frame is empty"),
+            }
         }
-        for event in response.events {
-            self.apply_event(&response.session_id, event).await?;
-        }
-        Ok(())
     }
 
-    async fn apply_event(&mut self, session_id: &str, event: ReplicaEvent) -> anyhow::Result<()> {
+    async fn apply_event(
+        &mut self,
+        event: ReplicaEvent,
+    ) -> anyhow::Result<Option<HotSnapshotMetadata>> {
         if event.protocol_version != REPLICATION_PROTOCOL_VERSION {
             anyhow::bail!("leader uses an unsupported replication protocol version");
         }
@@ -165,6 +259,7 @@ impl FollowerRunner {
                     next_chunk: 0,
                     snapshot: ReplicatedSnapshot::default(),
                 });
+                Ok(None)
             }
             ReplicaEventPayload::SnapshotChunk {
                 chunk_index,
@@ -177,6 +272,7 @@ impl FollowerRunner {
                 staging.snapshot.policies.extend(snapshot.policies);
                 staging.snapshot.placements.extend(snapshot.placements);
                 staging.next_chunk += 1;
+                Ok(None)
             }
             ReplicaEventPayload::SnapshotEnd => {
                 let staging = self
@@ -201,14 +297,13 @@ impl FollowerRunner {
                     return Err(error);
                 }
                 drop(_gate);
-                self.ack(session_id, &metadata).await?;
-                self.set_cursor(session_id, metadata);
                 info!(
                     source = %event.source_instance,
                     term = %event.term,
                     revision = event.revision,
                     "Agent Gateway hot snapshot installed"
                 );
+                Ok(Some(metadata))
             }
             ReplicaEventPayload::Delta { mutation } => {
                 let metadata = metadata(&event);
@@ -228,11 +323,9 @@ impl FollowerRunner {
                     }
                 }
                 drop(_gate);
-                self.ack(session_id, &metadata).await?;
-                self.set_cursor(session_id, metadata);
+                Ok(Some(metadata))
             }
         }
-        Ok(())
     }
 
     fn matching_staging(&mut self, event: &ReplicaEvent) -> anyhow::Result<&mut StagingSnapshot> {
@@ -242,31 +335,6 @@ impl FollowerRunner {
             .ok_or_else(|| anyhow::anyhow!("replica snapshot chunk arrived before begin"))?;
         ensure_identity(staging, event)?;
         Ok(staging)
-    }
-
-    async fn ack(&self, session_id: &str, metadata: &HotSnapshotMetadata) -> anyhow::Result<()> {
-        let response = self
-            .client
-            .post(self.ack_url.clone())
-            .bearer_auth(&self.token)
-            .json(&AckReplicaRequest {
-                protocol_version: REPLICATION_PROTOCOL_VERSION,
-                replica_id: self.replica_id.clone(),
-                session_id: session_id.to_string(),
-                source_instance: metadata.source_instance.clone(),
-                term: metadata.term.clone(),
-                revision: metadata.revision,
-                snapshot_digest: metadata.snapshot_digest.clone(),
-            })
-            .send()
-            .await?
-            .error_for_status()?
-            .json::<AckReplicaResponse>()
-            .await?;
-        if !response.accepted {
-            anyhow::bail!("leader rejected replica acknowledgement");
-        }
-        Ok(())
     }
 
     fn set_cursor(&mut self, session_id: &str, metadata: HotSnapshotMetadata) {
@@ -308,6 +376,21 @@ fn ensure_identity(staging: &StagingSnapshot, event: &ReplicaEvent) -> anyhow::R
         anyhow::bail!("replica snapshot identity changed mid-transfer");
     }
     Ok(())
+}
+
+#[cfg(test)]
+fn reconnect_delay(attempt: u32) -> Duration {
+    reconnect_delay_with_bounds(attempt, RECONNECT_BASE_DELAY, RECONNECT_MAX_DELAY)
+}
+
+fn reconnect_delay_with_bounds(attempt: u32, base: Duration, max: Duration) -> Duration {
+    let exponent = attempt.saturating_sub(1).min(6);
+    let capped_ms = base
+        .as_millis()
+        .saturating_mul(1_u128 << exponent)
+        .min(max.as_millis()) as u64;
+    let floor_ms = (capped_ms.saturating_mul(3) / 4).max(1);
+    Duration::from_millis(rand::thread_rng().gen_range(floor_ms..=capped_ms))
 }
 
 #[cfg(test)]

@@ -10,6 +10,8 @@ mod grpc;
 mod ids;
 #[path = "../src/kernel/mod.rs"]
 mod kernel;
+#[path = "../src/proto/mod.rs"]
+mod proto;
 #[path = "../src/runtime_config.rs"]
 mod runtime_config;
 #[path = "../src/sandbox/mod.rs"]

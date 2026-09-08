@@ -3,7 +3,7 @@ use super::model::{
     REPLICATION_PROTOCOL_VERSION,
 };
 
-const SNAPSHOT_CHUNK_ITEMS: usize = 64;
+const SNAPSHOT_CHUNK_MAX_BYTES: usize = 2 * 1024 * 1024;
 
 pub(super) fn snapshot_events(
     source_instance: &str,
@@ -98,22 +98,38 @@ pub(super) fn canonicalize(snapshot: &mut ReplicatedSnapshot) {
 
 fn snapshot_chunks(snapshot: &ReplicatedSnapshot) -> Vec<ReplicatedSnapshot> {
     let mut chunks = Vec::new();
-    for policies in snapshot.policies.chunks(SNAPSHOT_CHUNK_ITEMS) {
-        chunks.push(ReplicatedSnapshot {
-            policies: policies.to_vec(),
-            placements: Vec::new(),
-        });
+    let mut current = ReplicatedSnapshot::default();
+    for policy in &snapshot.policies {
+        let mut candidate = current.clone();
+        candidate.policies.push(policy.clone());
+        if !current.policies.is_empty() && serialized_size(&candidate) > SNAPSHOT_CHUNK_MAX_BYTES {
+            chunks.push(std::mem::take(&mut current));
+        }
+        current.policies.push(policy.clone());
     }
-    for placements in snapshot.placements.chunks(SNAPSHOT_CHUNK_ITEMS) {
-        chunks.push(ReplicatedSnapshot {
-            policies: Vec::new(),
-            placements: placements.to_vec(),
-        });
+    for placement in &snapshot.placements {
+        let mut candidate = current.clone();
+        candidate.placements.push(placement.clone());
+        if (!current.policies.is_empty() || !current.placements.is_empty())
+            && serialized_size(&candidate) > SNAPSHOT_CHUNK_MAX_BYTES
+        {
+            chunks.push(std::mem::take(&mut current));
+        }
+        current.placements.push(placement.clone());
+    }
+    if !current.policies.is_empty() || !current.placements.is_empty() {
+        chunks.push(current);
     }
     if chunks.is_empty() {
         chunks.push(ReplicatedSnapshot::default());
     }
     chunks
+}
+
+fn serialized_size(snapshot: &ReplicatedSnapshot) -> usize {
+    serde_json::to_vec(snapshot)
+        .map(|encoded| encoded.len())
+        .unwrap_or(usize::MAX)
 }
 
 fn event(

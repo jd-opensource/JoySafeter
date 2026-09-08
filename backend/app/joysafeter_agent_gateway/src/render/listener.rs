@@ -85,7 +85,7 @@ fn access_log_json_format(listener: String) -> envoy_types::pb::google::protobuf
         ]),
     }
 }
-pub fn encode_listener_any(spec: &ListenerSpec) -> anyhow::Result<Any> {
+pub fn encode_listener_any(spec: &ListenerSpec, dns_cache_max_hosts: u32) -> anyhow::Result<Any> {
     use envoy_types::pb::envoy::config::listener::v3::Listener;
 
     let listener: Listener = match spec.kind {
@@ -94,6 +94,7 @@ pub fn encode_listener_any(spec: &ListenerSpec) -> anyhow::Result<Any> {
             &spec.allowed_hosts,
             &spec.credentials,
             spec.proxy_auth_token.as_deref(),
+            dns_cache_max_hosts,
         ),
     };
     let mut buf = Vec::new();
@@ -109,6 +110,7 @@ fn build_http_listener_proto(
     allowed_hosts: &[String],
     credentials: &[EgressRouteSpec],
     proxy_auth_token: Option<&str>,
+    dns_cache_max_hosts: u32,
 ) -> envoy_types::pb::envoy::config::listener::v3::Listener {
     use envoy_types::pb::envoy::config::accesslog::v3::{access_log, AccessLog};
     use envoy_types::pb::envoy::config::cluster::v3::cluster::DnsLookupFamily;
@@ -136,6 +138,9 @@ fn build_http_listener_proto(
             DnsCacheConfig {
                 name: "dynamic_forward_proxy_cache".to_string(),
                 dns_lookup_family: DnsLookupFamily::V4Only as i32,
+                max_hosts: Some(envoy_types::pb::google::protobuf::UInt32Value {
+                    value: dns_cache_max_hosts,
+                }),
                 ..Default::default()
             },
         )),

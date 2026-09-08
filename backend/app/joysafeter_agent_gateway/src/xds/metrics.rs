@@ -289,6 +289,10 @@ struct XdsMetricCounters {
     leader_promotions: AtomicU64,
     leader_demotions: AtomicU64,
     kubernetes_operations: [[AtomicU64; 3]; 4],
+    policy_stream_active_connections: AtomicU64,
+    policy_stream_connections: AtomicU64,
+    policy_stream_commands_in_flight: AtomicU64,
+    policy_stream_queue_saturation: AtomicU64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -335,6 +339,39 @@ impl XdsMetrics {
         result: KubernetesResult,
     ) {
         self.inner.kubernetes_operations[operation.index()][result.index()]
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn begin_policy_stream(&self) {
+        self.inner
+            .policy_stream_active_connections
+            .fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .policy_stream_connections
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn end_policy_stream(&self) {
+        self.inner
+            .policy_stream_active_connections
+            .fetch_sub(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn begin_policy_stream_command(&self) {
+        self.inner
+            .policy_stream_commands_in_flight
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn end_policy_stream_command(&self) {
+        self.inner
+            .policy_stream_commands_in_flight
+            .fetch_sub(1, Ordering::Relaxed);
+    }
+
+    pub(crate) fn record_policy_stream_queue_saturation(&self) {
+        self.inner
+            .policy_stream_queue_saturation
             .fetch_add(1, Ordering::Relaxed);
     }
 
@@ -489,6 +526,19 @@ impl XdsMetrics {
                     self.inner.kubernetes_operations[operation][result].load(Ordering::Relaxed)
                 })
             }),
+            policy_stream_active_connections: self
+                .inner
+                .policy_stream_active_connections
+                .load(Ordering::Relaxed),
+            policy_stream_connections: self.inner.policy_stream_connections.load(Ordering::Relaxed),
+            policy_stream_commands_in_flight: self
+                .inner
+                .policy_stream_commands_in_flight
+                .load(Ordering::Relaxed),
+            policy_stream_queue_saturation: self
+                .inner
+                .policy_stream_queue_saturation
+                .load(Ordering::Relaxed),
         }
     }
 
@@ -533,6 +583,10 @@ pub struct XdsMetricsSnapshot {
     pub(crate) leader_promotions: u64,
     pub(crate) leader_demotions: u64,
     pub(crate) kubernetes_operations: [[u64; 3]; 4],
+    pub(crate) policy_stream_active_connections: u64,
+    pub(crate) policy_stream_connections: u64,
+    pub(crate) policy_stream_commands_in_flight: u64,
+    pub(crate) policy_stream_queue_saturation: u64,
 }
 
 mod snapshot;

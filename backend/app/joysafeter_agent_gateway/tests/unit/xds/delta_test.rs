@@ -130,9 +130,15 @@ async fn node_move_removes_from_old_node_and_adds_to_new_node() {
         1,
     )
     .await;
-    flush_responses(&sender, &node_health, "node-a", old_session, old_node_responses)
-        .await
-        .expect("old-node reconciliation");
+    flush_responses(
+        &sender,
+        &node_health,
+        "node-a",
+        old_session,
+        old_node_responses,
+    )
+    .await
+    .expect("old-node reconciliation");
     let new_node_responses = build_visibility_reconciliation(
         &resources,
         &ownership,
@@ -143,9 +149,15 @@ async fn node_move_removes_from_old_node_and_adds_to_new_node() {
         1,
     )
     .await;
-    flush_responses(&sender, &node_health, "node-b", new_session, new_node_responses)
-        .await
-        .expect("new-node reconciliation");
+    flush_responses(
+        &sender,
+        &node_health,
+        "node-b",
+        new_session,
+        new_node_responses,
+    )
+    .await
+    .expect("new-node reconciliation");
 
     let old_node = receiver.recv().await.expect("old-node response").unwrap();
     let new_node = receiver.recv().await.expect("new-node response").unwrap();

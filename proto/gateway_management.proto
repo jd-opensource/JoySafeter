@@ -2,33 +2,36 @@ syntax = "proto3";
 
 package joysafeter.gateway.v1;
 
-import "google/protobuf/timestamp.proto";
-
 // Gateway Management Service - gRPC API for orchestrator to manage policies
 service GatewayManagementService {
-  // Apply policy to a sandbox (replaces HTTP POST /v1/policies/{sandbox_id})
-  rpc ApplyPolicy(ApplyPolicyRequest) returns (ApplyPolicyResponse);
+  // The sole hot path for policy mutations. The caller owns durable intent and
+  // replays unacknowledged commands with the same command_id after reconnect.
+  rpc PolicyStream(stream PolicyStreamRequest) returns (stream PolicyStreamResponse);
 
-  // Remove policy for a sandbox (replaces HTTP DELETE /v1/policies/{sandbox_id})
-  rpc RemovePolicy(RemovePolicyRequest) returns (RemovePolicyResponse);
-
-  // Query gateway status (replaces HTTP GET /internal/v1/status).
+  // Query gateway status.
   rpc GetStatus(GetStatusRequest) returns (JsonResponse);
 
-  // Complete recovery handshake (replaces HTTP PUT /internal/v1/recovery/complete).
+  // Complete the recovery handshake.
   rpc CompleteRecovery(JsonRequest) returns (JsonResponse);
 
-  // Prune stale policies (replaces HTTP PUT /internal/v1/policies/prune).
+  // Prune stale policies.
   rpc PrunePolicies(JsonRequest) returns (JsonResponse);
 
-  // Assign sandbox placement (replaces HTTP PUT .../placement).
+  // Assign sandbox placement.
   rpc AssignPlacement(PlacementRequest) returns (JsonResponse);
 
-  // Remove sandbox placement (replaces HTTP DELETE .../placement).
+  // Remove sandbox placement.
   rpc RemovePlacement(PlacementRequest) returns (JsonResponse);
 
-  // Reconcile placements (replaces HTTP PUT /internal/v1/placements).
+  // Reconcile placements.
   rpc ReconcilePlacements(JsonRequest) returns (JsonResponse);
+}
+
+// Gateway-to-Gateway hot-standby replication. Followers open one long-lived
+// stream, receive snapshot/delta batches, and acknowledge applied revisions on
+// the same connection.
+service GatewayReplicationService {
+  rpc Replicate(stream ReplicationStreamRequest) returns (stream ReplicationStreamResponse);
 }
 
 // Generic JSON envelope: `payload` is a JSON-serialized contract struct, so the
@@ -36,7 +39,6 @@ service GatewayManagementService {
 // duplicating every nested message in protobuf.
 message JsonRequest {
   bytes payload = 1;
-  string trace_id = 2;
 }
 
 message JsonResponse {
@@ -50,38 +52,202 @@ message GetStatusRequest {}
 message PlacementRequest {
   string sandbox_id = 1;
   bytes payload = 2;  // JSON-serialized request body (empty for remove)
-  string trace_id = 3;
 }
 
-message ApplyPolicyRequest {
+message PolicyStreamRequest {
+  string command_id = 1;
+  oneof command {
+    StreamApplyPolicy apply_policy = 10;
+    StreamRemovePolicy remove_policy = 11;
+  }
+}
+
+message StreamApplyPolicy {
   string sandbox_id = 1;
-  PolicyGeneration generation = 2;
-  bytes policy_payload = 3;  // JSON serialized SandboxEgressPolicy
-  uint64 authority_epoch = 4;
-  string trace_id = 5;
+  SandboxPolicy policy = 2;
 }
 
-message ApplyPolicyResponse {
-  bool success = 1;
-  string error_message = 2;
-  uint64 applied_epoch = 3;
-  google.protobuf.Timestamp applied_at = 4;
-}
-
-message RemovePolicyRequest {
+message StreamRemovePolicy {
   string sandbox_id = 1;
   PolicyGeneration expected_generation = 2;
-  uint64 authority_epoch = 3;
-  string trace_id = 4;
 }
 
-message RemovePolicyResponse {
-  bool success = 1;
-  string error_message = 2;
-  uint64 removed_epoch = 3;
+message PolicyStreamResponse {
+  string command_id = 1;
+  bool success = 2;
+  string error_code = 3;
+  bool retryable = 4;
+  string error_message = 5;
+  PolicyGeneration generation = 6;
 }
 
 message PolicyGeneration {
   string policy_hash = 1;
   uint64 policy_version = 2;
+}
+
+message SandboxPolicy {
+  PolicyGeneration generation = 1;
+  repeated string allowlist_hosts = 2;
+  repeated CredentialRoute credential_routes = 3;
+  optional string proxy_auth_token = 4;
+}
+
+message CredentialRoute {
+  string id = 1;
+  EgressKind kind = 2;
+  EgressExposure exposure = 3;
+  string match_host = 4;
+  PathMapping path_mapping = 5;
+  RetryMode retry_mode = 6;
+  string upstream_host = 7;
+  uint32 upstream_port = 8;
+  bool upstream_tls = 9;
+  repeated string vetted_addresses = 10;
+  repeated ResolvedHeader inject_headers = 11;
+  repeated string remove_headers = 12;
+}
+
+enum EgressKind {
+  EGRESS_KIND_UNSPECIFIED = 0;
+  EGRESS_KIND_LLM = 1;
+  EGRESS_KIND_MCP = 2;
+  EGRESS_KIND_GIT = 3;
+  EGRESS_KIND_EXTERNAL = 4;
+}
+
+enum EgressExposure {
+  EGRESS_EXPOSURE_UNSPECIFIED = 0;
+  EGRESS_EXPOSURE_PLACEHOLDER = 1;
+  EGRESS_EXPOSURE_TRANSPARENT = 2;
+}
+
+enum RetryMode {
+  RETRY_MODE_UNSPECIFIED = 0;
+  RETRY_MODE_DISABLED = 1;
+  RETRY_MODE_SAFE_IDEMPOTENT = 2;
+}
+
+message ResolvedHeader {
+  string name = 1;
+  string value = 2;
+}
+
+message PathMapping {
+  oneof mapping {
+    Empty passthrough_any = 1;
+    string passthrough_exact = 2;
+    string passthrough_prefix = 3;
+    RewriteExact rewrite_exact = 4;
+    RewritePrefix rewrite_prefix = 5;
+  }
+}
+
+message Empty {}
+
+message RewriteExact {
+  string exposed_path = 1;
+  string upstream_path = 2;
+}
+
+message RewritePrefix {
+  string exposed_prefix = 1;
+  string upstream_prefix = 2;
+}
+
+message ReplicationStreamRequest {
+  oneof message {
+    ReplicaOpen open = 1;
+    ReplicaAck ack = 2;
+  }
+}
+
+message ReplicaOpen {
+  uint32 protocol_version = 1;
+  string replica_id = 2;
+  optional string session_id = 3;
+  optional string term = 4;
+  optional uint64 revision = 5;
+  optional string snapshot_digest = 6;
+}
+
+message ReplicaAck {
+  uint32 protocol_version = 1;
+  string replica_id = 2;
+  string session_id = 3;
+  string source_instance = 4;
+  string term = 5;
+  uint64 revision = 6;
+  string snapshot_digest = 7;
+}
+
+message ReplicationStreamResponse {
+  oneof message {
+    ReplicaEventBatch events = 1;
+    ReplicaAckAccepted acknowledged = 2;
+  }
+}
+
+message ReplicaEventBatch {
+  string session_id = 1;
+  repeated ReplicaEvent events = 2;
+}
+
+message ReplicaAckAccepted {
+  string session_id = 1;
+  string term = 2;
+  uint64 revision = 3;
+  string snapshot_digest = 4;
+}
+
+message ReplicaEvent {
+  uint32 protocol_version = 1;
+  string source_instance = 2;
+  string term = 3;
+  uint64 revision = 4;
+  string snapshot_digest = 5;
+  oneof payload {
+    ReplicaSnapshotBegin snapshot_begin = 10;
+    ReplicaSnapshotChunk snapshot_chunk = 11;
+    Empty snapshot_end = 12;
+    ReplicaMutation delta = 13;
+  }
+}
+
+message ReplicaSnapshotBegin {
+  uint64 chunk_count = 1;
+}
+
+message ReplicaSnapshotChunk {
+  uint64 chunk_index = 1;
+  ReplicatedSnapshot snapshot = 2;
+}
+
+message ReplicatedSnapshot {
+  repeated ReplicatedPolicy policies = 1;
+  repeated ReplicaSandboxPlacement placements = 2;
+}
+
+message ReplicatedPolicy {
+  string sandbox_id = 1;
+  SandboxPolicy policy = 2;
+}
+
+message ReplicaSandboxPlacement {
+  string sandbox_id = 1;
+  string node_id = 2;
+}
+
+message ReplicaMutation {
+  oneof mutation {
+    ReplicatedPolicy upsert_policy = 1;
+    string remove_policy_sandbox_id = 2;
+    ReplicaSandboxPlacement upsert_placement = 3;
+    string remove_placement_sandbox_id = 4;
+    ReplicaPlacementSet replace_placements = 5;
+  }
+}
+
+message ReplicaPlacementSet {
+  repeated ReplicaSandboxPlacement placements = 1;
 }

@@ -330,7 +330,6 @@ fn build_envoy_capabilities(
             Arc::new(AgentGatewayNetworkPolicyRuntime::new(
                 client,
                 sockets.clone(),
-                context.policy_event_publisher.clone(),
             )) as Arc<dyn NetworkPolicyRuntime>,
             infrastructure.process_supervisor(),
             sockets as Arc<dyn SandboxSocketProvisioner>,

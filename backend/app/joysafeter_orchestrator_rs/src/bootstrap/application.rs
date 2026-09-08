@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::agent_gateway::{AgentGatewayApi, AgentGatewayClient, AgentGatewayClientConfig};
+use crate::agent_gateway::AgentGatewayApi;
 use crate::config::JoySafeterConfig;
 use crate::{db, events, grpc, kernel, runtime_config, xds};
 use tracing::{error, info, warn};
@@ -175,40 +175,46 @@ impl OrchestratorApplication {
             )
         });
         let agent_gateway: Option<Arc<dyn AgentGatewayApi>> = match (
-            config.agent_gateway_url.as_deref(),
+            config.agent_gateway_grpc_endpoint.clone(),
             config.agent_gateway_management_token.clone(),
         ) {
-            (Some(url), Some(token)) => {
-                // Prefer the gRPC management client when a gRPC endpoint is set;
-                // fall back to HTTP otherwise. gRPC is the high-performance path.
-                if let Some(grpc_endpoint) = config.agent_gateway_grpc_endpoint.clone() {
-                    info!(endpoint = %grpc_endpoint, "Agent Gateway using gRPC management client");
-                    Some(Arc::new(
-                        crate::agent_gateway::AgentGatewayGrpcClient::new(grpc_endpoint, token)
-                            .await?,
-                    ))
-                } else {
-                    info!(url = %url, "Agent Gateway using HTTP management client");
-                    Some(Arc::new(AgentGatewayClient::new(
-                        AgentGatewayClientConfig::new(url, token)?.with_request_timeout(
-                            std::time::Duration::from_secs(
+            (Some(grpc_endpoint), Some(token)) => {
+                info!(endpoint = %grpc_endpoint, "Agent Gateway using bidirectional gRPC policy stream");
+                Some(Arc::new(
+                    crate::agent_gateway::AgentGatewayGrpcClient::new_with_config(
+                        grpc_endpoint,
+                        token,
+                        crate::agent_gateway::AgentGatewayGrpcClientConfig {
+                            request_timeout: std::time::Duration::from_secs(
                                 config.agent_gateway_request_timeout_seconds,
                             ),
-                        )?,
-                    )?))
-                }
+                            max_inflight_policy_commands: config
+                                .agent_gateway_max_inflight_commands,
+                            circuit_failure_threshold: config
+                                .agent_gateway_circuit_failure_threshold,
+                            circuit_open_duration: std::time::Duration::from_millis(
+                                config.agent_gateway_circuit_open_duration_ms,
+                            ),
+                            reconnect_base_delay: std::time::Duration::from_millis(
+                                config.agent_gateway_reconnect_base_delay_ms,
+                            ),
+                            reconnect_max_delay: std::time::Duration::from_millis(
+                                config.agent_gateway_reconnect_max_delay_ms,
+                            ),
+                            keepalive_interval: std::time::Duration::from_secs(
+                                config.agent_gateway_keepalive_interval_seconds,
+                            ),
+                            keepalive_timeout: std::time::Duration::from_secs(
+                                config.agent_gateway_keepalive_timeout_seconds,
+                            ),
+                        },
+                    )
+                    .await?,
+                ))
             }
             (None, None) => None,
             _ => anyhow::bail!("Agent Gateway configuration is incomplete"),
         };
-        // Policy stream: Redis Stream-backed event publisher for multi-replica correctness.
-        // Any orchestrator replica publishes to the shared Redis Stream;
-        // the replica serving a gateway subscription runs an XREAD loop to broadcast events.
-        let policy_event_publisher = Arc::new(grpc::policy_stream::RedisEventPublisher::new(
-            redis_client
-                .clone()
-                .expect("Redis is required for policy stream"),
-        ));
         let RuntimeComponents {
             sandbox_provider,
             network_policy_runtime,
@@ -222,9 +228,6 @@ impl OrchestratorApplication {
                     xds_authority: xds_authority.clone(),
                     xds_control_plane: xds_control_plane.clone(),
                     agent_gateway: agent_gateway.clone(),
-                    policy_event_publisher: agent_gateway
-                        .as_ref()
-                        .map(|_| policy_event_publisher.clone()),
                 },
             )
             .await?;
@@ -510,14 +513,10 @@ impl OrchestratorApplication {
             runner_coordinator,
             config.grpc_max_connections,
         ));
-        // Policy stream: orchestrator broadcasts policy events to subscribed
-        // agent gateways via Postgres LISTEN/NOTIFY and receives their delivery reports.
         let grpc_handle = grpc::server::start_grpc_server(
             config.grpc_addr(),
             config.runner_control_socket_host_dir.clone(),
             runner_transport,
-            Some(db_pool.clone()),
-            Some(policy_event_publisher.clone()),
         )
         .await?;
         supervisor
@@ -528,24 +527,6 @@ impl OrchestratorApplication {
             )?
             .mark_ready();
         info!(addr = %config.grpc_addr(), "gRPC server started");
-
-        // Start the Redis Stream XREAD loop for policy events (this replica broadcasts
-        // events to its local subscribers when it receives new stream entries).
-        let policy_xread_handle = {
-            let publisher = policy_event_publisher.clone();
-            tokio::spawn(async move {
-                if let Err(e) = publisher.start_xread_loop().await {
-                    error!(error = %e, "Policy stream XREAD loop failed");
-                }
-            })
-        };
-        supervisor
-            .register(
-                "policy-stream-xread",
-                ServiceCriticality::Critical,
-                policy_xread_handle,
-            )?
-            .mark_ready();
 
         if managed_xds_authority {
             let request_source = Box::new(kernel::ha::RedisNetworkPolicyRequestSource::new(
