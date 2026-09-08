@@ -1,0 +1,86 @@
+# Chaos-mesh experiments for Agent Gateway HA verification.
+#
+# These cover the fault modes that plain kubectl cannot express and that map
+# directly to the hardening fixes:
+#   - slow-envoy   -> H1: a slow Envoy reader must NOT stall other sandboxes
+#   - api-partition-> Bug 1: a transient kube-apiserver outage must NOT flap leadership
+#   - clock-skew   -> Bug 2: cross-node clock skew must NOT cause split brain
+#
+# Prereqs: chaos-mesh installed in the cluster. Edit `namespaces` / label
+# selectors to match your environment (examples use joysafeter-pre).
+#
+# Apply one document at a time, observe, then delete. Applying this entire
+# multi-document file would start all faults together and is intentionally not
+# supported. Example with yq v4:
+#   yq ea 'select(.metadata.name == "gw-slow-envoy")' e2e_agent_gateway_chaos.yaml |
+#     kubectl apply -f -
+#   # ...run assertions / watch metrics...
+#   kubectl -n joysafeter-pre delete networkchaos gw-slow-envoy
+#
+# While each is active, run the invariant watcher in another shell:
+#   NS=joysafeter-pre DURATION=120 ./e2e_agent_gateway.sh split-brain-watch
+---
+# H1: inject 800ms latency on ONE Envoy so it reads xDS slowly. Assert that
+# apply latency / delivery for sandboxes on OTHER nodes is unaffected (before
+# the fix, a slow reader filled the bounded channel under the global mutation
+# lock and stalled the whole control plane).
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: gw-slow-envoy
+  namespace: joysafeter-pre
+spec:
+  action: delay
+  mode: one                      # exactly one Envoy pod
+  selector:
+    namespaces: [joysafeter-pre]
+    labelSelectors:
+      app: joysafeter-envoy
+  delay:
+    latency: "800ms"
+    jitter: "200ms"
+    correlation: "50"
+  duration: "5m"
+---
+# Bug 1: cut the leader gateway off from the Kubernetes API for 8s (< a couple
+# of lease periods). The leader must RETAIN leadership (renewals tolerate
+# transient failures until lease_duration), i.e. lease.leaseTransitions must not
+# change. Target the API server egress via a partition to the kube-apiserver.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: NetworkChaos
+metadata:
+  name: gw-api-partition
+  namespace: joysafeter-pre
+spec:
+  action: partition
+  mode: all
+  selector:
+    namespaces: [joysafeter-pre]
+    labelSelectors:
+      joysafeter-agent-gateway-leader: "true"
+  direction: to
+  target:
+    mode: all
+    selector:
+      namespaces: [kube-system]
+      labelSelectors:
+        component: kube-apiserver     # adjust to your API server pod labels
+  duration: "8s"
+---
+# Bug 2: skew one gateway pod's clock by +45s. A follower with a fast/slow clock
+# must NOT prematurely take over a live lease (liveness is judged by a local
+# monotonic clock, not the holder's wall-clock renewTime). Assert no split brain
+# and no spurious leaseTransitions bump during the skew.
+apiVersion: chaos-mesh.org/v1alpha1
+kind: TimeChaos
+metadata:
+  name: gw-clock-skew
+  namespace: joysafeter-pre
+spec:
+  mode: one
+  selector:
+    namespaces: [joysafeter-pre]
+    labelSelectors:
+      app: joysafeter-agent-gateway
+  timeOffset: "+45s"
+  duration: "2m"
