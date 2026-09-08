@@ -25,7 +25,8 @@ def test_helm_declares_independent_gateway_xds_and_secret_contract() -> None:
     )
 
     assert "xdsPort: 9092" in values
-    assert "JOYSAFETER_AGENT_GATEWAY_URL" in configmap
+    assert "JOYSAFETER_AGENT_GATEWAY_GRPC_ENDPOINT" in configmap
+    assert "JOYSAFETER_AGENT_GATEWAY_URL" not in configmap
     assert "JOYSAFETER_AGENT_GATEWAY_XDS_PORT" in configmap
     assert "JOYSAFETER_ENVOY_GRPC_PORT" not in configmap
     assert "JOYSAFETER_XDS_AUTH_KEYRING" in secret
@@ -94,9 +95,10 @@ def test_network_policy_separates_sandbox_runner_and_envoy_xds_traffic() -> None
     assert ".Values.orchestrator.grpc.port" in sandbox_policy
     assert ".Values.agentGateway.xdsPort" not in sandbox_policy
     assert ".Values.agentGateway.xdsPort" in envoy_policy
-    assert "name: joysafeter-orchestrator-ingress" in orchestrator_policy
+    assert "name: joysafeter-orchestrator" in orchestrator_policy
     assert ".Values.orchestrator.grpc.port" in orchestrator_policy
     assert ".Values.agentGateway.xdsPort" not in orchestrator_policy
+    assert "app: joysafeter-agent-gateway" not in orchestrator_policy
 
 
 def test_compose_uses_internal_dedicated_authenticated_xds_port() -> None:
@@ -190,7 +192,8 @@ def test_xds_health_metrics_and_alerts_are_deployed_as_one_contract() -> None:
     assert "spawn_health_server(" in application
     assert '"/healthz/xds"' in supervisor
     assert '"/metrics"' in supervisor
-    assert "monitoring:\n  xdsAlerts:" in values
+    assert "monitoring:" in values
+    assert "  xdsAlerts:" in values
     assert "enabled: false" in values
     assert "applyTimeoutSeconds:" in values
     assert "recoveryBudgetSeconds:" in values

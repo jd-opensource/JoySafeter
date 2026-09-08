@@ -90,9 +90,25 @@ agentGateway:
   hotStandbyMinAcks: 1
   replicationAckTimeoutMs: 1000
   deliveryTimeoutSeconds: 20
-  # Orchestrator HTTP timeout must cover Gateway Envoy-ACK delivery plus
+  # Orchestrator gRPC timeout must cover Gateway Envoy-ACK delivery plus
   # follower replication acknowledgement and transport overhead.
   requestTimeoutSeconds: 25
+  policyStreamMaxOutstanding: 512
+  policyStreamMaxConcurrency: 256
+  policyLaneQueueCapacity: 128
+  maxPolicyStreams: 64
+  maxReplicationStreams: 32
+  replicationReconnectBaseDelayMs: 100
+  replicationReconnectMaxDelayMs: 5000
+  replicationKeepaliveIntervalSeconds: 10
+  replicationKeepaliveTimeoutSeconds: 5
+  orchestratorMaxInflightCommands: 512
+  circuitFailureThreshold: 5
+  circuitOpenDurationMs: 5000
+  reconnectBaseDelayMs: 100
+  reconnectMaxDelayMs: 5000
+  keepaliveIntervalSeconds: 15
+  keepaliveTimeoutSeconds: 5
   shutdownGraceSeconds: 10
   leaderLeaseName: joysafeter-agent-gateway
   leaderLeaseDurationSeconds: 15
@@ -103,13 +119,9 @@ agentGateway:
   nodeVisibility: node_scoped
   xdsPort: 9092
   httpPort: 9093
-  # gRPC management port. Orchestrator calls ApplyPolicy/RemovePolicy here
-  # (type-safe, high-performance path replacing the HTTP management API).
+  # gRPC management port. Orchestrator maintains one bidirectional policy
+  # command stream here and uses unary RPCs only for recovery/administration.
   managementGrpcPort: 9094
-  # gRPC policy stream endpoint (optional). When set, gateway subscribes to
-  # real-time policy events from orchestrator instead of polling HTTP.
-  # Example: "grpc://joysafeter-orchestrator.default.svc.cluster.local:50051"
-  policyStreamEndpoint: ""
   # Transport identity and certificate rotation are delegated to the mesh.
   # Add its sidecar injection annotation here and enforce strict mTLS in the
   # mesh policy; application-level tokens remain enabled as defense in depth.
@@ -306,6 +318,20 @@ envoy:
   terminationGracePeriodSeconds: 40
   drainSeconds: 20
 
+  # Bound Envoy resource consumption even when Kubernetes CPU/memory limits are
+  # intentionally omitted in production. These are per-Envoy-process limits.
+  overloadManager:
+    enabled: true
+    # Envoy parses this as google.protobuf.Duration JSON, which must end in "s".
+    refreshInterval: 0.250s
+    maxActiveDownstreamConnections: 10000
+  dynamicForwardProxy:
+    maxHosts: 4096
+  circuitBreakers:
+    maxConnections: 4096
+    maxPendingRequests: 4096
+    maxRequests: 8192
+
   resources:
     requests:
       cpu: "100m"
@@ -359,6 +385,13 @@ monitoring:
     applyTimeoutSeconds: 30
     degradedInventoryFor: 30s
     envoyNodeMismatchFor: 2m
+    replicationQuorumFor: 30s
+    replicationAckLagFor: 1m
+    replicationLogWarningEntries: 900
+    policyStreamSaturationWindow: 5m
+    policyStreamSaturationFor: 2m
+    clientCircuitOpenFor: 30s
+    policyStreamDisconnectedFor: 1m
   runnerAlerts:
     enabled: false
     additionalLabels: {}

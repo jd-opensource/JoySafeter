@@ -33,6 +33,39 @@
 {{- if not (has .Values.agentGateway.nodeVisibility (list "node_scoped" "unscoped")) }}
 {{- fail "agentGateway.nodeVisibility must be node_scoped or unscoped" }}
 {{- end }}
+{{- if or (lt (int .Values.agentGateway.policyStreamMaxConcurrency) 1) (gt (int .Values.agentGateway.policyStreamMaxConcurrency) (int .Values.agentGateway.policyStreamMaxOutstanding)) (gt (int .Values.agentGateway.policyStreamMaxOutstanding) 65536) }}
+{{- fail "agentGateway policy stream limits must satisfy 1 <= concurrency <= outstanding <= 65536" }}
+{{- end }}
+{{- if or (lt (int .Values.agentGateway.policyLaneQueueCapacity) 1) (gt (int .Values.agentGateway.policyLaneQueueCapacity) 4096) }}
+{{- fail "agentGateway.policyLaneQueueCapacity must be between 1 and 4096" }}
+{{- end }}
+{{- if or (lt (int .Values.agentGateway.maxPolicyStreams) 1) (gt (int .Values.agentGateway.maxPolicyStreams) 4096) }}
+{{- fail "agentGateway.maxPolicyStreams must be between 1 and 4096" }}
+{{- end }}
+{{- if or (lt (int .Values.agentGateway.maxReplicationStreams) 1) (gt (int .Values.agentGateway.maxReplicationStreams) 1024) }}
+{{- fail "agentGateway.maxReplicationStreams must be between 1 and 1024" }}
+{{- end }}
+{{- if or (lt (int .Values.agentGateway.replicationReconnectBaseDelayMs) 1) (gt (int .Values.agentGateway.replicationReconnectBaseDelayMs) (int .Values.agentGateway.replicationReconnectMaxDelayMs)) (gt (int .Values.agentGateway.replicationReconnectMaxDelayMs) 60000) }}
+{{- fail "agentGateway replication reconnect delays must satisfy 1 <= base <= max <= 60000 ms" }}
+{{- end }}
+{{- if or (lt (int .Values.agentGateway.replicationKeepaliveTimeoutSeconds) 1) (gt (int .Values.agentGateway.replicationKeepaliveTimeoutSeconds) (int .Values.agentGateway.replicationKeepaliveIntervalSeconds)) }}
+{{- fail "agentGateway replication keepalive must satisfy 1 <= timeout <= interval" }}
+{{- end }}
+{{- if or (lt (int .Values.agentGateway.orchestratorMaxInflightCommands) 1) (gt (int .Values.agentGateway.orchestratorMaxInflightCommands) 65536) }}
+{{- fail "agentGateway.orchestratorMaxInflightCommands must be between 1 and 65536" }}
+{{- end }}
+{{- if or (lt (int .Values.agentGateway.circuitFailureThreshold) 1) (gt (int .Values.agentGateway.circuitFailureThreshold) 1000) }}
+{{- fail "agentGateway.circuitFailureThreshold must be between 1 and 1000" }}
+{{- end }}
+{{- if or (lt (int .Values.agentGateway.circuitOpenDurationMs) 100) (gt (int .Values.agentGateway.circuitOpenDurationMs) 300000) }}
+{{- fail "agentGateway.circuitOpenDurationMs must be between 100 and 300000" }}
+{{- end }}
+{{- if or (lt (int .Values.agentGateway.reconnectBaseDelayMs) 1) (gt (int .Values.agentGateway.reconnectBaseDelayMs) (int .Values.agentGateway.reconnectMaxDelayMs)) (gt (int .Values.agentGateway.reconnectMaxDelayMs) 60000) }}
+{{- fail "agentGateway reconnect delays must satisfy 1 <= base <= max <= 60000 ms" }}
+{{- end }}
+{{- if or (lt (int .Values.agentGateway.keepaliveTimeoutSeconds) 1) (gt (int .Values.agentGateway.keepaliveTimeoutSeconds) (int .Values.agentGateway.keepaliveIntervalSeconds)) }}
+{{- fail "agentGateway keepalive must satisfy 1 <= timeout <= interval" }}
+{{- end }}
 {{- if and .Values.networkPolicy.enabled (eq .Values.networkPolicy.type "standard") (eq (len .Values.agentGateway.kubernetesApiCidrs) 0) }}
 {{- fail "agentGateway.kubernetesApiCidrs must contain the Kubernetes API CIDR when standard NetworkPolicy is enabled" }}
 {{- end }}
@@ -43,11 +76,11 @@ metadata:
   namespace: {{ .Release.Namespace }}
 spec:
   replicas: {{ .Values.agentGateway.replicas }}
+  # Gateway protocol revisions are intentionally not backward compatible.
+  # Recreate prevents an old leader from blocking new replicas that require
+  # the new replication stream before they can become ready.
   strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxUnavailable: 0
-      maxSurge: 1
+    type: Recreate
   selector:
     matchLabels:
       app: joysafeter-agent-gateway
@@ -131,8 +164,8 @@ spec:
           value: {{ .Values.agentGateway.leaderLeaseDurationSeconds | quote }}
         - name: JOYSAFETER_AGENT_GATEWAY_LEADER_RENEW_INTERVAL_SECS
           value: {{ .Values.agentGateway.leaderRenewIntervalSeconds | quote }}
-        - name: JOYSAFETER_AGENT_GATEWAY_REPLICATION_URL
-          value: "http://joysafeter-agent-gateway.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.agentGateway.httpPort }}"
+        - name: JOYSAFETER_AGENT_GATEWAY_REPLICATION_ENDPOINT
+          value: "http://joysafeter-agent-gateway.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.agentGateway.managementGrpcPort }}"
         - name: JOYSAFETER_AGENT_GATEWAY_REPLICATION_TOKEN
           valueFrom:
             secretKeyRef:
@@ -142,6 +175,24 @@ spec:
           value: {{ .Values.agentGateway.hotStandbyMinAcks | quote }}
         - name: JOYSAFETER_AGENT_GATEWAY_REPLICATION_ACK_TIMEOUT_MS
           value: {{ .Values.agentGateway.replicationAckTimeoutMs | quote }}
+        - name: JOYSAFETER_AGENT_GATEWAY_POLICY_STREAM_MAX_OUTSTANDING
+          value: {{ .Values.agentGateway.policyStreamMaxOutstanding | quote }}
+        - name: JOYSAFETER_AGENT_GATEWAY_POLICY_STREAM_MAX_CONCURRENCY
+          value: {{ .Values.agentGateway.policyStreamMaxConcurrency | quote }}
+        - name: JOYSAFETER_AGENT_GATEWAY_POLICY_LANE_QUEUE_CAPACITY
+          value: {{ .Values.agentGateway.policyLaneQueueCapacity | quote }}
+        - name: JOYSAFETER_AGENT_GATEWAY_MAX_POLICY_STREAMS
+          value: {{ .Values.agentGateway.maxPolicyStreams | quote }}
+        - name: JOYSAFETER_AGENT_GATEWAY_MAX_REPLICATION_STREAMS
+          value: {{ .Values.agentGateway.maxReplicationStreams | quote }}
+        - name: JOYSAFETER_AGENT_GATEWAY_REPLICATION_RECONNECT_BASE_DELAY_MS
+          value: {{ .Values.agentGateway.replicationReconnectBaseDelayMs | quote }}
+        - name: JOYSAFETER_AGENT_GATEWAY_REPLICATION_RECONNECT_MAX_DELAY_MS
+          value: {{ .Values.agentGateway.replicationReconnectMaxDelayMs | quote }}
+        - name: JOYSAFETER_AGENT_GATEWAY_REPLICATION_KEEPALIVE_INTERVAL_SECS
+          value: {{ .Values.agentGateway.replicationKeepaliveIntervalSeconds | quote }}
+        - name: JOYSAFETER_AGENT_GATEWAY_REPLICATION_KEEPALIVE_TIMEOUT_SECS
+          value: {{ .Values.agentGateway.replicationKeepaliveTimeoutSeconds | quote }}
         - name: JOYSAFETER_AGENT_GATEWAY_XDS_PORT
           value: {{ .Values.agentGateway.xdsPort | quote }}
         - name: JOYSAFETER_AGENT_GATEWAY_HTTP_PORT
@@ -169,12 +220,13 @@ spec:
               key: JOYSAFETER_AGENT_GATEWAY_MANAGEMENT_TOKEN
         - name: JOYSAFETER_AGENT_GATEWAY_DELIVERY_TIMEOUT_SECS
           value: {{ .Values.agentGateway.deliveryTimeoutSeconds | quote }}
+        # Envoy requires every reference to a named DNS cache to use exactly
+        # the same configuration. Keep the Listener-side filter aligned with
+        # the bootstrap dynamic_forward_proxy clusters.
+        - name: JOYSAFETER_AGENT_GATEWAY_DNS_CACHE_MAX_HOSTS
+          value: {{ .Values.envoy.dynamicForwardProxy.maxHosts | quote }}
         - name: JOYSAFETER_AGENT_GATEWAY_SHUTDOWN_GRACE_SECS
           value: {{ .Values.agentGateway.shutdownGraceSeconds | quote }}
-        {{- if .Values.agentGateway.policyStreamEndpoint }}
-        - name: JOYSAFETER_AGENT_GATEWAY_POLICY_STREAM_ENDPOINT
-          value: {{ .Values.agentGateway.policyStreamEndpoint | quote }}
-        {{- end }}
         readinessProbe:
           httpGet:
             path: /health/ready

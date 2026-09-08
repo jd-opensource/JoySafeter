@@ -18,14 +18,6 @@ spec:
     - ports:
       - port: "{{ .Values.orchestrator.grpc.port }}"
         protocol: TCP
-  # Agent Gateway subscribes to the policy stream over the same gRPC port.
-  - fromEndpoints:
-    - matchLabels:
-        app: joysafeter-agent-gateway
-    toPorts:
-    - ports:
-      - port: "{{ .Values.orchestrator.grpc.port }}"
-        protocol: TCP
   # kubelet / node probes and peer replicas → health endpoint.
   - fromEntities:
     - host
@@ -74,9 +66,6 @@ spec:
     - podSelector:
         matchLabels:
           app.kubernetes.io/name: joysafeter-sandbox
-    - podSelector:
-        matchLabels:
-          app: joysafeter-agent-gateway
     ports:
     - port: {{ .Values.orchestrator.grpc.port }}
       protocol: TCP

@@ -66,6 +66,22 @@
     "agentGateway": {
       "type": "object",
       "properties": {
+        "policyStreamMaxOutstanding": { "type": "integer", "minimum": 1, "maximum": 65536 },
+        "policyStreamMaxConcurrency": { "type": "integer", "minimum": 1, "maximum": 65536 },
+        "policyLaneQueueCapacity": { "type": "integer", "minimum": 1, "maximum": 4096 },
+        "maxPolicyStreams": { "type": "integer", "minimum": 1, "maximum": 4096 },
+        "maxReplicationStreams": { "type": "integer", "minimum": 1, "maximum": 1024 },
+        "replicationReconnectBaseDelayMs": { "type": "integer", "minimum": 1, "maximum": 60000 },
+        "replicationReconnectMaxDelayMs": { "type": "integer", "minimum": 1, "maximum": 60000 },
+        "replicationKeepaliveIntervalSeconds": { "type": "integer", "minimum": 1, "maximum": 300 },
+        "replicationKeepaliveTimeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 300 },
+        "orchestratorMaxInflightCommands": { "type": "integer", "minimum": 1, "maximum": 65536 },
+        "circuitFailureThreshold": { "type": "integer", "minimum": 1, "maximum": 1000 },
+        "circuitOpenDurationMs": { "type": "integer", "minimum": 100, "maximum": 300000 },
+        "reconnectBaseDelayMs": { "type": "integer", "minimum": 1, "maximum": 60000 },
+        "reconnectMaxDelayMs": { "type": "integer", "minimum": 1, "maximum": 60000 },
+        "keepaliveIntervalSeconds": { "type": "integer", "minimum": 1, "maximum": 300 },
+        "keepaliveTimeoutSeconds": { "type": "integer", "minimum": 1, "maximum": 300 },
         "priorityClassName": { "type": "string" },
         "nodeSelector": { "$ref": "#/definitions/nodeSelector" },
         "tolerations": { "$ref": "#/definitions/tolerations" }
@@ -154,7 +170,35 @@
       "properties": {
         "priorityClassName": { "type": "string" },
         "nodeSelector": { "$ref": "#/definitions/nodeSelector" },
-        "tolerations": { "$ref": "#/definitions/tolerations" }
+        "tolerations": { "$ref": "#/definitions/tolerations" },
+        "overloadManager": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["enabled", "refreshInterval", "maxActiveDownstreamConnections"],
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "refreshInterval": { "type": "string", "pattern": "^(0\\.[0-9]{1,9}|[1-9][0-9]*(\\.[0-9]{1,9})?)s$" },
+            "maxActiveDownstreamConnections": { "type": "integer", "minimum": 1, "maximum": 4294967295 }
+          }
+        },
+        "dynamicForwardProxy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maxHosts"],
+          "properties": {
+            "maxHosts": { "type": "integer", "minimum": 1, "maximum": 4294967295 }
+          }
+        },
+        "circuitBreakers": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maxConnections", "maxPendingRequests", "maxRequests"],
+          "properties": {
+            "maxConnections": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+            "maxPendingRequests": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+            "maxRequests": { "type": "integer", "minimum": 1, "maximum": 4294967295 }
+          }
+        }
       }
     }
   },

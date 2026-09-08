@@ -91,19 +91,40 @@ spec:
                 }]
               }
             },
+            {{- if .Values.envoy.overloadManager.enabled }}
+            "overload_manager": {
+              "refresh_interval": "{{ .Values.envoy.overloadManager.refreshInterval }}",
+              "resource_monitors": [{
+                "name": "envoy.resource_monitors.global_downstream_max_connections",
+                "typed_config": {
+                  "@type": "type.googleapis.com/envoy.extensions.resource_monitors.downstream_connections.v3.DownstreamConnectionsConfig",
+                  "max_active_downstream_connections": {{ .Values.envoy.overloadManager.maxActiveDownstreamConnections }}
+                }
+              }]
+            },
+            {{- end }}
             "static_resources": {
               "clusters": [
                 {
                   "name": "dynamic_forward_proxy",
                   "connect_timeout": "10s",
                   "lb_policy": "CLUSTER_PROVIDED",
+                  "circuit_breakers": {
+                    "thresholds": [{
+                      "priority": "DEFAULT",
+                      "max_connections": {{ .Values.envoy.circuitBreakers.maxConnections }},
+                      "max_pending_requests": {{ .Values.envoy.circuitBreakers.maxPendingRequests }},
+                      "max_requests": {{ .Values.envoy.circuitBreakers.maxRequests }}
+                    }]
+                  },
                   "cluster_type": {
                     "name": "envoy.clusters.dynamic_forward_proxy",
                     "typed_config": {
                       "@type": "type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig",
                       "dns_cache_config": {
                         "name": "dynamic_forward_proxy_cache",
-                        "dns_lookup_family": "V4_ONLY"
+                        "dns_lookup_family": "V4_ONLY",
+                        "max_hosts": {{ .Values.envoy.dynamicForwardProxy.maxHosts }}
                       }
                     }
                   }
@@ -112,13 +133,22 @@ spec:
                   "name": "dynamic_forward_proxy_tls",
                   "connect_timeout": "10s",
                   "lb_policy": "CLUSTER_PROVIDED",
+                  "circuit_breakers": {
+                    "thresholds": [{
+                      "priority": "DEFAULT",
+                      "max_connections": {{ .Values.envoy.circuitBreakers.maxConnections }},
+                      "max_pending_requests": {{ .Values.envoy.circuitBreakers.maxPendingRequests }},
+                      "max_requests": {{ .Values.envoy.circuitBreakers.maxRequests }}
+                    }]
+                  },
                   "cluster_type": {
                     "name": "envoy.clusters.dynamic_forward_proxy",
                     "typed_config": {
                       "@type": "type.googleapis.com/envoy.extensions.clusters.dynamic_forward_proxy.v3.ClusterConfig",
                       "dns_cache_config": {
                         "name": "dynamic_forward_proxy_cache",
-                        "dns_lookup_family": "V4_ONLY"
+                        "dns_lookup_family": "V4_ONLY",
+                        "max_hosts": {{ .Values.envoy.dynamicForwardProxy.maxHosts }}
                       }
                     }
                   },

@@ -72,12 +72,18 @@ data:
   JOYSAFETER_GRPC_MAX_EXECUTIONS: {{ .Values.orchestrator.grpc.maxExecutions | quote }}
 
   # ── 独立 Agent Gateway ──
-  JOYSAFETER_AGENT_GATEWAY_URL: "http://joysafeter-agent-gateway.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.agentGateway.httpPort }}"
   JOYSAFETER_AGENT_GATEWAY_XDS_PORT: {{ .Values.agentGateway.xdsPort | quote }}
   JOYSAFETER_AGENT_GATEWAY_REQUEST_TIMEOUT_SECS: {{ .Values.agentGateway.requestTimeoutSeconds | quote }}
+  JOYSAFETER_AGENT_GATEWAY_MAX_INFLIGHT_COMMANDS: {{ .Values.agentGateway.orchestratorMaxInflightCommands | quote }}
+  JOYSAFETER_AGENT_GATEWAY_CIRCUIT_FAILURE_THRESHOLD: {{ .Values.agentGateway.circuitFailureThreshold | quote }}
+  JOYSAFETER_AGENT_GATEWAY_CIRCUIT_OPEN_DURATION_MS: {{ .Values.agentGateway.circuitOpenDurationMs | quote }}
+  JOYSAFETER_AGENT_GATEWAY_RECONNECT_BASE_DELAY_MS: {{ .Values.agentGateway.reconnectBaseDelayMs | quote }}
+  JOYSAFETER_AGENT_GATEWAY_RECONNECT_MAX_DELAY_MS: {{ .Values.agentGateway.reconnectMaxDelayMs | quote }}
+  JOYSAFETER_AGENT_GATEWAY_KEEPALIVE_INTERVAL_SECS: {{ .Values.agentGateway.keepaliveIntervalSeconds | quote }}
+  JOYSAFETER_AGENT_GATEWAY_KEEPALIVE_TIMEOUT_SECS: {{ .Values.agentGateway.keepaliveTimeoutSeconds | quote }}
   {{- if .Values.agentGateway.managementGrpcPort }}
-  # gRPC management endpoint (apply/remove policy). When set, orchestrator uses
-  # gRPC instead of the HTTP management API for high-performance policy delivery.
+  # Gateway-owned bidirectional policy command stream plus unary recovery and
+  # administrative RPCs. This is required when Agent Gateway is enabled.
   JOYSAFETER_AGENT_GATEWAY_GRPC_ENDPOINT: "http://joysafeter-agent-gateway.{{ .Release.Namespace }}.svc.cluster.local:{{ .Values.agentGateway.managementGrpcPort }}"
   {{- end }}
 

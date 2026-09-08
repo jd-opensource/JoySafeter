@@ -15,15 +15,7 @@ spec:
         app: joysafeter-agent-gateway
     toPorts:
     - ports:
-      - port: {{ .Values.agentGateway.httpPort | quote }}
-        protocol: TCP
-  # Gateway subscribes to the orchestrator policy stream over gRPC.
-  - toEndpoints:
-    - matchLabels:
-        app: joysafeter-orchestrator
-    toPorts:
-    - ports:
-      - port: "{{ .Values.orchestrator.grpc.port }}"
+      - port: {{ .Values.agentGateway.managementGrpcPort | quote }}
         protocol: TCP
   - toEntities:
     - kube-apiserver
@@ -50,7 +42,8 @@ spec:
     - ports:
       - port: "{{ .Values.agentGateway.xdsPort }}"
         protocol: TCP
-  # Orchestrator → gateway management: gRPC (apply/remove) + HTTP fallback.
+  # Orchestrator → gateway management: bidirectional policy stream plus unary
+  # recovery and administrative operations, all on the gRPC port.
   - fromEndpoints:
     - matchLabels:
         app: joysafeter-orchestrator
@@ -58,14 +51,12 @@ spec:
     - ports:
       - port: "{{ .Values.agentGateway.managementGrpcPort }}"
         protocol: TCP
-      - port: "{{ .Values.agentGateway.httpPort }}"
-        protocol: TCP
   - fromEndpoints:
     - matchLabels:
         app: joysafeter-agent-gateway
     toPorts:
     - ports:
-      - port: "{{ .Values.agentGateway.httpPort }}"
+      - port: "{{ .Values.agentGateway.managementGrpcPort }}"
         protocol: TCP
   - fromEntities:
     - host
@@ -113,8 +104,6 @@ spec:
         matchLabels:
           app: joysafeter-orchestrator
     ports:
-    - port: {{ .Values.agentGateway.httpPort }}
-      protocol: TCP
     - port: {{ .Values.agentGateway.managementGrpcPort }}
       protocol: TCP
   - from:
@@ -122,7 +111,7 @@ spec:
         matchLabels:
           app: joysafeter-agent-gateway
     ports:
-    - port: {{ .Values.agentGateway.httpPort }}
+    - port: {{ .Values.agentGateway.managementGrpcPort }}
       protocol: TCP
   {{- if .Values.monitoring.serviceMonitor.enabled }}
   - from:
@@ -146,7 +135,7 @@ spec:
         matchLabels:
           app: joysafeter-agent-gateway
     ports:
-    - port: {{ .Values.agentGateway.httpPort }}
+    - port: {{ .Values.agentGateway.managementGrpcPort }}
       protocol: TCP
   {{- range .Values.agentGateway.kubernetesApiCidrs }}
   - to:
