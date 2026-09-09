@@ -29,15 +29,15 @@ import { managedPost } from '@/lib/api-client'
 import { useTranslation } from '@/lib/i18n'
 import { toastOperationError } from '@/lib/managed/errors'
 import { createCreatedTimeFilter, filterByCreatedTime, matchesSearch } from '@/lib/managed/filters'
+import {
+  createManagedOrganization,
+  MANAGED_ORGANIZATIONS_QUERY_ROOT,
+} from '@/lib/managed/organization-client'
 import { canAdmin, roleLabel } from '@/lib/managed/roles'
 import {
   parseSwitchContextResponse,
   type SwitchContextResponsePayload,
 } from '@/lib/managed/tenant-response-parsers'
-import {
-  createManagedOrganization,
-  MANAGED_ORGANIZATIONS_QUERY_ROOT,
-} from '@/lib/managed/organization-client'
 import { resetManagedScopeQueries } from '@/lib/query-client-lifecycle'
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { OrgInfo } from '@/stores/managed/project-store'
@@ -54,6 +54,18 @@ interface CreateOrganizationVariables {
 interface SwitchOrganizationVariables {
   orgId: OrganizationId
   requestSeq: number
+}
+
+function mergeOrganizationCatalog(
+  discoveredOrganizations: OrgInfo[],
+  cachedOrganizations: OrgInfo[],
+): OrgInfo[] {
+  const merged = [...discoveredOrganizations]
+  const discoveredIds = new Set(discoveredOrganizations.map((organization) => organization.id))
+  for (const organization of cachedOrganizations) {
+    if (!discoveredIds.has(organization.id)) merged.push(organization)
+  }
+  return merged
 }
 
 export default function OrganizationPage() {
@@ -140,7 +152,7 @@ export default function OrganizationPage() {
       state.setContext(
         data.org_id,
         data.project_id,
-        state.organizations.length ? state.organizations : organizations,
+        mergeOrganizationCatalog(organizations, state.organizations),
         data.projects,
         data.project,
       )
@@ -275,13 +287,13 @@ export default function OrganizationPage() {
   ]
 
   return (
-    <div className="w-full">
+    <div>
       <PageHeader
         title={t('manage.organization.title')}
         subtitle={t('manage.organization.subtitle')}
         action={
           <Button size="sm" onClick={() => setShowCreateOrganization(true)}>
-            <Plus className="mr-1 size-4" />
+            <Plus className="mr-1 h-4 w-4" />
             {t('manage.organization.create')}
           </Button>
         }

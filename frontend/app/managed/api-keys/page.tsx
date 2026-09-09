@@ -81,7 +81,13 @@ interface CreateKeyVariables {
   runId: number
 }
 
-export default function ApiKeysPage({ projectId }: { projectId?: ProjectId } = {}) {
+export default function ApiKeysPage({
+  projectId,
+  showHeader = true,
+}: {
+  projectId?: ProjectId
+  showHeader?: boolean
+} = {}) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
@@ -425,19 +431,21 @@ export default function ApiKeysPage({ projectId }: { projectId?: ProjectId } = {
   }
 
   return (
-    <div className="w-full">
-      <PageHeader
-        title={t('manage.apiKeys.title')}
-        subtitle={t('manage.apiKeys.subtitle')}
-        action={
-          !projectReadOnly ? (
-            <Button size="sm" onClick={openCreateDialog}>
-              <Plus className="mr-1 h-4 w-4" />
-              {t('manage.apiKeys.create')}
-            </Button>
-          ) : null
-        }
-      />
+    <>
+      {showHeader && (
+        <PageHeader
+          title={t('manage.apiKeys.title')}
+          subtitle={t('manage.apiKeys.subtitle')}
+          action={
+            !projectReadOnly ? (
+              <Button size="sm" onClick={openCreateDialog}>
+                <Plus className="mr-1 h-4 w-4" />
+                {t('manage.apiKeys.create')}
+              </Button>
+            ) : null
+          }
+        />
+      )}
 
       {newRawKey && (
         <Alert variant="success" className="mb-4">
@@ -590,6 +598,6 @@ export default function ApiKeysPage({ projectId }: { projectId?: ProjectId } = {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   )
 }

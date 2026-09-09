@@ -86,7 +86,7 @@ describe('ProjectSettingsShell', () => {
     expect(view.getByText('route-content')).toBeTruthy()
     expect(switchProject).not.toHaveBeenCalled()
     expect(view.getByText('Organization A')).toBeTruthy()
-    expect(view.getByText('Project B')).toBeTruthy()
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Project B')
     expect(view.getByText('managed.projectSettings.capability.admin')).toBeTruthy()
     expect(view.getByText('managed.projectSettings.default')).toBeTruthy()
     expect(view.getByText('managed.projectSettings.archived')).toBeTruthy()

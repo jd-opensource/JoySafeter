@@ -10,7 +10,6 @@ import {
   FilterBar,
   type Column,
   type FilterDef,
-  PageHeader,
 } from '@/components/managed/shared'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
@@ -239,18 +238,11 @@ export function ProjectAccessPage({ projectId }: { projectId: ProjectId }) {
   ]
 
   if (isError) {
-    return (
-      <div className="w-full">
-        <PageHeader title={t('manage.projectMembers.title')} subtitle={subtitle} />
-        <p className="text-sm text-muted-foreground">{t('manage.projectMembers.adminOnly')}</p>
-      </div>
-    )
+    return <p className="text-sm text-muted-foreground">{t('manage.projectMembers.adminOnly')}</p>
   }
 
   return (
-    <div className="w-full">
-      <PageHeader title={t('manage.projectMembers.title')} subtitle={subtitle} />
-
+    <>
       <Alert className="mb-4">
         <Info />
         <AlertDescription className="flex flex-col gap-1">
@@ -318,6 +310,6 @@ export function ProjectAccessPage({ projectId }: { projectId: ProjectId }) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   )
 }

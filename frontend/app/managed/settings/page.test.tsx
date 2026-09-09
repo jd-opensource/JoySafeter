@@ -44,6 +44,7 @@ const storedOrganizations = [
     owner_email: 'another@example.com',
   },
 ]
+let activeStoredOrganizations = storedOrganizations
 
 vi.mock('@tanstack/react-query', () => ({
   useQueryClient: () => ({
@@ -89,13 +90,13 @@ const projectStore = Object.assign(
     selector({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
-      organizations: storedOrganizations,
+      organizations: activeStoredOrganizations,
     }),
   {
     getState: () => ({
       currentOrgId: 'org-a',
       currentProjectId: 'project-a',
-      organizations: storedOrganizations,
+      organizations: activeStoredOrganizations,
       setContext,
       setCurrentOrg,
       setCurrentProject,
@@ -189,6 +190,7 @@ describe('OrganizationPage', () => {
     setCurrentOrg.mockClear()
     setCurrentProject.mockClear()
     mutationOptions.length = 0
+    activeStoredOrganizations = storedOrganizations
   })
 
   it('links every organization to explicit detail without exposing lifecycle actions', async () => {
@@ -252,6 +254,42 @@ describe('OrganizationPage', () => {
       'org-b',
       'project-b',
       storedOrganizations,
+      [],
+      expect.objectContaining({ id: 'project-b' }),
+    )
+  })
+
+  it('adds a newly discovered organization to the switcher when switching to it', async () => {
+    activeStoredOrganizations = [storedOrganizations[0], storedOrganizations[2]]
+    const { default: OrganizationPage } = await import('./page')
+    const view = render(<OrganizationPage />)
+    fireEvent.click(
+      within(view.getByTestId('desktop-list')).getByText('manage.organization.switch'),
+    )
+    const variables = mutate.mock.calls[0]?.[0] as { orgId: string; requestSeq: number }
+
+    act(() => {
+      mutationOptions[1]?.onSuccess?.(
+        {
+          org_id: 'org-b',
+          project_id: 'project-b',
+          project: {
+            id: 'project-b',
+            org_id: 'org-b',
+            name: 'Project B',
+            slug: 'project-b',
+            is_default: true,
+          },
+          projects: [],
+        },
+        variables,
+      )
+    })
+
+    expect(setContext).toHaveBeenCalledWith(
+      'org-b',
+      'project-b',
+      organizations.concat(storedOrganizations[2]),
       [],
       expect.objectContaining({ id: 'project-b' }),
     )

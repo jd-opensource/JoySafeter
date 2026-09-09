@@ -234,13 +234,6 @@ describe('MembersPage', () => {
     ).toHaveLength(2)
   })
 
-  it('names the organization whose membership is being managed', async () => {
-    const { default: MembersPage } = await import('./page')
-    const view = render(<MembersPage />)
-
-    expect(view.getByText('manage.members.subtitle:Acme')).toBeTruthy()
-  })
-
   it('explains the organization-wide impact before promoting a member', async () => {
     const { default: MembersPage } = await import('./page')
     const view = render(<MembersPage />)

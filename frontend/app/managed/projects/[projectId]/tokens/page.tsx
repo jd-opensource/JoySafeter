@@ -7,5 +7,5 @@ export default async function ProjectTokensRoute({
   params: Promise<{ projectId: string }>
 }) {
   const { projectId } = await params
-  return <ApiKeysPage projectId={parseProjectId(projectId)} />
+  return <ApiKeysPage projectId={parseProjectId(projectId)} showHeader={false} />
 }

@@ -304,7 +304,7 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="w-full">
+    <div>
       <PageHeader
         title={t('manage.projects.title')}
         subtitle={t('manage.projects.subtitle')}

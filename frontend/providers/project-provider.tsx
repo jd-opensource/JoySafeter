@@ -19,6 +19,8 @@ interface AuthMeQueryResult {
   requestedProjectId: ProjectId | null
 }
 
+const AUTH_CONTEXT_REFRESH_INTERVAL_MS = 60_000
+
 export function ProjectProvider({ children }: { children: React.ReactNode }) {
   const { data: session } = useSession()
   const setContext = useProjectStore((s) => s.setContext)
@@ -48,6 +50,12 @@ export function ProjectProvider({ children }: { children: React.ReactNode }) {
     },
     enabled: !!sessionUserId,
     staleTime: 30_000,
+    // Membership and role changes can be made by another signed-in user. Keep
+    // the client-side organization catalog convergent without requiring the
+    // affected user to sign out or reload the page.
+    refetchOnWindowFocus: 'always',
+    refetchInterval: AUTH_CONTEXT_REFRESH_INTERVAL_MS,
+    refetchIntervalInBackground: false,
   })
 
   useEffect(() => {

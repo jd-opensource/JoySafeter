@@ -83,7 +83,7 @@ describe('OrganizationDetailShell', () => {
     )
 
     expect(managedGet).toHaveBeenCalledWith(`/organizations/${OTHER_ORGANIZATION_ID}`)
-    expect(view.getByText('Organization B')).toBeTruthy()
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Organization B')
     expect(view.getByText('manage.organization.detail.role.admin')).toBeTruthy()
     expect(view.getByText(/Workspace Owner/)).toBeTruthy()
     expect(view.queryByText('manage.organization.current')).toBeNull()
@@ -91,7 +91,7 @@ describe('OrganizationDetailShell', () => {
 
     expect(
       view
-        .getByText('manage.organization.detail.backToOrganizations')
+        .getByText('manage.organization.title')
         .closest('a')
         ?.getAttribute('href'),
     ).toBe('/managed/settings')

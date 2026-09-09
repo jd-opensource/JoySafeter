@@ -1,17 +1,16 @@
 'use client'
 
-import { ArrowLeft, Building2, Info } from 'lucide-react'
+import { Building2, Info } from 'lucide-react'
 import Link from 'next/link'
-import { usePathname } from 'next/navigation'
 import type { ReactNode } from 'react'
 
+import { PageHeader, TabNav } from '@/components/managed/shared'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useManagedOrganization } from '@/hooks/managed/use-managed-organization'
 import { useTranslation } from '@/lib/i18n'
 import { normalizeManagedRole } from '@/lib/managed/roles'
-import { cn } from '@/lib/utils'
 import { useProjectStore } from '@/stores/managed/project-store'
 import type { OrganizationId } from '@/types/entity-id'
 
@@ -29,7 +28,6 @@ export function OrganizationDetailShell({
   organizationId: OrganizationId
   children: ReactNode
 }) {
-  const pathname = usePathname()
   const { t } = useTranslation()
   const currentOrgId = useProjectStore((state) => state.currentOrgId)
   const organizationQuery = useManagedOrganization(organizationId)
@@ -71,75 +69,48 @@ export function OrganizationDetailShell({
   const isReadOnly = normalizedRole === 'member'
 
   return (
-    <div className="flex w-full flex-col gap-6">
-      <header className="flex flex-col gap-3">
-        <Link
-          href="/managed/settings"
-          className="inline-flex w-fit items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <ArrowLeft className="size-4" />
-          {t('manage.organization.detail.backToOrganizations')}
-        </Link>
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
-              <Building2 className="size-5 text-muted-foreground" />
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-sm text-muted-foreground">{organization.slug}</p>
-              <h1 className="truncate text-2xl font-semibold text-foreground">
-                {organization.name}
-              </h1>
-              <p className="mt-1 truncate text-xs text-muted-foreground">
-                {normalizedRole === 'owner'
-                  ? t('sidebar.ownedByYou')
-                  : `${t('manage.organization.ownedBy')} ${organization.owner_name || organization.owner_email || t('manage.organization.ownerUnknown')}`}
-              </p>
-            </div>
-          </div>
+    <div>
+      <PageHeader
+        title={organization.name}
+        icon={<Building2 />}
+        breadcrumb={[
+          { label: t('manage.organization.title'), to: '/managed/settings' },
+          { label: organization.name },
+        ]}
+        titleExtra={
           <div className="flex flex-wrap gap-2">
             <Badge variant="secondary">
               {t(`manage.organization.detail.role.${normalizedRole}`)}
             </Badge>
             {isCurrent ? <Badge variant="outline">{t('manage.organization.current')}</Badge> : null}
           </div>
-        </div>
-      </header>
+        }
+        subtitle={
+          <>
+            <span className="block truncate">{organization.slug}</span>
+            <span className="block truncate">
+              {normalizedRole === 'owner'
+                ? t('sidebar.ownedByYou')
+                : `${t('manage.organization.ownedBy')} ${organization.owner_name || organization.owner_email || t('manage.organization.ownerUnknown')}`}
+            </span>
+          </>
+        }
+      />
 
       {isReadOnly ? (
-        <Alert>
+        <Alert className="mb-6">
           <Info />
           <AlertDescription>{t('manage.organization.detail.readOnly')}</AlertDescription>
         </Alert>
       ) : null}
 
-      <nav
-        aria-label={t('manage.organization.detail.tabs.label')}
-        className="border-b border-border"
-      >
-        <div className="flex gap-6 overflow-x-auto">
-          {tabs.map((tab) => {
-            const href = tab.segment ? `${basePath}/${tab.segment}` : basePath
-            const active = pathname === href
-            return (
-              <Link
-                key={tab.segment || 'overview'}
-                href={href}
-                aria-current={active ? 'page' : undefined}
-                className={cn(
-                  'relative whitespace-nowrap px-0.5 pb-3 text-sm font-medium transition-colors',
-                  active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {t(tab.labelKey)}
-                {active ? (
-                  <span className="absolute inset-x-0 -bottom-px h-0.5 bg-primary" />
-                ) : null}
-              </Link>
-            )
-          })}
-        </div>
-      </nav>
+      <TabNav
+        label={t('manage.organization.detail.tabs.label')}
+        items={tabs.map((tab) => ({
+          href: tab.segment ? `${basePath}/${tab.segment}` : basePath,
+          label: t(tab.labelKey),
+        }))}
+      />
 
       {children}
     </div>

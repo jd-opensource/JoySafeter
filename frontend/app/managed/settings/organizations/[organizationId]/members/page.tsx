@@ -11,7 +11,6 @@ import {
   RelativeTime,
   type Column,
   type FilterDef,
-  PageHeader,
 } from '@/components/managed/shared'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -316,7 +315,9 @@ export default function MembersPage() {
     setEmail(value)
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     const requestSeq = (searchRequestSeqRef.current += 1)
-    if (value.length < 2) {
+    // Candidate lookup is intentionally exact-email-only to avoid exposing a
+    // searchable platform-wide user directory.
+    if (value.length < 3 || !value.includes('@')) {
       setSearchResults([])
       setShowDropdown(false)
       return
@@ -524,21 +525,15 @@ export default function MembersPage() {
   ]
 
   return (
-    <div className="w-full">
-      <PageHeader
-        title={t('manage.members.title')}
-        subtitle={t('manage.members.subtitle', {
-          organization: currentOrganization?.name || organizationId || '-',
-        })}
-        action={
-          canManage ? (
-            <Button size="sm" onClick={() => resetAddMemberDialog(true)}>
-              <UserPlus className="mr-1 h-4 w-4" />
-              {t('manage.members.add')}
-            </Button>
-          ) : null
-        }
-      />
+    <>
+      {canManage && (
+        <div className="mb-6 flex justify-end">
+          <Button size="sm" onClick={() => resetAddMemberDialog(true)}>
+            <UserPlus className="mr-1 h-4 w-4" />
+            {t('manage.members.add')}
+          </Button>
+        </div>
+      )}
 
       <Alert className="mb-4">
         <Info />
@@ -840,6 +835,6 @@ export default function MembersPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   )
 }

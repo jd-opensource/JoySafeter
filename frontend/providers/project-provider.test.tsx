@@ -1,7 +1,8 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { focusManager, QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { JSDOM } from 'jsdom'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+
 import {
   parseOrganizationId,
   parseProjectId,
@@ -299,6 +300,7 @@ describe('ProjectProvider auth context lifecycle', () => {
 
   afterEach(() => {
     cleanup()
+    focusManager.setFocused(undefined)
     if (originalFetch) {
       globalThis.fetch = originalFetch
     } else {
@@ -425,6 +427,50 @@ describe('ProjectProvider auth context lifecycle', () => {
 
     expect(useProjectStore.getState().currentOrgId).toBe(ORG_B)
     expect(useProjectStore.getState().currentProjectId).toBe(PROJECT_B)
+  })
+
+  it('refreshes memberships when the signed-in page regains focus', async () => {
+    const refreshedContext = authMe(USER_A, ORG_A, PROJECT_A)
+    refreshedContext.organizations.push({
+      id: ORG_B,
+      name: ORG_B,
+      slug: ORG_B,
+      role: 'member',
+    })
+    managedGetMock
+      .mockResolvedValueOnce(authMe(USER_A, ORG_A, PROJECT_A))
+      .mockResolvedValueOnce(refreshedContext)
+    setMockSessionUser(user(USER_A))
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: {
+          retry: false,
+          refetchOnWindowFocus: false,
+        },
+      },
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ProjectProvider>
+          <div>ready</div>
+        </ProjectProvider>
+      </QueryClientProvider>,
+    )
+
+    await waitFor(() => {
+      expect(useProjectStore.getState().organizations).toHaveLength(1)
+    })
+
+    await act(async () => {
+      focusManager.setFocused(false)
+      focusManager.setFocused(true)
+    })
+
+    await waitFor(() => {
+      expect(useProjectStore.getState().organizations).toEqual(refreshedContext.organizations)
+    })
+    expect(managedGetMock).toHaveBeenCalledTimes(2)
   })
 
   it('preserves archived current project metadata even when active project list excludes it', async () => {

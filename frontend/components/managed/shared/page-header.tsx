@@ -8,10 +8,22 @@ interface PageHeaderProps {
   titleExtra?: ReactNode
   subtitle?: ReactNode
   action?: ReactNode
+  /**
+   * Optional resource glyph. The caller passes a bare icon element; the tile
+   * chrome and icon sizing are owned here so every page renders it identically.
+   */
+  icon?: ReactNode
   breadcrumb?: { label: string; to?: string; onClick?: () => void }[]
 }
 
-export function PageHeader({ title, titleExtra, subtitle, action, breadcrumb }: PageHeaderProps) {
+export function PageHeader({
+  title,
+  titleExtra,
+  subtitle,
+  action,
+  icon,
+  breadcrumb,
+}: PageHeaderProps) {
   return (
     <div
       data-testid="page-header"
@@ -42,11 +54,23 @@ export function PageHeader({ title, titleExtra, subtitle, action, breadcrumb }: 
             ))}
           </nav>
         )}
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-semibold text-foreground">{title}</h1>
-          {titleExtra}
+        <div className="flex items-start gap-3">
+          {icon && (
+            <div
+              data-testid="page-header-icon"
+              className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted [&>svg]:size-5 [&>svg]:text-muted-foreground"
+            >
+              {icon}
+            </div>
+          )}
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-2xl font-semibold text-foreground">{title}</h1>
+              {titleExtra}
+            </div>
+            {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
+          </div>
         </div>
-        {subtitle && <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>}
       </div>
       {action && (
         <div
