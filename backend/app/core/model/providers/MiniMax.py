@@ -11,7 +11,9 @@ switch to the Anthropic-compatible base URL when they prefer that protocol.
 from typing import Any, Dict, List, Optional
 
 from langchain_anthropic import ChatAnthropic
-from langchain_core.language_models import BaseChatModel
+from langchain_core.language_models import BaseChatModel, LanguageModelInput
+from langchain_core.messages import AIMessage, BaseMessageChunk
+from langchain_core.outputs import ChatGenerationChunk, ChatResult
 from langchain_openai import ChatOpenAI
 from pydantic import SecretStr
 
@@ -33,6 +35,40 @@ _REGION_ANTHROPIC_BASE_URLS = {
 DEFAULT_REGION = "global_en"
 
 
+class _MiniMaxChatOpenAI(ChatOpenAI):
+    """Preserve MiniMax reasoning across turns with the pinned chat adapter."""
+
+    def _get_request_payload(
+        self, input_: LanguageModelInput, *, stop: Optional[List[str]] = None, **kwargs: Any
+    ) -> Dict[str, Any]:
+        messages = self._convert_input(input_).to_messages()
+        payload = super()._get_request_payload(messages, stop=stop, **kwargs)
+        for message, serialized in zip(messages, payload.get("messages", [])):
+            if isinstance(message, AIMessage) and "reasoning_content" in message.additional_kwargs:
+                serialized["reasoning_content"] = message.additional_kwargs["reasoning_content"]
+        return payload
+
+    def _create_chat_result(self, response: Any, generation_info: Optional[Dict] = None) -> ChatResult:
+        result = super()._create_chat_result(response, generation_info)
+        data = response if isinstance(response, dict) else response.model_dump()
+        for generation, choice in zip(result.generations, data.get("choices", [])):
+            reasoning = choice.get("message", {}).get("reasoning_content")
+            if reasoning is not None:
+                generation.message.additional_kwargs["reasoning_content"] = reasoning
+        return result
+
+    def _convert_chunk_to_generation_chunk(
+        self, chunk: Dict, default_chunk_class: type[BaseMessageChunk], base_generation_info: Optional[Dict]
+    ) -> Optional[ChatGenerationChunk]:
+        result = super()._convert_chunk_to_generation_chunk(chunk, default_chunk_class, base_generation_info)
+        choices = chunk.get("choices", [])
+        if result is not None and choices:
+            reasoning = (choices[0].get("delta") or {}).get("reasoning_content")
+            if reasoning is not None:
+                result.message.additional_kwargs["reasoning_content"] = reasoning
+        return result
+
+
 class MiniMaxProvider(OpenAIAPICompatibleProvider):
     """MiniMax model provider (global and China regions)."""
 
@@ -40,36 +76,41 @@ class MiniMaxProvider(OpenAIAPICompatibleProvider):
     PROTOCOL_ANTHROPIC = "anthropic"
 
     # low-cost model used for credential validation
-    VALIDATION_MODEL = "MiniMax-M2.7"
+    VALIDATION_MODEL = "MiniMax-M3.1-Flash"
 
     PREDEFINED_CHAT_MODELS: List[Dict[str, Any]] = [
+        {
+            "name": "MiniMax-M3.1-Flash",
+            "display_name": "MiniMax M3.1 Flash",
+            "description": "MiniMax multimodal coding model with a 1M context window and tunable thinking depth",
+            "context_window": 1_000_000,
+            "max_output_tokens": 524_288,
+            "pricing_usd_per_million_tokens": {
+                "input": 0.15,
+                "output": 0.60,
+                "cache_read": 0.015,
+                "cache_write": None,
+            },
+            "input_modalities": ["text", "image", "video"],
+            "thinking": ["adaptive"],
+        },
         {
             "name": "MiniMax-M3",
             "display_name": "MiniMax M3",
             "description": "MiniMax flagship multimodal model with a 1M context window, adaptive thinking, and prompt caching",
             "context_window": 1_000_000,
             "pricing_usd_per_million_tokens": {
-                "input": 0.6,
-                "output": 2.4,
-                "cache_read": 0.12,
-                "cache_write": None,
-            },
-            "input_modalities": ["text", "image", "video"],
-            "thinking": ["adaptive", "disabled"],
-        },
-        {
-            "name": "MiniMax-M2.7",
-            "display_name": "MiniMax M2.7",
-            "description": "MiniMax text model with always-on thinking and a 204K context window",
-            "context_window": 204_800,
-            "pricing_usd_per_million_tokens": {
                 "input": 0.3,
                 "output": 1.2,
                 "cache_read": 0.06,
-                "cache_write": 0.375,
+                "cache_write": None,
             },
-            "input_modalities": ["text"],
-            "thinking": ["always_on"],
+            "pricing_tiers": [
+                {"context": "<=512k", "input": 0.3, "output": 1.2, "cache_read": 0.06},
+                {"context": ">512k", "input": 0.6, "output": 2.4, "cache_read": 0.12},
+            ],
+            "input_modalities": ["text", "image", "video"],
+            "thinking": ["adaptive", "disabled"],
         },
     ]
 
@@ -144,6 +185,19 @@ class MiniMaxProvider(OpenAIAPICompatibleProvider):
             return {
                 "type": "object",
                 "properties": {
+                    "thinking": {
+                        "type": "string",
+                        "title": "Thinking",
+                        "description": "Optional thinking mode. MiniMax-M3.1-Flash requires adaptive thinking.",
+                        "enum": ["adaptive", "disabled"],
+                    },
+                    "reasoning_effort": {
+                        "type": "string",
+                        "title": "Reasoning Effort",
+                        "description": "Thinking depth for MiniMax-M3.1-Flash; ignored by MiniMax-M3.",
+                        "enum": ["low", "medium", "high", "xhigh", "max"],
+                        "default": "max",
+                    },
                     "temperature": {
                         "type": "number",
                         "title": "Temperature",
@@ -212,29 +266,13 @@ class MiniMaxProvider(OpenAIAPICompatibleProvider):
             if not api_key:
                 return False, "API key is required"
 
-            protocol = self._get_protocol(credentials)
-
-            model: BaseChatModel
-            if protocol == self.PROTOCOL_ANTHROPIC:
-                base_url = self._resolve_anthropic_base_url(credentials)
-                kwargs: Dict[str, Any] = {
-                    "model_name": self.VALIDATION_MODEL,
-                    "api_key": api_key,
-                    "max_tokens": 10,
-                    "max_retries": 1,
-                    "timeout": 10.0,
-                    "anthropic_api_url": base_url,
-                }
-                model = ChatAnthropic(**kwargs)  # type: ignore[misc]
-            else:
-                base_url = self._resolve_openai_base_url(credentials)
-                model = ChatOpenAI(
-                    model=self.VALIDATION_MODEL,
-                    api_key=api_key,
-                    base_url=base_url,
-                    max_retries=3,
-                    timeout=5.0,
-                )  # type: ignore[misc]
+            # Use the same request path as chat, with room for thinking and text.
+            model = self.create_model_instance(
+                self.VALIDATION_MODEL,
+                ModelType.CHAT,
+                credentials,
+                {"max_tokens": 4096, "max_retries": 1, "timeout": 10.0, "reasoning_effort": "low"},
+            )
 
             response = await model.ainvoke("Hello, how are you?")
             if response and response.content:
@@ -274,6 +312,13 @@ class MiniMaxProvider(OpenAIAPICompatibleProvider):
 
         protocol = self._get_protocol(credentials)
         model_parameters = model_parameters or {}
+        thinking = model_parameters.get("thinking")
+        effort = model_parameters.get("reasoning_effort")
+        if model_name == "MiniMax-M3.1-Flash":
+            if thinking not in (None, "adaptive"):
+                raise ValueError("MiniMax-M3.1-Flash requires adaptive thinking")
+            if effort not in (None, "low", "medium", "high", "xhigh", "max"):
+                raise ValueError("MiniMax-M3.1-Flash reasoning effort must be low, medium, high, xhigh, or max")
 
         if protocol == self.PROTOCOL_ANTHROPIC:
             base_url = self._resolve_anthropic_base_url(credentials)
@@ -283,6 +328,10 @@ class MiniMaxProvider(OpenAIAPICompatibleProvider):
                 "streaming": True,
                 "anthropic_api_url": base_url,
             }
+            if thinking is not None:
+                model_kwargs["thinking"] = {"type": thinking}
+            if model_name == "MiniMax-M3.1-Flash" and effort is not None:
+                model_kwargs["model_kwargs"] = {"output_config": {"effort": effort}}
             if "temperature" in model_parameters:
                 model_kwargs["temperature"] = model_parameters["temperature"]
             if "max_tokens" in model_parameters:
@@ -302,7 +351,12 @@ class MiniMaxProvider(OpenAIAPICompatibleProvider):
             "api_key": SecretStr(api_key),
             "base_url": base_url,
             "streaming": True,
+            "use_responses_api": False,
         }
+        if thinking is not None:
+            model_kwargs["extra_body"] = {"thinking": {"type": thinking}}
+        if model_name == "MiniMax-M3.1-Flash" and effort is not None:
+            model_kwargs["reasoning_effort"] = effort
 
         if "temperature" in model_parameters:
             model_kwargs["temperature"] = model_parameters["temperature"]
@@ -319,4 +373,4 @@ class MiniMaxProvider(OpenAIAPICompatibleProvider):
         if "max_retries" in model_parameters:
             model_kwargs["max_retries"] = model_parameters["max_retries"]
 
-        return ChatOpenAI(**model_kwargs)  # type: ignore[arg-type,misc]
+        return _MiniMaxChatOpenAI(**model_kwargs)  # type: ignore[arg-type,misc]

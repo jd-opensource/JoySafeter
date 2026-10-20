@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/select'
 import { useAvailableModels } from '@/hooks/queries/models'
 import { useTranslation } from '@/lib/i18n'
+import { minimaxModelRank, recommendedModelOptions } from '@/lib/model-options'
 
 import { ModelOption } from '../../services/agentService'
 
@@ -58,8 +59,8 @@ export function ModelSelectField({ value, onChange, onModelChange }: ModelSelect
       }
     }
 
-    return Object.values(modelMap)
-  }, [availableModelsData])
+    return recommendedModelOptions(Object.values(modelMap), value)
+  }, [availableModelsData, value])
 
   const error = useMemo(() => {
     if (queryError) {
@@ -102,7 +103,9 @@ export function ModelSelectField({ value, onChange, onModelChange }: ModelSelect
     })
     // Sort models in each group by label
     grouped.forEach((modelArray) => {
-      modelArray.sort((a, b) => a.label.localeCompare(b.label))
+      modelArray.sort(
+        (a, b) => minimaxModelRank(a) - minimaxModelRank(b) || a.label.localeCompare(b.label),
+      )
     })
     return grouped
   }

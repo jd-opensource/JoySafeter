@@ -17,13 +17,12 @@ PROVIDERS_DIR = Path(__file__).resolve().parents[1] / "app" / "core" / "model" /
 
 
 def _load_providers():
-    """Load the provider modules directly, stubbing out the DB-backed app.core package init."""
-    for name in ["app", "app.core", "app.core.model", "app.core.model.providers"]:
-        if name not in sys.modules:
-            m = types.ModuleType(name)
-            m.__path__ = []
-            sys.modules[name] = m
-    sys.modules["app.core.model.providers"].__path__ = [str(PROVIDERS_DIR)]
+    """Load providers in an isolated namespace without replacing application packages."""
+    namespace = "_minimax_test_providers"
+    if namespace not in sys.modules:
+        package = types.ModuleType(namespace)
+        package.__path__ = [str(PROVIDERS_DIR)]
+        sys.modules[namespace] = package
 
     def _load(fullname, filename):
         spec = importlib.util.spec_from_file_location(fullname, PROVIDERS_DIR / filename)
@@ -32,9 +31,9 @@ def _load_providers():
         spec.loader.exec_module(mod)
         return mod
 
-    base = _load("app.core.model.providers.base", "base.py")
-    _load("app.core.model.providers.OpenaiApiCompatible", "OpenaiApiCompatible.py")
-    minimax_mod = _load("app.core.model.providers.MiniMax", "MiniMax.py")
+    base = _load(f"{namespace}.base", "base.py")
+    _load(f"{namespace}.OpenaiApiCompatible", "OpenaiApiCompatible.py")
+    minimax_mod = _load(f"{namespace}.MiniMax", "MiniMax.py")
     return base, minimax_mod
 
 
@@ -64,37 +63,23 @@ def test_credential_schema(provider):
 def test_predefined_models(provider):
     base, _ = _load_providers()
     models = provider.get_model_list(base.ModelType.CHAT)
-    assert models == [
-        {
-            "name": "MiniMax-M3",
-            "display_name": "MiniMax M3",
-            "description": "MiniMax flagship multimodal model with a 1M context window, adaptive thinking, and prompt caching",
-            "context_window": 1_000_000,
-            "pricing_usd_per_million_tokens": {
-                "input": 0.6,
-                "output": 2.4,
-                "cache_read": 0.12,
-                "cache_write": None,
-            },
-            "input_modalities": ["text", "image", "video"],
-            "thinking": ["adaptive", "disabled"],
-            "is_available": True,
-        },
-        {
-            "name": "MiniMax-M2.7",
-            "display_name": "MiniMax M2.7",
-            "description": "MiniMax text model with always-on thinking and a 204K context window",
-            "context_window": 204_800,
-            "pricing_usd_per_million_tokens": {
-                "input": 0.3,
-                "output": 1.2,
-                "cache_read": 0.06,
-                "cache_write": 0.375,
-            },
-            "input_modalities": ["text"],
-            "thinking": ["always_on"],
-            "is_available": True,
-        },
+    assert [model["name"] for model in models] == ["MiniMax-M3.1-Flash", "MiniMax-M3"]
+    flash, m3 = models
+    assert all(model["is_available"] for model in models)
+    assert flash["context_window"] == 1_000_000
+    assert flash["max_output_tokens"] == 524_288
+    assert flash["pricing_usd_per_million_tokens"] == {
+        "input": 0.15,
+        "output": 0.60,
+        "cache_read": 0.015,
+        "cache_write": None,
+    }
+    assert flash["input_modalities"] == ["text", "image", "video"]
+    assert flash["thinking"] == ["adaptive"]
+    assert m3["thinking"] == ["adaptive", "disabled"]
+    assert m3["pricing_tiers"] == [
+        {"context": "<=512k", "input": 0.3, "output": 1.2, "cache_read": 0.06},
+        {"context": ">512k", "input": 0.6, "output": 2.4, "cache_read": 0.12},
     ]
 
 
@@ -161,5 +146,5 @@ def test_create_missing_api_key_raises(provider):
 def test_get_predefined_models(provider):
     base, _ = _load_providers()
     models = provider.get_predefined_models(base.ModelType.CHAT)
-    assert [m["name"] for m in models] == ["MiniMax-M3", "MiniMax-M2.7"]
+    assert [m["name"] for m in models] == ["MiniMax-M3.1-Flash", "MiniMax-M3"]
     assert provider.get_predefined_models(base.ModelType.EMBEDDING) == []

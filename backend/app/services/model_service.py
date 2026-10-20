@@ -177,7 +177,8 @@ class ModelService(BaseService):
                 if matched:
                     display_name = matched.get("display_name", instance.model_name)
                     description = matched.get("description", "")
-                else:
+                elif prov_impl.provider_name != "minimax":
+                    # MiniMax's catalog lists current recommendations, not all saved/custom IDs.
                     model_found_in_list = False
 
             # unified unavailable_reason check
