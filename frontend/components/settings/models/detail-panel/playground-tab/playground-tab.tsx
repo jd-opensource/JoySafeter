@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { useAvailableModels } from '@/hooks/queries/models'
 import { useTestModelStream } from '@/hooks/use-test-model-stream'
+import { recommendedModelOptions } from '@/lib/model-options'
 import type { ModelProvider } from '@/types/models'
 
 interface PlaygroundTabProps {
@@ -18,11 +19,11 @@ const DEFAULT_PROMPT = 'Hello, please briefly introduce yourself.'
 
 export function PlaygroundTab({ providerName }: PlaygroundTabProps) {
   const { data: availableModels = [] } = useAvailableModels('chat')
-  const providerModels = availableModels.filter(
-    (m) => m.provider_name === providerName && m.is_available,
-  )
-
   const [selectedModel, setSelectedModel] = useState<string>('')
+  const providerModels = recommendedModelOptions(
+    availableModels.filter((m) => m.provider_name === providerName && m.is_available),
+    selectedModel ? `${providerName}:${selectedModel}` : undefined,
+  )
   const [prompt, setPrompt] = useState(DEFAULT_PROMPT)
 
   const { output, metrics, error, isStreaming, run, stop, reset } = useTestModelStream()

@@ -3,6 +3,7 @@
 import { useCallback, useMemo, useState } from 'react'
 
 import { useAvailableModels } from '@/hooks/queries/models'
+import { recommendedModelOptions } from '@/lib/model-options'
 import { splitModelId } from '@/lib/utils'
 
 export interface ModelSelectorOption {
@@ -28,7 +29,10 @@ export function useModelSelector() {
 
   const modelOptions = useMemo<ModelSelectorOption[]>(
     () =>
-      availableModels
+      recommendedModelOptions(
+        availableModels,
+        selected ? `${selected.provider_name}:${selected.model_name}` : undefined,
+      )
         .filter((m) => m.is_available)
         .map((m) => ({
           id: `${m.provider_name}:${m.name}`,
@@ -37,7 +41,7 @@ export function useModelSelector() {
           provider_name: m.provider_name,
           name: m.name,
         })),
-    [availableModels],
+    [availableModels, selected],
   )
 
   const setSelectedModel = useCallback(
@@ -74,9 +78,10 @@ export function useModelSelector() {
     if (selectedModel) {
       const found = modelOptions.find((m) => m.id === selectedModel)
       if (found) return found.label
+      return selected?.model_name || selectedModel
     }
     return modelOptions[0]?.label ?? ''
-  }, [modelOptions, selectedModel])
+  }, [modelOptions, selectedModel, selected?.model_name])
 
   return { modelOptions, selectedModel, setSelectedModel, selectedProviderName: selected?.provider_name, selectedModelName: selected?.model_name, modelLabel }
 }

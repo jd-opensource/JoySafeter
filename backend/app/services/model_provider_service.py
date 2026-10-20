@@ -15,7 +15,15 @@ from app.repositories.model_provider import ModelProviderRepository
 from .base import BaseService
 
 # built-in provider fixed display order
-BUILTIN_PROVIDER_ORDER = ("openaiapicompatible", "anthropic", "gemini", "zhipu", "ollama", "custom")
+BUILTIN_PROVIDER_ORDER = (
+    "openaiapicompatible",
+    "anthropic",
+    "gemini",
+    "zhipu",
+    "minimax",
+    "ollama",
+    "custom",
+)
 
 
 def _provider_sort_key(provider_data: Dict[str, Any]) -> int:
@@ -379,7 +387,8 @@ class ModelProviderService(BaseService):
                         logger.debug(f"Auto-created model instance: {provider.name}/{model_name}")
 
                 # clean up stale model instances (only when credentials exist and model list was fetched)
-                if decrypted_creds and current_model_names:
+                # MiniMax's current recommendations must not delete saved legacy/custom instances.
+                if decrypted_creds and current_model_names and provider_instance.provider_name != "minimax":
                     existing_instances = await self.instance_repo.list_by_provider(provider_id=provider.id)
                     for inst in existing_instances:
                         if inst.user_id is None and inst.model_name not in current_model_names:
